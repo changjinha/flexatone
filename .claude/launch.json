@@ -1,0 +1,104 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flexatone",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "flexatone-mgr",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8011"
+      ],
+      "port": 8011
+    },
+    {
+      "name": "flexatone-alt",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8010"
+      ],
+      "port": 8010
+    },
+    {
+      "name": "flexatone-draw",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8021"
+      ],
+      "port": 8021
+    },
+    {
+      "name": "flexatone-space",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8025"
+      ],
+      "port": 8025
+    },
+    {
+      "name": "flexatone-fractal",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8026"
+      ],
+      "port": 8026
+    },
+    {
+      "name": "flexatone-cloud",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8023"
+      ],
+      "port": 8023
+    },
+    {
+      "name": "flexatone-tempo",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8024"
+      ],
+      "port": 8024
+    },
+    {
+      "name": "flexatone-8011",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8011"
+      ],
+      "port": 8011
+    },
+    {
+      "name": "flexatone-chaos",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8022"
+      ],
+      "port": 8022
+    },
+    {
+      "name": "flexatone-wave",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8027"
+      ],
+      "port": 8027
+    }
+  ]
+}

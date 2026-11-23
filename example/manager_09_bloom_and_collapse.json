@@ -1,0 +1,771 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-23T00:00:00.000Z",
+  "title": "Bloom & collapse / 개화와 붕괴 (60 s)",
+  "description": "One 60 s arc, Loop cycle off. A Gray–Scott pattern blooms outward from D4 (Wave), a fractal coastline joins (Fractal), a Risset veil falls. From 22 s a Ligeti-style cluster narrows to a unison (Cloud). A second, silent Cloud track is a Warp built from rules: its width and collapse curves shrink the scale of the pitch space of Wave, Fractal and Risset toward D4 (26–56 s), and the more a pitch is bent, the more it trembles. The last 10 s are a D unison whose track tremolo slows from 7 to 1.2 Hz. Try: mute the Gravity track (M) to hear the piece without the collapse. / 60초 한 번의 호 (사이클 반복 꺼짐). D4에서 피어나는 그레이–스콧 무늬, 프랙탈 해안선, 하강하는 리세. 22초부터 리게티풍 클러스터가 유니즌으로 좁아지고, 무음의 두 번째 클라우드 트랙이 규칙 기반 곡률로 웨이브·프랙탈·리세의 피치 공간을 D4로 수축 (많이 휜 음일수록 떨림). 마지막 10초는 트레몰로가 7 → 1.2 Hz로 느려지는 D 유니즌.",
+  "prefs": {
+    "studio": "cloud"
+  },
+  "viewport": {
+    "midiMin": 36,
+    "midiMax": 90,
+    "timeMin": 0,
+    "timeMax": 10
+  },
+  "voices": [
+    {
+      "id": "v_09a",
+      "name": "Unison D4",
+      "color": "#38bdf8",
+      "f0Midi": 62,
+      "f1Midi": 62,
+      "f0Hz": 293.6648,
+      "f1Hz": 293.6648,
+      "startTime": 0,
+      "duration": 10,
+      "engine": "plateau",
+      "baseGain": 0.5,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.0,
+          "handles": []
+        },
+        {
+          "x": 0.45,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.7,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.0,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_09b",
+      "name": "D3 below",
+      "color": "#a78bfa",
+      "f0Midi": 50,
+      "f1Midi": 50,
+      "f0Hz": 146.8324,
+      "f1Hz": 146.8324,
+      "startTime": 1.5,
+      "duration": 8.5,
+      "engine": "plateau",
+      "baseGain": 0.35,
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.5,
+        "saw": 0.1,
+        "sqr": 0.1,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.0,
+          "handles": []
+        },
+        {
+          "x": 0.45,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.7,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.0,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_09c",
+      "name": "D5 above",
+      "color": "#f472b6",
+      "f0Midi": 74,
+      "f1Midi": 74,
+      "f0Hz": 587.3295,
+      "f1Hz": 587.3295,
+      "startTime": 3,
+      "duration": 7,
+      "engine": "plateau",
+      "baseGain": 0.22,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.0,
+          "handles": []
+        },
+        {
+          "x": 0.45,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.7,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.0,
+          "handles": []
+        }
+      ]
+    }
+  ],
+  "activeVoiceId": "v_09a",
+  "versions": [],
+  "studioParams": {
+    "wave": {
+      "preset": "bloom",
+      "eq": "gs",
+      "Nx": 128,
+      "pLo": 38,
+      "pHi": 86,
+      "length": 46,
+      "boundary": "free",
+      "init": [
+        {
+          "kind": "gauss",
+          "x": 0.5,
+          "width": 2,
+          "amp": 1,
+          "mode": 3,
+          "velocity": 0
+        }
+      ],
+      "gs": {
+        "Du": 0.036,
+        "Dv": 0.018,
+        "F": 0.03,
+        "k": 0.057
+      },
+      "sonify": {
+        "mode": "spectral",
+        "source": "abs",
+        "ampPower": 1.5,
+        "gain": 1,
+        "floor": 0.001,
+        "stereo": 0.6,
+        "engine": "auto"
+      },
+      "timbre": {
+        "sine": 1,
+        "tri": 0,
+        "saw": 0,
+        "sqr": 0,
+        "rich": 0
+      },
+      "view": {
+        "tMin": -1.3,
+        "tMax": 46.9,
+        "midiMin": 34,
+        "midiMax": 90,
+        "color": "abs",
+        "showRidges": true,
+        "showGrid": true
+      }
+    },
+    "fractal": {
+      "mode": "fbm",
+      "preset": "coastline",
+      "seed": 5,
+      "length": 40,
+      "lo": 50,
+      "hi": 81,
+      "quantize": "off",
+      "fbm": {
+        "H": 0.35,
+        "octaves": 9,
+        "method": "spectral"
+      },
+      "refine": {
+        "enabled": false,
+        "levels": [
+          0,
+          2,
+          4,
+          6
+        ],
+        "staggerSec": 1.5
+      },
+      "gain": {
+        "source": "slope",
+        "level": 0.7,
+        "slopeAmount": 0.6
+      },
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.35,
+        "saw": 0.12,
+        "sqr": 0,
+        "rich": 0.2
+      }
+    },
+    "cloud": {
+      "seed": 11,
+      "length": 36,
+      "density": {
+        "engine": "custom",
+        "lo": 14,
+        "hi": 70,
+        "reverse": false,
+        "inverse": false,
+        "customPoints": [
+          {
+            "x": 0,
+            "y": 0,
+            "handles": []
+          },
+          {
+            "x": 1,
+            "y": 1,
+            "handles": []
+          }
+        ]
+      },
+      "pitch": {
+        "center": {
+          "engine": "custom",
+          "lo": 62,
+          "hi": 62,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ]
+        },
+        "width": {
+          "engine": "custom",
+          "lo": 22,
+          "hi": 0,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ]
+        },
+        "dist": "uniform",
+        "min": 30,
+        "max": 100
+      },
+      "glide": {
+        "mode": "slope",
+        "slopeMean": 0,
+        "slopeSpread": 1,
+        "upBias": 0.5,
+        "clusterCollapse": {
+          "engine": "expo",
+          "lo": 0,
+          "hi": 1,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ],
+          "expMode": "exp",
+          "expK": 3
+        }
+      },
+      "duration": {
+        "dist": "lognormal",
+        "mean": 1.5,
+        "min": 0.2,
+        "max": 4
+      },
+      "gain": {
+        "base": 0.5,
+        "spread": 0.3,
+        "envelope": "hann",
+        "attack": 0.02
+      },
+      "timbre": {
+        "sine": 0.8,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0,
+        "rich": 0.1,
+        "stereo": 0.7
+      },
+      "view": {
+        "tMin": 0,
+        "tMax": 36,
+        "midiMin": 36,
+        "midiMax": 90,
+        "curveTab": "width",
+        "histWin": 4
+      }
+    },
+    "risset": {
+      "rateHz": -0.02,
+      "lastNonZeroRate": -0.02,
+      "voiceCount": 10,
+      "spanSemitones": 96,
+      "baseMidi": 26,
+      "masterGain": 0.5,
+      "gridMode": "equal",
+      "envCenter": 0.5,
+      "envWidth": 0.3,
+      "spectralTilt": -1.5
+    },
+    "field": {
+      "flowMode": "2d",
+      "fieldEnabled": true,
+      "fieldCoord": 2,
+      "guideAttraction": 1.6,
+      "wellGrid": "12tet",
+      "wellStrength": 0.2,
+      "layers": [
+        {
+          "id": "fl_main",
+          "name": "Main field",
+          "enabled": true,
+          "mode": "add",
+          "amount": 1,
+          "range": {
+            "full": true,
+            "t0": 0,
+            "t1": 4,
+            "m0": 48,
+            "m1": 72
+          },
+          "shape": "rect",
+          "invert": false,
+          "feather": 0.08,
+          "nodes": [
+            {
+              "id": "fn_1",
+              "type": "vortex",
+              "sec": 1.8,
+              "midi": 64,
+              "strength": 1.2,
+              "radius": 0.28
+            },
+            {
+              "id": "fn_2",
+              "type": "attractor",
+              "sec": 3.6,
+              "midi": 62,
+              "strength": 1.3,
+              "radius": 0.34
+            }
+          ],
+          "turbulence": 0.35,
+          "turbFreq": 3.5,
+          "fieldPhase": 0,
+          "flowAngle": 0,
+          "flowStrength": 0
+        }
+      ],
+      "activeLayerId": "fl_main",
+      "regions": [],
+      "activeRegionId": "",
+      "voices": [
+        {
+          "id": "pv_09a",
+          "name": "Ember up",
+          "color": "#34d399",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 62,
+          "f1Midi": 69,
+          "startTime": 0.0,
+          "duration": 5.0,
+          "baseGain": 0.6,
+          "mass": 1.0,
+          "drag": 3.8,
+          "launchAngle": 10,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.0,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        },
+        {
+          "id": "pv_09b",
+          "name": "Ember down",
+          "color": "#2dd4bf",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 62,
+          "f1Midi": 57,
+          "startTime": 0.7,
+          "duration": 4.5,
+          "baseGain": 0.5,
+          "mass": 1.6,
+          "drag": 3.8,
+          "launchAngle": -10,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": -0.35,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        }
+      ],
+      "activeVoiceId": "pv_09a",
+      "view": {
+        "viewMode": "piano",
+        "showArrows": true,
+        "showWells": true,
+        "showGuide": true,
+        "showRegions": true,
+        "showLayers": true,
+        "arrowDensity": 34,
+        "arrowSize": 1,
+        "arrowWidth": 1.1,
+        "tMin": 0,
+        "tMax": 6,
+        "midiMin": 52,
+        "midiMax": 76
+      },
+      "cueSec": 0
+    }
+  },
+  "manager": {
+    "instances": [
+      {
+        "id": "in_09_wave",
+        "studio": "wave",
+        "name": "Bloom (Gray–Scott from D4)",
+        "color": "#2dd4bf",
+        "doc": null,
+        "gainDb": -7,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 3.0,
+        "fadeOut": 8.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_09_fractal",
+        "studio": "fractal",
+        "name": "Coastline",
+        "color": "#c084fc",
+        "doc": null,
+        "gainDb": -7,
+        "mute": false,
+        "solo": false,
+        "start": 10,
+        "length": null,
+        "loop": false,
+        "fadeIn": 3.0,
+        "fadeOut": 6.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_09_cloud",
+        "studio": "cloud",
+        "name": "Cluster → unison",
+        "color": "#94a3b8",
+        "doc": null,
+        "gainDb": -5,
+        "mute": false,
+        "solo": false,
+        "start": 22,
+        "length": null,
+        "loop": false,
+        "fadeIn": 5.0,
+        "fadeOut": 1.5,
+        "inCycle": true
+      },
+      {
+        "id": "in_09_gravity",
+        "studio": "cloud",
+        "name": "⌇ Gravity (Warp: scale → 0.09)",
+        "color": "#e2e8f0",
+        "doc": {
+          "seed": 1,
+          "length": 30,
+          "density": {
+            "engine": "custom",
+            "lo": 1,
+            "hi": 1,
+            "reverse": false,
+            "inverse": false,
+            "customPoints": [
+              {
+                "x": 0,
+                "y": 0,
+                "handles": []
+              },
+              {
+                "x": 1,
+                "y": 1,
+                "handles": []
+              }
+            ]
+          },
+          "pitch": {
+            "center": {
+              "engine": "custom",
+              "lo": 62,
+              "hi": 62,
+              "reverse": false,
+              "inverse": false,
+              "customPoints": [
+                {
+                  "x": 0,
+                  "y": 0,
+                  "handles": []
+                },
+                {
+                  "x": 1,
+                  "y": 1,
+                  "handles": []
+                }
+              ]
+            },
+            "width": {
+              "engine": "harmonic",
+              "lo": 24,
+              "hi": 3,
+              "reverse": false,
+              "inverse": false,
+              "customPoints": [
+                {
+                  "x": 0,
+                  "y": 0,
+                  "handles": []
+                },
+                {
+                  "x": 1,
+                  "y": 1,
+                  "handles": []
+                }
+              ]
+            },
+            "dist": "uniform",
+            "min": 30,
+            "max": 100
+          },
+          "glide": {
+            "mode": "slope",
+            "slopeMean": 0,
+            "slopeSpread": 0,
+            "upBias": 0.5,
+            "clusterCollapse": {
+              "engine": "harmonic",
+              "lo": 0,
+              "hi": 0.28,
+              "reverse": false,
+              "inverse": false,
+              "customPoints": [
+                {
+                  "x": 0,
+                  "y": 0,
+                  "handles": []
+                },
+                {
+                  "x": 1,
+                  "y": 1,
+                  "handles": []
+                }
+              ]
+            }
+          },
+          "view": {
+            "tMin": 0,
+            "tMax": 30,
+            "midiMin": 36,
+            "midiMax": 90,
+            "curveTab": "width",
+            "histWin": 4
+          }
+        },
+        "gainDb": 0,
+        "mute": false,
+        "solo": false,
+        "start": 26,
+        "length": null,
+        "loop": false,
+        "fadeIn": 1.0,
+        "fadeOut": 0.5,
+        "inCycle": true,
+        "warp": {
+          "on": true,
+          "params": {
+            "pitch": {
+              "on": true,
+              "sens": 1
+            },
+            "level": {
+              "on": false,
+              "sens": 1
+            },
+            "trem": {
+              "on": true,
+              "sens": 0.6
+            },
+            "bright": {
+              "on": false,
+              "sens": 1
+            }
+          },
+          "targets": [
+            "in_09_wave",
+            "in_09_fractal",
+            "in_09_risset"
+          ],
+          "rest": "start",
+          "after": "hold",
+          "returnSec": 1
+        }
+      },
+      {
+        "id": "in_09_risset",
+        "studio": "risset",
+        "name": "Falling veil",
+        "color": "#a78bfa",
+        "doc": null,
+        "gainDb": -10,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 54,
+        "loop": true,
+        "fadeIn": 8.0,
+        "fadeOut": 10.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_09_gliss",
+        "studio": "glissando",
+        "name": "Final D (tremolo slows)",
+        "color": "#38bdf8",
+        "doc": null,
+        "gainDb": -4,
+        "mute": false,
+        "solo": false,
+        "start": 50,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.5,
+        "fadeOut": 3.0,
+        "inCycle": true,
+        "tremolo": {
+          "on": true,
+          "shape": "sine",
+          "rateUnit": "hz",
+          "bpm": 120,
+          "rate": 7,
+          "rateEnd": 1.2,
+          "rateEngine": "harmonic",
+          "depthUnit": "amp",
+          "depth": 0.55,
+          "depthDb": 12,
+          "fadeIn": 0,
+          "phase": 0,
+          "sync": "voice",
+          "smooth": 0.3,
+          "seed": 1,
+          "formula": "sin(2*pi*x)"
+        }
+      },
+      {
+        "id": "in_09_field",
+        "studio": "field",
+        "name": "Ember (launch me)",
+        "color": "#34d399",
+        "doc": null,
+        "gainDb": -10,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": true,
+        "fadeIn": 0.5,
+        "fadeOut": 2.0,
+        "inCycle": false
+      }
+    ],
+    "focus": {
+      "wave": "in_09_wave",
+      "fractal": "in_09_fractal",
+      "cloud": "in_09_cloud",
+      "risset": "in_09_risset",
+      "glissando": "in_09_gliss",
+      "field": "in_09_field"
+    },
+    "cycleLoop": false,
+    "cycleMode": "auto",
+    "cycleLen": null,
+    "open": true,
+    "regions": []
+  }
+}

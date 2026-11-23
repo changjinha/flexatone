@@ -1,0 +1,127 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "description": {
+    "ko": "순정 5도(3:2) 비율 격자가 늘린 순환(옥타브 대신 2.1:1) 위에서 회전합니다. 코사인 셰이핑, 비대칭·첨도 포락선, 음색 기울기, 색채 불변성 PI 제어기(C_spec 900 Hz를 포락선 비대칭으로 유지).",
+    "en": "Just fifths (3:2 ratio grid) rotating on a stretched non-octave cycle (2.1:1 per \"octave\"). Cosine shaping, skewed/kurtotic envelope, spectral tilt, colour-invariance PI controller (holds C_spec at 900 Hz via envelope skew)."
+  },
+  "prefs": {
+    "studio": "risset"
+  },
+  "viewport": {
+    "midiMin": 30,
+    "midiMax": 96,
+    "timeMin": 0,
+    "timeMax": 27,
+    "normYMin": -0.1,
+    "normYMax": 1.1
+  },
+  "voices": [
+    {
+      "id": "v_aur_a1",
+      "name": "A1 · 여명 (Harmonic S)",
+      "color": "#38bdf8",
+      "startTime": 0,
+      "duration": 8,
+      "baseGain": 0.55,
+      "f0Hz": 130.8128,
+      "f1Hz": 195.9977,
+      "engine": "harmonic",
+      "lastNonCustomEngine": "harmonic",
+      "alpha": 70,
+      "x1": 0.3,
+      "symLock": true,
+      "timbre": {
+        "sine": 0.8,
+        "tri": 0.3,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.15
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.02,
+          "handles": []
+        },
+        {
+          "x": 0.18,
+          "y": 0.88,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.7
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.9,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    }
+  ],
+  "activeVoiceId": "v_aur_a1",
+  "versions": [],
+  "studioParams": {
+    "risset": {
+      "rateHz": 0.04,
+      "lastNonZeroRate": 0.04,
+      "voiceCount": 16,
+      "spanSemitones": 77.068,
+      "baseMidi": 28,
+      "masterGain": 0.55,
+      "shapeKind": "cosine",
+      "shapePeriodSec": 6,
+      "gridMode": "ratio",
+      "ratioText": "3:2",
+      "envShape": "bellpass",
+      "envCenter": 0.45,
+      "envWidth": 0.3,
+      "envSkew": 0.35,
+      "envGamma": 6,
+      "spectralTilt": -1.5,
+      "colorCtl": {
+        "enabled": true,
+        "target": "cspec",
+        "setpointHz": 900,
+        "setpointR": 0.05,
+        "actuator": "envSkew",
+        "kp": 0.6,
+        "ki": 0.25
+      },
+      "eqNodes": [
+        {
+          "type": "peaking",
+          "freq": 180,
+          "gain": -2,
+          "q": 1.0
+        },
+        {
+          "type": "peaking",
+          "freq": 1300,
+          "gain": 2.5,
+          "q": 1.2
+        },
+        {
+          "type": "peaking",
+          "freq": 5200,
+          "gain": 1.5,
+          "q": 1.0
+        }
+      ],
+      "view": {
+        "viewMode": "piano",
+        "showTrails": true,
+        "showMaskBand": true,
+        "timeWindowSec": 16,
+        "offsetsExpanded": false
+      }
+    }
+  }
+}

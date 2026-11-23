@@ -1,0 +1,136 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "description": {
+    "ko": "상호작용 동역학 2차(관성): 24보이스가 쿠라모토 인력·임계 대역 척력·난류(반진행) 점성·Boids·부력-중력 대류·잡음으로 격자 주변에서 군무합니다. 다항 셰이핑, 포먼트 EQ, 사인 명멸.",
+    "en": "2nd-order interaction dynamics: 24 voices swarm around the grid with Kuramoto attraction, critical-band repulsion, turbulent (contrary) viscosity, Boids, buoyancy–gravity convection and noise. Polynomial shaping, formant EQ, sine emergence."
+  },
+  "prefs": {
+    "studio": "risset"
+  },
+  "viewport": {
+    "midiMin": 30,
+    "midiMax": 96,
+    "timeMin": 0,
+    "timeMax": 27,
+    "normYMin": -0.1,
+    "normYMax": 1.1
+  },
+  "voices": [
+    {
+      "id": "v_aur_a1",
+      "name": "A1 · 여명 (Harmonic S)",
+      "color": "#38bdf8",
+      "startTime": 0,
+      "duration": 8,
+      "baseGain": 0.55,
+      "f0Hz": 130.8128,
+      "f1Hz": 195.9977,
+      "engine": "harmonic",
+      "lastNonCustomEngine": "harmonic",
+      "alpha": 70,
+      "x1": 0.3,
+      "symLock": true,
+      "timbre": {
+        "sine": 0.8,
+        "tri": 0.3,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.15
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.02,
+          "handles": []
+        },
+        {
+          "x": 0.18,
+          "y": 0.88,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.7
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.9,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    }
+  ],
+  "activeVoiceId": "v_aur_a1",
+  "versions": [],
+  "studioParams": {
+    "risset": {
+      "rateHz": 0.02,
+      "lastNonZeroRate": 0.02,
+      "voiceCount": 24,
+      "spanSemitones": 96,
+      "baseMidi": 24,
+      "masterGain": 0.55,
+      "shapeKind": "polynomial",
+      "shapePeriodSec": 5,
+      "shapePower": 2.5,
+      "gridMode": "equal",
+      "envWidth": 0.3,
+      "localMode": "sine",
+      "localRateHz": 0.2,
+      "localThreshold": -0.3,
+      "massM0": 0.08,
+      "buoyancy": 0.4,
+      "dyn": {
+        "order": "second",
+        "K": 1.2,
+        "frustration": 0.4,
+        "repulsion": 0.5,
+        "viscosity": 1.5,
+        "viscMode": "turbulent",
+        "view": 0.1,
+        "align": 0.8,
+        "cohesion": 0.3,
+        "separation": 0.4,
+        "gravity": 0.25,
+        "dragUp": 0.6,
+        "dragDown": 0.9,
+        "noise": 0.04,
+        "delaySec": 0.5,
+        "seed": 7
+      },
+      "eqNodes": [
+        {
+          "type": "peaking",
+          "freq": 420,
+          "gain": 6,
+          "q": 3.2
+        },
+        {
+          "type": "peaking",
+          "freq": 1350,
+          "gain": 4.5,
+          "q": 2.8
+        },
+        {
+          "type": "peaking",
+          "freq": 2900,
+          "gain": 5,
+          "q": 3.5
+        }
+      ],
+      "view": {
+        "viewMode": "piano",
+        "showTrails": true,
+        "showMaskBand": true,
+        "timeWindowSec": 16,
+        "offsetsExpanded": false
+      }
+    }
+  }
+}

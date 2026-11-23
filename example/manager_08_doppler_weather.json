@@ -1,0 +1,845 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-23T00:00:00.000Z",
+  "title": "Doppler weather / 도플러 기상도 (45 s)",
+  "description": "Master tempo 90 BPM (ref 120) in Tape mode with a 3 s glide: every track plays 0.75× and a fourth lower, so the D minor pentatonic documents sound in A minor pentatonic. Doppler sirens and an orbiter (Space), a pentatonic Lorenz flock (Chaos), a looping squall (Field), a Risset rain rhythm and Glissando thunder. A second Space instance of the same document runs at instance tempo ×1.5 — a faster echo a fifth above. A lens-shaped Shape region (22–34 s) mutes only the upper wing of the flock (around C5), so the sirens and the squall show through. Try: drag the master BPM and listen to the tape glide. / 마스터 템포 90 BPM(기준 120) 테이프 모드 + 3초 글라이드: 모든 트랙이 0.75배속·완전4도 아래로 재생. 도플러 사이렌과 공전체, 펜타토닉 로렌츠 무리, 반복 스콜, 리세 빗소리 리듬, 글리산도 천둥. 같은 스페이스 문서의 두 번째 인스턴스는 인스턴스 템포 ×1.5(5도 위 빠른 메아리). 렌즈 모양 영역(22–34초)이 무리의 위쪽 날개(C5 주변)만 뮤트해 사이렌과 스콜이 드러남.",
+  "prefs": {
+    "studio": "space"
+  },
+  "viewport": {
+    "midiMin": 28,
+    "midiMax": 90,
+    "timeMin": 0,
+    "timeMax": 34
+  },
+  "voices": [
+    {
+      "id": "v_08a",
+      "name": "Thunder D2→A1",
+      "color": "#38bdf8",
+      "f0Midi": 38,
+      "f1Midi": 33,
+      "f0Hz": 73.4162,
+      "f1Hz": 55.0,
+      "startTime": 0,
+      "duration": 8,
+      "engine": "damped",
+      "baseGain": 0.55,
+      "timbre": {
+        "sine": 0.6,
+        "tri": 0.3,
+        "saw": 0.35,
+        "sqr": 0.3,
+        "rich": 0.05
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.3,
+          "y": 0.7,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.0,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_08b",
+      "name": "Roll A2→D2",
+      "color": "#a78bfa",
+      "f0Midi": 45,
+      "f1Midi": 38,
+      "f0Hz": 110.0,
+      "f1Hz": 73.4162,
+      "startTime": 15,
+      "duration": 9,
+      "engine": "bounce",
+      "baseGain": 0.5,
+      "timbre": {
+        "sine": 0.6,
+        "tri": 0.3,
+        "saw": 0.35,
+        "sqr": 0.3,
+        "rich": 0.05
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.3,
+          "handles": []
+        },
+        {
+          "x": 0.2,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.0,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_08c",
+      "name": "Far rumble D2",
+      "color": "#60a5fa",
+      "f0Midi": 38,
+      "f1Midi": 36,
+      "f0Hz": 73.4162,
+      "f1Hz": 65.4064,
+      "startTime": 26,
+      "duration": 7.5,
+      "engine": "harmonic",
+      "baseGain": 0.4,
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.5,
+        "saw": 0.1,
+        "sqr": 0.1,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.0,
+          "handles": []
+        },
+        {
+          "x": 0.4,
+          "y": 0.7,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.0,
+          "handles": []
+        }
+      ]
+    }
+  ],
+  "activeVoiceId": "v_08a",
+  "versions": [],
+  "studioParams": {
+    "space": {
+      "c": 343,
+      "cScale": 0.5,
+      "airDist": 40,
+      "refDist": 6,
+      "listener": {
+        "x": 0,
+        "y": 0,
+        "headingDeg": 0
+      },
+      "length": 30,
+      "bakeRate": 200,
+      "panMode": "equalPower",
+      "seed": 1,
+      "preset": "custom",
+      "tool": "move",
+      "view": {
+        "cx": 0,
+        "cy": 0,
+        "span": 140
+      },
+      "sources": [
+        {
+          "id": "s1",
+          "name": "Siren A (D5↔A5)",
+          "color": "#22d3ee",
+          "path": {
+            "type": "line",
+            "x0": -150,
+            "y0": 6,
+            "x1": 150,
+            "y1": 6
+          },
+          "speed": {
+            "mode": "const",
+            "value": 22
+          },
+          "start": 0,
+          "duration": 14,
+          "baseGain": 0.6,
+          "f": {
+            "mode": "curve",
+            "hz0": 587.33,
+            "hz1": 880.0,
+            "curve": {
+              "engine": "trig",
+              "reverse": false,
+              "inverse": false,
+              "trigFn": "sin",
+              "trigX0": 0,
+              "trigX1": 7,
+              "trigNorm": true
+            }
+          }
+        },
+        {
+          "id": "s2",
+          "name": "Siren B (A4↔D5)",
+          "color": "#f472b6",
+          "path": {
+            "type": "line",
+            "x0": 150,
+            "y0": -6,
+            "x1": -150,
+            "y1": -6
+          },
+          "speed": {
+            "mode": "const",
+            "value": 18
+          },
+          "start": 6,
+          "duration": 16,
+          "baseGain": 0.55,
+          "f": {
+            "mode": "curve",
+            "hz0": 440.0,
+            "hz1": 587.33,
+            "curve": {
+              "engine": "trig",
+              "reverse": false,
+              "inverse": false,
+              "trigFn": "sin",
+              "trigX0": 0,
+              "trigX1": 5,
+              "trigNorm": true
+            }
+          },
+          "timbre": {
+            "sine": 0.3,
+            "tri": 0.6,
+            "saw": 0.4,
+            "sqr": 0.1,
+            "rich": 0.1
+          }
+        },
+        {
+          "id": "s3",
+          "name": "Orbiter D4",
+          "color": "#fbbf24",
+          "path": {
+            "type": "orbit",
+            "cx": 10,
+            "cy": 8,
+            "rx": 26,
+            "ry": 26,
+            "phase": 0,
+            "dir": 1
+          },
+          "speed": {
+            "mode": "const",
+            "value": 24
+          },
+          "start": 10,
+          "duration": 20,
+          "baseGain": 0.5,
+          "f": {
+            "mode": "const",
+            "hz": 293.66
+          }
+        }
+      ],
+      "activeSourceId": "s1"
+    },
+    "chaos": {
+      "preset": "butterfly",
+      "system": "lorenz",
+      "params": {
+        "sigma": 10,
+        "rho": 28,
+        "beta": 2.6666666666666665
+      },
+      "seed": 3,
+      "voices": 6,
+      "spread": 1e-05,
+      "dt": 0.005,
+      "transient": 20,
+      "simTime": 60,
+      "duration": 30,
+      "normalize": "reference",
+      "map": {
+        "pitch": {
+          "source": "x",
+          "lo": 50,
+          "hi": 86,
+          "curve": "linear",
+          "invert": false,
+          "quantize": "scale",
+          "scale": "penta",
+          "root": 5,
+          "slewMs": 60,
+          "quantAmt": 0.75,
+          "sens": 1
+        },
+        "gain": {
+          "source": "z",
+          "lo": 0.15,
+          "hi": 0.9,
+          "curve": "linear",
+          "invert": false
+        },
+        "bright": {
+          "source": "speed",
+          "lo": 0,
+          "hi": 1,
+          "curve": "linear",
+          "invert": false
+        }
+      },
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.3,
+        "saw": 0.12,
+        "sqr": 0,
+        "rich": 0.1,
+        "baseGain": 0.8,
+        "width": 0.8,
+        "brightAmt": 0.5
+      }
+    },
+    "field": {
+      "flowMode": "2d",
+      "fieldEnabled": true,
+      "fieldCoord": 2,
+      "guideAttraction": 1.6,
+      "wellGrid": "none",
+      "wellStrength": 0,
+      "layers": [
+        {
+          "id": "fl_main",
+          "name": "Main field",
+          "enabled": true,
+          "mode": "add",
+          "amount": 1,
+          "range": {
+            "full": true,
+            "t0": 0,
+            "t1": 4,
+            "m0": 48,
+            "m1": 72
+          },
+          "shape": "rect",
+          "invert": false,
+          "feather": 0.08,
+          "nodes": [
+            {
+              "id": "fn_1",
+              "type": "vortex",
+              "sec": 2.5,
+              "midi": 66,
+              "strength": 1.5,
+              "radius": 0.3
+            },
+            {
+              "id": "fn_2",
+              "type": "repeller",
+              "sec": 5.0,
+              "midi": 72,
+              "strength": 1.0,
+              "radius": 0.3
+            },
+            {
+              "id": "fn_3",
+              "type": "vortex",
+              "sec": 7.0,
+              "midi": 60,
+              "strength": 1.2,
+              "radius": 0.26
+            }
+          ],
+          "turbulence": 0.8,
+          "turbFreq": 3.5,
+          "fieldPhase": 0,
+          "flowAngle": 0,
+          "flowStrength": 0
+        }
+      ],
+      "activeLayerId": "fl_main",
+      "regions": [],
+      "activeRegionId": "",
+      "voices": [
+        {
+          "id": "pv_08a",
+          "name": "Squall 1",
+          "color": "#34d399",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 62,
+          "f1Midi": 74,
+          "startTime": 0.0,
+          "duration": 7.0,
+          "baseGain": 0.7,
+          "mass": 1.0,
+          "drag": 3.8,
+          "launchAngle": 25,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.0,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        },
+        {
+          "id": "pv_08b",
+          "name": "Squall 2",
+          "color": "#2dd4bf",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 69,
+          "f1Midi": 57,
+          "startTime": 1.5,
+          "duration": 6.5,
+          "baseGain": 0.6,
+          "mass": 1.6,
+          "drag": 3.8,
+          "launchAngle": -25,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": -0.35,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        },
+        {
+          "id": "pv_08c",
+          "name": "Squall 3",
+          "color": "#fbbf24",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 65,
+          "f1Midi": 77,
+          "startTime": 3.0,
+          "duration": 6.0,
+          "baseGain": 0.55,
+          "mass": 0.8,
+          "drag": 3.8,
+          "launchAngle": 35,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.3,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        }
+      ],
+      "activeVoiceId": "pv_08a",
+      "view": {
+        "viewMode": "piano",
+        "showArrows": true,
+        "showWells": true,
+        "showGuide": true,
+        "showRegions": true,
+        "showLayers": true,
+        "arrowDensity": 34,
+        "arrowSize": 1,
+        "arrowWidth": 1.1,
+        "tMin": 0,
+        "tMax": 9.5,
+        "midiMin": 52,
+        "midiMax": 82
+      },
+      "cueSec": 0
+    },
+    "risset": {
+      "rateHz": 0.035,
+      "lastNonZeroRate": 0.035,
+      "voiceCount": 8,
+      "spanSemitones": 56.1564,
+      "baseMidi": -36.38,
+      "masterGain": 0.7,
+      "gridMode": "ratio",
+      "ratioText": "3:2",
+      "waveMorph": 1,
+      "waveDuty": 0.25,
+      "oscSyncHz": 1.5,
+      "flutterDb": -9,
+      "envShape": "gaussian",
+      "envCenter": 0.5,
+      "envWidth": 0.28
+    }
+  },
+  "manager": {
+    "instances": [
+      {
+        "id": "in_08_space",
+        "studio": "space",
+        "name": "Sirens & orbiter",
+        "color": "#22d3ee",
+        "doc": null,
+        "gainDb": 2,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.5,
+        "fadeOut": 3.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_08_chaos",
+        "studio": "chaos",
+        "name": "Butterfly flock",
+        "color": "#fb923c",
+        "doc": null,
+        "gainDb": -7,
+        "mute": false,
+        "solo": false,
+        "start": 5,
+        "length": null,
+        "loop": false,
+        "fadeIn": 4.0,
+        "fadeOut": 5.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_08_field",
+        "studio": "field",
+        "name": "Squall (loop)",
+        "color": "#34d399",
+        "doc": null,
+        "gainDb": -13,
+        "mute": false,
+        "solo": false,
+        "start": 12,
+        "length": 24,
+        "loop": true,
+        "fadeIn": 2.0,
+        "fadeOut": 4.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_08_risset",
+        "studio": "risset",
+        "name": "Rain rhythm",
+        "color": "#a78bfa",
+        "doc": null,
+        "gainDb": -15,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 45,
+        "loop": true,
+        "fadeIn": 6.0,
+        "fadeOut": 6.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_08_gliss",
+        "studio": "glissando",
+        "name": "Thunder",
+        "color": "#38bdf8",
+        "doc": null,
+        "gainDb": -11,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.05,
+        "fadeOut": 1.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_08_space2",
+        "studio": "space",
+        "name": "Siren echo (×1.5 = a fifth up)",
+        "color": "#67e8f9",
+        "doc": {
+          "c": 343,
+          "cScale": 0.5,
+          "airDist": 40,
+          "refDist": 6,
+          "listener": {
+            "x": 0,
+            "y": 0,
+            "headingDeg": 0
+          },
+          "length": 30,
+          "bakeRate": 200,
+          "panMode": "equalPower",
+          "seed": 1,
+          "preset": "custom",
+          "tool": "move",
+          "view": {
+            "cx": 0,
+            "cy": 0,
+            "span": 140
+          },
+          "sources": [
+            {
+              "id": "s1",
+              "name": "Siren A (D5↔A5)",
+              "color": "#22d3ee",
+              "path": {
+                "type": "line",
+                "x0": -150,
+                "y0": 6,
+                "x1": 150,
+                "y1": 6
+              },
+              "speed": {
+                "mode": "const",
+                "value": 22
+              },
+              "start": 0,
+              "duration": 14,
+              "baseGain": 0.6,
+              "f": {
+                "mode": "curve",
+                "hz0": 587.33,
+                "hz1": 880.0,
+                "curve": {
+                  "engine": "trig",
+                  "reverse": false,
+                  "inverse": false,
+                  "trigFn": "sin",
+                  "trigX0": 0,
+                  "trigX1": 7,
+                  "trigNorm": true
+                }
+              }
+            },
+            {
+              "id": "s2",
+              "name": "Siren B (A4↔D5)",
+              "color": "#f472b6",
+              "path": {
+                "type": "line",
+                "x0": 150,
+                "y0": -6,
+                "x1": -150,
+                "y1": -6
+              },
+              "speed": {
+                "mode": "const",
+                "value": 18
+              },
+              "start": 6,
+              "duration": 16,
+              "baseGain": 0.55,
+              "f": {
+                "mode": "curve",
+                "hz0": 440.0,
+                "hz1": 587.33,
+                "curve": {
+                  "engine": "trig",
+                  "reverse": false,
+                  "inverse": false,
+                  "trigFn": "sin",
+                  "trigX0": 0,
+                  "trigX1": 5,
+                  "trigNorm": true
+                }
+              },
+              "timbre": {
+                "sine": 0.3,
+                "tri": 0.6,
+                "saw": 0.4,
+                "sqr": 0.1,
+                "rich": 0.1
+              }
+            },
+            {
+              "id": "s3",
+              "name": "Orbiter D4",
+              "color": "#fbbf24",
+              "path": {
+                "type": "orbit",
+                "cx": 10,
+                "cy": 8,
+                "rx": 26,
+                "ry": 26,
+                "phase": 0,
+                "dir": 1
+              },
+              "speed": {
+                "mode": "const",
+                "value": 24
+              },
+              "start": 10,
+              "duration": 20,
+              "baseGain": 0.5,
+              "f": {
+                "mode": "const",
+                "hz": 293.66
+              }
+            }
+          ],
+          "activeSourceId": "s1"
+        },
+        "gainDb": -6,
+        "mute": false,
+        "solo": false,
+        "start": 22,
+        "length": 23,
+        "loop": false,
+        "fadeIn": 3.0,
+        "fadeOut": 5.0,
+        "inCycle": true,
+        "tempo": {
+          "mode": "rate",
+          "rate": 1.5,
+          "bpm": 180,
+          "refBpm": 120,
+          "tape": false,
+          "glideSec": 0
+        }
+      }
+    ],
+    "focus": {
+      "space": "in_08_space",
+      "chaos": "in_08_chaos",
+      "field": "in_08_field",
+      "risset": "in_08_risset",
+      "glissando": "in_08_gliss"
+    },
+    "cycleLoop": true,
+    "cycleMode": "auto",
+    "cycleLen": null,
+    "open": true,
+    "regions": [
+      {
+        "id": "rg_08_eye",
+        "kind": "shape",
+        "name": "Eye of the storm",
+        "t0": 22,
+        "t1": 34,
+        "lobes": [
+          {
+            "t": [
+              22.0,
+              22.5,
+              23.0,
+              23.5,
+              24.0,
+              24.5,
+              25.0,
+              25.5,
+              26.0,
+              26.5,
+              27.0,
+              27.5,
+              28.0,
+              28.5,
+              29.0,
+              29.5,
+              30.0,
+              30.5,
+              31.0,
+              31.5,
+              32.0,
+              32.5,
+              33.0,
+              33.5,
+              34.0
+            ],
+            "lo": [
+              72.0,
+              70.825,
+              69.671,
+              68.556,
+              67.5,
+              66.521,
+              65.636,
+              64.86,
+              64.206,
+              63.685,
+              63.307,
+              63.077,
+              63.0,
+              63.077,
+              63.307,
+              63.685,
+              64.206,
+              64.86,
+              65.636,
+              66.521,
+              67.5,
+              68.556,
+              69.671,
+              70.825,
+              72.0
+            ],
+            "hi": [
+              72.0,
+              73.175,
+              74.329,
+              75.444,
+              76.5,
+              77.479,
+              78.364,
+              79.14,
+              79.794,
+              80.315,
+              80.693,
+              80.923,
+              81.0,
+              80.923,
+              80.693,
+              80.315,
+              79.794,
+              79.14,
+              78.364,
+              77.479,
+              76.5,
+              75.444,
+              74.329,
+              73.175,
+              72.0
+            ],
+            "closed": true,
+            "area": 137.5
+          }
+        ],
+        "solo": [],
+        "mute": [
+          "in_08_chaos"
+        ]
+      }
+    ],
+    "tempo": {
+      "mode": "bpm",
+      "rate": 0.75,
+      "bpm": 90,
+      "refBpm": 120,
+      "tape": true,
+      "glideSec": 3
+    }
+  }
+}

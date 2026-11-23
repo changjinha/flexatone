@@ -1,0 +1,144 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "description": {
+    "ko": "고전 셰퍼드-리세 상승: 옥타브 12보이스, 랜덤 로컬 명멸(입자 2.0: κ·로그정규·Hz 대역), 벨 폭이 8초마다 숨 쉬는 오토메이션.",
+    "en": "Classic Shepard–Risset ascent: 12 octave voices, random local emergence (particles 2.0: κ, log-normal fades, Hz band), bell width breathing every 8 s."
+  },
+  "prefs": {
+    "studio": "risset"
+  },
+  "viewport": {
+    "midiMin": 30,
+    "midiMax": 96,
+    "timeMin": 0,
+    "timeMax": 27,
+    "normYMin": -0.1,
+    "normYMax": 1.1
+  },
+  "voices": [
+    {
+      "id": "v_aur_a1",
+      "name": "A1 · 여명 (Harmonic S)",
+      "color": "#38bdf8",
+      "startTime": 0,
+      "duration": 8,
+      "baseGain": 0.55,
+      "f0Hz": 130.8128,
+      "f1Hz": 195.9977,
+      "engine": "harmonic",
+      "lastNonCustomEngine": "harmonic",
+      "alpha": 70,
+      "x1": 0.3,
+      "symLock": true,
+      "timbre": {
+        "sine": 0.8,
+        "tri": 0.3,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.15
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.02,
+          "handles": []
+        },
+        {
+          "x": 0.18,
+          "y": 0.88,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.7
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.9,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    }
+  ],
+  "activeVoiceId": "v_aur_a1",
+  "versions": [],
+  "studioParams": {
+    "risset": {
+      "rateHz": 0.025,
+      "lastNonZeroRate": 0.025,
+      "voiceCount": 12,
+      "spanSemitones": 96,
+      "baseMidi": 24,
+      "masterGain": 0.8,
+      "gridMode": "fixed",
+      "fixedStep": 12,
+      "localMode": "random",
+      "localRateHz": 0.45,
+      "localThreshold": 0.05,
+      "fadeMeanMs": 1800,
+      "fadeDevMs": 700,
+      "bandMin": 0.25,
+      "bandMax": 0.8,
+      "fadeCurve": 0.4,
+      "fadeDist": "lognormal",
+      "bandMinHz": 120,
+      "bandMaxHz": 2400,
+      "envShape": "bellpass",
+      "envCenter": 0.5,
+      "envWidth": 0.26,
+      "envGamma": 4,
+      "autoLoopSec": 8,
+      "activeAutoKey": "envWidth",
+      "autoLanes": {
+        "envWidth": {
+          "enabled": true,
+          "points": [
+            {
+              "x": 0,
+              "y": 0.5,
+              "handles": []
+            },
+            {
+              "x": 0.5,
+              "y": 0.8,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 0.5,
+              "handles": []
+            }
+          ]
+        },
+        "rateHz": {
+          "enabled": false,
+          "points": [
+            {
+              "x": 0,
+              "y": 0.5,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 0.5,
+              "handles": []
+            }
+          ]
+        }
+      },
+      "view": {
+        "viewMode": "piano",
+        "showTrails": true,
+        "showMaskBand": true,
+        "timeWindowSec": 16,
+        "offsetsExpanded": false
+      }
+    }
+  }
+}

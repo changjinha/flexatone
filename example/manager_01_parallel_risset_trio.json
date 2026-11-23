@@ -1,0 +1,197 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "title": "Parallel Risset trio / 병렬 리세 트리오",
+  "description": "Three Risset instances at once (rising, falling in fifths, slow pattern chord), each with its own register, grid, gain and fade. Play cycle = all three together; Launch a single one to hear it alone. / 리세 3개 동시 재생 — 서로 다른 속도·격자·음역·게인·페이드.",
+  "prefs": {
+    "studio": "risset"
+  },
+  "viewport": {
+    "midiMin": 36,
+    "midiMax": 90,
+    "timeMin": 0,
+    "timeMax": 8
+  },
+  "voices": [
+    {
+      "id": "v_p1a",
+      "name": "Pedal",
+      "color": "#38bdf8",
+      "f0Midi": 43,
+      "f1Midi": 43,
+      "f0Hz": 98.0,
+      "f1Hz": 98.0,
+      "startTime": 0,
+      "duration": 4,
+      "engine": "harmonic",
+      "baseGain": 0.5,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      }
+    }
+  ],
+  "activeVoiceId": "v_p1a",
+  "versions": [],
+  "studioParams": {
+    "risset": {
+      "rateHz": 0.06,
+      "voiceCount": 10,
+      "baseMidi": 30,
+      "spanSemitones": 72,
+      "envCenter": 0.5,
+      "envWidth": 0.22,
+      "masterGain": 0.7
+    },
+    "field": {
+      "voices": [
+        {
+          "id": "pv_p1a",
+          "name": "Particle 1",
+          "color": "#34d399",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 55,
+          "f1Midi": 67,
+          "startTime": 0,
+          "duration": 4,
+          "baseGain": 0.8,
+          "mass": 1.0,
+          "drag": 3.8,
+          "launchAngle": 15,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.0,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.7,
+            "tri": 0.25,
+            "saw": 0.15,
+            "sqr": 0.05,
+            "rich": 0.25
+          }
+        }
+      ],
+      "activeVoiceId": "pv_p1a"
+    }
+  },
+  "manager": {
+    "instances": [
+      {
+        "id": "in_p1_r1",
+        "studio": "risset",
+        "name": "Rise (fast)",
+        "color": "#a78bfa",
+        "doc": null,
+        "gainDb": -3,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 16,
+        "loop": true,
+        "fadeIn": 1.5,
+        "fadeOut": 2.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_p1_r2",
+        "studio": "risset",
+        "name": "Fall (fifths)",
+        "color": "#f472b6",
+        "doc": {
+          "rateHz": -0.035,
+          "voiceCount": 8,
+          "baseMidi": 36,
+          "spanSemitones": 84,
+          "gridMode": "fixed",
+          "fixedStep": 7,
+          "envCenter": 0.45,
+          "envWidth": 0.3,
+          "masterGain": 0.7
+        },
+        "gainDb": -5,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 16,
+        "loop": true,
+        "fadeIn": 3.0,
+        "fadeOut": 2.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_p1_r3",
+        "studio": "risset",
+        "name": "Slow chord",
+        "color": "#fbbf24",
+        "doc": {
+          "rateHz": 0.012,
+          "voiceCount": 12,
+          "baseMidi": 40,
+          "spanSemitones": 48,
+          "gridMode": "pattern",
+          "patternText": "C3, E3, G3, B3",
+          "envCenter": 0.55,
+          "envWidth": 0.35,
+          "masterGain": 0.6
+        },
+        "gainDb": -8,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 16,
+        "loop": true,
+        "fadeIn": 6.0,
+        "fadeOut": 3.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_p1_g1",
+        "studio": "glissando",
+        "name": "Glissando 1",
+        "color": "#38bdf8",
+        "doc": null,
+        "gainDb": -12,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.01,
+        "fadeOut": 0.03,
+        "inCycle": false
+      },
+      {
+        "id": "in_p1_f1",
+        "studio": "field",
+        "name": "Field 1",
+        "color": "#34d399",
+        "doc": null,
+        "gainDb": 0,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.01,
+        "fadeOut": 0.03,
+        "inCycle": false
+      }
+    ],
+    "focus": {
+      "risset": "in_p1_r1",
+      "glissando": "in_p1_g1",
+      "field": "in_p1_f1"
+    },
+    "cycleLoop": true,
+    "open": true,
+    "regions": []
+  }
+}

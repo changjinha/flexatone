@@ -1,0 +1,147 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "description": {
+    "ko": "세 개의 영역 모듈: 저역은 자체 속도(−0.06 Hz)로 반대로 하강, 중역은 공간이 20°/s로 스핀, 고역은 ±60° 스윙 회전. 모듈마다 범위·게인·가장자리 페이드가 다릅니다.",
+    "en": "Three region modules: the low band falls on its own (−0.06 Hz), the mid band’s space spins at 20°/s, the high band swings ±60°. Each module has its own range, gain and edge fade."
+  },
+  "prefs": {
+    "studio": "risset"
+  },
+  "viewport": {
+    "midiMin": 30,
+    "midiMax": 96,
+    "timeMin": 0,
+    "timeMax": 27,
+    "normYMin": -0.1,
+    "normYMax": 1.1
+  },
+  "voices": [
+    {
+      "id": "v_aur_a1",
+      "name": "A1 · 여명 (Harmonic S)",
+      "color": "#38bdf8",
+      "startTime": 0,
+      "duration": 8,
+      "baseGain": 0.55,
+      "f0Hz": 130.8128,
+      "f1Hz": 195.9977,
+      "engine": "harmonic",
+      "lastNonCustomEngine": "harmonic",
+      "alpha": 70,
+      "x1": 0.3,
+      "symLock": true,
+      "timbre": {
+        "sine": 0.8,
+        "tri": 0.3,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.15
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.02,
+          "handles": []
+        },
+        {
+          "x": 0.18,
+          "y": 0.88,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.7
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.9,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    }
+  ],
+  "activeVoiceId": "v_aur_a1",
+  "versions": [],
+  "studioParams": {
+    "risset": {
+      "rateHz": 0.03,
+      "lastNonZeroRate": 0.03,
+      "voiceCount": 14,
+      "spanSemitones": 84,
+      "baseMidi": 30,
+      "masterGain": 0.65,
+      "gridMode": "equal",
+      "envWidth": 0.45,
+      "regions": [
+        {
+          "id": "r0",
+          "enabled": true,
+          "lo": 0,
+          "hi": 0.33,
+          "edge": 0.05,
+          "gain": 1.1,
+          "linkRate": false,
+          "rateHz": -0.06,
+          "rotOn": false,
+          "rotAngleDeg": 0,
+          "rotSpinDegPerSec": 0,
+          "rotSwingDeg": 0,
+          "rotSwingSec": 8,
+          "rotCenterAuto": true,
+          "rotCenter": 0.5,
+          "timeScaleSec": 6
+        },
+        {
+          "id": "r1",
+          "enabled": true,
+          "lo": 0.33,
+          "hi": 0.66,
+          "edge": 0.05,
+          "gain": 0.9,
+          "linkRate": true,
+          "rateHz": 0.03,
+          "rotOn": true,
+          "rotAngleDeg": 0,
+          "rotSpinDegPerSec": 20,
+          "rotSwingDeg": 0,
+          "rotSwingSec": 8,
+          "rotCenterAuto": true,
+          "rotCenter": 0.5,
+          "timeScaleSec": 6
+        },
+        {
+          "id": "r2",
+          "enabled": true,
+          "lo": 0.66,
+          "hi": 1,
+          "edge": 0.05,
+          "gain": 0.8,
+          "linkRate": true,
+          "rateHz": 0.03,
+          "rotOn": true,
+          "rotAngleDeg": 15,
+          "rotSpinDegPerSec": 0,
+          "rotSwingDeg": 60,
+          "rotSwingSec": 10,
+          "rotCenterAuto": true,
+          "rotCenter": 0.5,
+          "timeScaleSec": 4
+        }
+      ],
+      "activeRegion": 1,
+      "view": {
+        "viewMode": "piano",
+        "showTrails": true,
+        "showMaskBand": false,
+        "timeWindowSec": 16,
+        "offsetsExpanded": false
+      }
+    }
+  }
+}

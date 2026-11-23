@@ -1,0 +1,483 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "prefs": {
+    "lang": "ko",
+    "studio": "glissando",
+    "layout": "landscape",
+    "uiZoom": 100,
+    "viewMode": "piano",
+    "gridSub": 16,
+    "showDeriv": false,
+    "locateSnap": true,
+    "durEditMode": "duration",
+    "groupApplyMode": false,
+    "legatoJoin": true,
+    "joinGlideMs": 30,
+    "output": {
+      "mode": "db",
+      "faderNorm": 0.9,
+      "ampLevel": 0.8,
+      "taper": "daw",
+      "dbMin": -60,
+      "dbMax": 0,
+      "smoothMs": 8,
+      "analyzer": true,
+      "fullScaleDbSpl": 90,
+      "soneTarget": 8,
+      "lockMaxBoostDb": 12
+    }
+  },
+  "viewport": {
+    "midiMin": 30,
+    "midiMax": 96,
+    "timeMin": 0,
+    "timeMax": 27,
+    "normYMin": -0.1,
+    "normYMax": 1.1
+  },
+  "voices": [
+    {
+      "id": "v_aur_a1",
+      "name": "A1 · 여명 (Harmonic S)",
+      "color": "#38bdf8",
+      "startTime": 0,
+      "duration": 8,
+      "baseGain": 0.55,
+      "f0Hz": 130.8128,
+      "f1Hz": 195.9977,
+      "engine": "harmonic",
+      "lastNonCustomEngine": "harmonic",
+      "alpha": 70,
+      "x1": 0.3,
+      "symLock": true,
+      "timbre": {
+        "sine": 0.8,
+        "tri": 0.3,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.15
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.02,
+          "handles": []
+        },
+        {
+          "x": 0.18,
+          "y": 0.88,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.7
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.9,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    },
+    {
+      "id": "v_aur_a2",
+      "name": "A2 · 물결 (Damped)",
+      "color": "#f472b6",
+      "startTime": 8,
+      "duration": 8,
+      "baseGain": 0.55,
+      "f0Hz": 195.9977,
+      "f1Hz": 329.6276,
+      "engine": "damped",
+      "lastNonCustomEngine": "damped",
+      "dampC1": true,
+      "dampT0": 0.4,
+      "dampA": 0.45,
+      "dampN": 5,
+      "dampK": 2.2,
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.4,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.2
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.5,
+          "y": 0.72,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.6
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.9,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    },
+    {
+      "id": "v_aur_a3",
+      "name": "A3 · 정체 선반 (Plateau)",
+      "color": "#34d399",
+      "startTime": 16,
+      "duration": 10,
+      "baseGain": 0.55,
+      "f0Hz": 329.6276,
+      "f1Hz": 261.6256,
+      "engine": "plateau",
+      "lastNonCustomEngine": "plateau",
+      "platTm": 0.45,
+      "platYm": 0.35,
+      "platW": 0.35,
+      "timbre": {
+        "sine": 0.75,
+        "tri": 0.25,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.3
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.75,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.02,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48,
+      "regions": [
+        {
+          "id": "rg_aur_a3",
+          "t0": 0.62,
+          "t1": 0.9,
+          "mix": 0.55,
+          "timeMode": "local",
+          "ramp": "on",
+          "rampSec": 0.18,
+          "gainDb": -3,
+          "mute": false,
+          "solo": false,
+          "curve": {
+            "engine": "bounce",
+            "lastNonCustomEngine": "bounce",
+            "bounceN": 6,
+            "bounceK": 2.4,
+            "bounceP": 1.3
+          }
+        }
+      ]
+    },
+    {
+      "id": "v_aur_shim",
+      "name": "B · 반짝임 (Chirp 비브라토)",
+      "color": "#fbbf24",
+      "startTime": 0,
+      "duration": 26,
+      "baseGain": 0.3,
+      "f0Hz": 659.2551,
+      "f1Hz": 987.7666,
+      "engine": "chirp",
+      "lastNonCustomEngine": "chirp",
+      "chirpA": 0.09,
+      "chirpF0": 1.5,
+      "chirpF1": 18,
+      "f0Fine": -12,
+      "f1Fine": 9,
+      "timbre": {
+        "sine": 1.0,
+        "tri": 0.0,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.1
+      },
+      "gainMode": "engine",
+      "gainEngineObj": {
+        "engine": "trig",
+        "lastNonCustomEngine": "trig",
+        "trigFn": "sin",
+        "trigX0": 0,
+        "trigX1": 1,
+        "trigNorm": false,
+        "trigAmp": 1,
+        "trigBias": 0,
+        "ampMin": 0.0,
+        "ampMax": 0.8,
+        "autoFit": true
+      },
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    },
+    {
+      "id": "v_aur_drone",
+      "name": "C · 드론 (ƒ(x) 파형)",
+      "color": "#a78bfa",
+      "startTime": 0,
+      "duration": 26,
+      "baseGain": 0.5,
+      "f0Hz": 65.4064,
+      "f1Hz": 97.9989,
+      "engine": "expo",
+      "lastNonCustomEngine": "expo",
+      "expMode": "log",
+      "expK": 3.2,
+      "f1Fine": -25,
+      "timbreMode": "func",
+      "timbreFunc": {
+        "source": "formula",
+        "expr": "sin(2*pi*x) + 0.5*sin(4*pi*x) + 0.25*sin(6*pi*x) + 0.12*sin(10*pi*x)",
+        "voiceId": ""
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.05,
+          "handles": []
+        },
+        {
+          "x": 0.2,
+          "y": 0.75,
+          "handles": []
+        },
+        {
+          "x": 0.85,
+          "y": 0.75,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.03,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    },
+    {
+      "id": "v_aur_bell",
+      "name": "D · 종소리 하강 (Anticipation)",
+      "color": "#fb923c",
+      "startTime": 6,
+      "duration": 10,
+      "baseGain": 0.3,
+      "f0Hz": 1046.5023,
+      "f1Hz": 391.9954,
+      "engine": "anticipation",
+      "lastNonCustomEngine": "anticipation",
+      "antD": 0.3,
+      "antTw": 0.3,
+      "antP": 2.4,
+      "antR": 0.18,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.1,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.0
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.15,
+          "y": 0.7,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.78
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.02,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    },
+    {
+      "id": "v_aur_dew",
+      "name": "E · 이슬 (미분음 Ratchet)",
+      "color": "#2dd4bf",
+      "startTime": 12,
+      "duration": 10,
+      "baseGain": 0.28,
+      "f0Hz": 783.9909,
+      "f1Hz": 1567.9817,
+      "engine": "ratchet",
+      "lastNonCustomEngine": "ratchet",
+      "ratN": 12,
+      "ratSig": 0.3,
+      "f0Fine": 14,
+      "f1Fine": -33,
+      "timbre": {
+        "sine": 0.6,
+        "tri": 0.5,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.0
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.02,
+          "handles": []
+        },
+        {
+          "x": 0.1,
+          "y": 0.85,
+          "handles": []
+        },
+        {
+          "x": 0.6,
+          "y": 0.8,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.55
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.02,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48,
+      "regions": [
+        {
+          "id": "rg_aur_dew",
+          "t0": 0.44,
+          "t1": 0.56,
+          "mix": 1.0,
+          "timeMode": "global",
+          "ramp": "auto",
+          "rampSec": 0.08,
+          "gainDb": 0,
+          "mute": true,
+          "solo": false,
+          "curve": {
+            "engine": "ratchet",
+            "lastNonCustomEngine": "ratchet",
+            "ratN": 12,
+            "ratSig": 0.3
+          }
+        }
+      ]
+    },
+    {
+      "id": "v_aur_mist",
+      "name": "F · 안개 (저역 패드)",
+      "color": "#f87171",
+      "startTime": 2,
+      "duration": 20,
+      "baseGain": 0.32,
+      "f0Hz": 261.6256,
+      "f1Hz": 329.6276,
+      "engine": "plateau",
+      "lastNonCustomEngine": "plateau",
+      "platTm": 0.5,
+      "platYm": 0.15,
+      "platW": 0.4,
+      "f1Fine": 22,
+      "timbre": {
+        "sine": 0.3,
+        "tri": 0.2,
+        "saw": 0.35,
+        "sqr": 0.0,
+        "rich": 0.6
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.02,
+          "handles": []
+        },
+        {
+          "x": 0.25,
+          "y": 0.7,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.5
+            }
+          ]
+        },
+        {
+          "x": 0.75,
+          "y": 0.7,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.02,
+          "handles": []
+        }
+      ],
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -48
+    }
+  ],
+  "activeVoiceId": "v_aur_a1",
+  "snapshots": [],
+  "studioParams": {
+    "glissando": {
+      "preset": "canon",
+      "voiceCount": 4,
+      "centerNote": "C3",
+      "targetNote": "G3",
+      "spread": 12,
+      "stagger": 2,
+      "duration": 8,
+      "engine": "harmonic"
+    }
+  },
+  "manager": {
+    "instances": [],
+    "focus": {},
+    "cycleLoop": true,
+    "open": false,
+    "regions": []
+  }
+}

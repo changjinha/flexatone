@@ -1,0 +1,681 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-23T00:00:00.000Z",
+  "title": "Convergence canon / 수렴 카논 (40 s)",
+  "description": "A 3:4:5 tempo canon in D dorian converges on one downbeat at 30 s. The Risset ground's track tremolo accelerates 0.5 → 7 Hz toward that point, the sieve cloud thickens, and a range solos the canon for the convergence itself (29.6–31.2 s). Field and the Glissando release are the afterglow. Try: mute the range rule, or change the canon track's tempo. / D 도리안 3:4:5 템포 카논이 30초에 한 박으로 수렴. 리세 지속음의 트랙 트레몰로가 0.5 → 7 Hz로 빨라지고, 체(sieve) 클라우드가 짙어지며, 수렴 순간(29.6–31.2초)은 구간 솔로로 카논만 남김. 필드와 글리산도 하강이 여운.",
+  "prefs": {
+    "studio": "tempo"
+  },
+  "viewport": {
+    "midiMin": 30,
+    "midiMax": 96,
+    "timeMin": 0,
+    "timeMax": 40
+  },
+  "voices": [
+    {
+      "id": "v_06a",
+      "name": "Pedal D2",
+      "color": "#38bdf8",
+      "f0Midi": 38,
+      "f1Midi": 38,
+      "f0Hz": 73.4162,
+      "f1Hz": 73.4162,
+      "startTime": 0,
+      "duration": 29.6,
+      "engine": "plateau",
+      "baseGain": 0.5,
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.5,
+        "saw": 0.1,
+        "sqr": 0.1,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.2,
+          "handles": []
+        },
+        {
+          "x": 0.5,
+          "y": 0.6,
+          "handles": []
+        },
+        {
+          "x": 0.94,
+          "y": 1.0,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.85,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_06b",
+      "name": "Leading glide A2→D3",
+      "color": "#fbbf24",
+      "f0Midi": 45,
+      "f1Midi": 50,
+      "f0Hz": 110.0,
+      "f1Hz": 146.8324,
+      "startTime": 23.6,
+      "duration": 6,
+      "engine": "anticipation",
+      "baseGain": 0.42,
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.5,
+        "saw": 0.1,
+        "sqr": 0.1,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.1,
+          "handles": []
+        },
+        {
+          "x": 0.7,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 1.0,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_06c",
+      "name": "Release D4→D2",
+      "color": "#f472b6",
+      "f0Midi": 62,
+      "f1Midi": 38,
+      "f0Hz": 293.6648,
+      "f1Hz": 73.4162,
+      "startTime": 31.2,
+      "duration": 8.3,
+      "engine": "damped",
+      "baseGain": 0.5,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.95,
+          "handles": []
+        },
+        {
+          "x": 0.6,
+          "y": 0.5,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.0,
+          "handles": []
+        }
+      ]
+    }
+  ],
+  "activeVoiceId": "v_06a",
+  "versions": [],
+  "studioParams": {
+    "tempo": {
+      "seed": 1,
+      "preset": "custom",
+      "length": 40,
+      "quantizeBake": "continuous",
+      "subject": {
+        "notes": [
+          {
+            "midi": 62,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 65,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 69,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 67,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 72,
+            "dur": 1,
+            "glide": 0.4
+          },
+          {
+            "midi": 71,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 69,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 65,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 64,
+            "dur": 0.5,
+            "glide": 0.3
+          },
+          {
+            "midi": 62,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 69,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 57,
+            "dur": 2,
+            "glide": 0.25
+          }
+        ],
+        "source": "editor",
+        "voiceIndex": 0,
+        "bpmRef": 120
+      },
+      "converge": {
+        "enabled": true,
+        "Tc": 30,
+        "sc": 25,
+        "ratios": [
+          3,
+          4,
+          5
+        ],
+        "r0": 0.25,
+        "preset": "nancarrow"
+      },
+      "phasing": {
+        "enabled": false,
+        "epsilon": 0.01
+      },
+      "pulse": {
+        "audible": true,
+        "kind": "tick",
+        "accentFirst": true,
+        "level": 0.22
+      },
+      "voices": [
+        {
+          "id": "tv1",
+          "name": "3 (low)",
+          "color": "#38bdf8",
+          "transpose": -12,
+          "tempo": {
+            "mode": "converge"
+          },
+          "baseGain": 0.7,
+          "timbre": {
+            "sine": 0.6,
+            "tri": 0.5,
+            "saw": 0.1,
+            "sqr": 0.05,
+            "rich": 0.1
+          }
+        },
+        {
+          "id": "tv2",
+          "name": "4 (mid)",
+          "color": "#f59e0b",
+          "transpose": 0,
+          "tempo": {
+            "mode": "converge"
+          },
+          "baseGain": 0.65,
+          "timbre": {
+            "sine": 0.75,
+            "tri": 0.3,
+            "saw": 0.08,
+            "sqr": 0,
+            "rich": 0.15
+          }
+        },
+        {
+          "id": "tv3",
+          "name": "5 (high)",
+          "color": "#a78bfa",
+          "transpose": 12,
+          "tempo": {
+            "mode": "converge"
+          },
+          "baseGain": 0.5,
+          "timbre": {
+            "sine": 0.9,
+            "tri": 0.15,
+            "saw": 0.0,
+            "sqr": 0,
+            "rich": 0.25
+          }
+        }
+      ],
+      "activeVoiceId": "tv2"
+    },
+    "risset": {
+      "rateHz": 0.02,
+      "lastNonZeroRate": 0.02,
+      "voiceCount": 8,
+      "spanSemitones": 96,
+      "baseMidi": 26,
+      "masterGain": 0.6,
+      "gridMode": "equal",
+      "envCenter": 0.42,
+      "envWidth": 0.3,
+      "spectralTilt": -2
+    },
+    "cloud": {
+      "seed": 7,
+      "length": 30,
+      "density": {
+        "engine": "custom",
+        "lo": 2,
+        "hi": 22,
+        "reverse": false,
+        "inverse": false,
+        "customPoints": [
+          {
+            "x": 0,
+            "y": 0,
+            "handles": []
+          },
+          {
+            "x": 0.8,
+            "y": 1,
+            "handles": []
+          },
+          {
+            "x": 1,
+            "y": 0.15,
+            "handles": []
+          }
+        ]
+      },
+      "pitch": {
+        "center": {
+          "engine": "harmonic",
+          "lo": 74,
+          "hi": 84,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ]
+        },
+        "width": {
+          "engine": "custom",
+          "lo": 7,
+          "hi": 7,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ]
+        },
+        "dist": "gauss",
+        "min": 60,
+        "max": 100,
+        "snapSieve": true,
+        "sieve": {
+          "enabled": true,
+          "op": "union",
+          "grid": "semitone",
+          "terms": [
+            {
+              "mod": 12,
+              "residues": [
+                0,
+                2,
+                4,
+                5,
+                7,
+                9,
+                11
+              ],
+              "shift": 0
+            }
+          ]
+        }
+      },
+      "glide": {
+        "mode": "slope",
+        "slopeMean": 0,
+        "slopeSpread": 0.5,
+        "upBias": 0.5
+      },
+      "duration": {
+        "dist": "uniform",
+        "mean": 0.7,
+        "min": 0.25,
+        "max": 1.2
+      },
+      "gain": {
+        "base": 0.5,
+        "spread": 0.3,
+        "envelope": "expdecay",
+        "attack": 0.01
+      },
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.2,
+        "saw": 0.0,
+        "sqr": 0,
+        "rich": 0.25,
+        "stereo": 0.8
+      },
+      "view": {
+        "tMin": 0,
+        "tMax": 30,
+        "midiMin": 55,
+        "midiMax": 100,
+        "curveTab": "density",
+        "histWin": 4
+      }
+    },
+    "field": {
+      "flowMode": "2d",
+      "fieldEnabled": true,
+      "fieldCoord": 2,
+      "guideAttraction": 1.6,
+      "wellGrid": "12tet",
+      "wellStrength": 0.2,
+      "layers": [
+        {
+          "id": "fl_main",
+          "name": "Main field",
+          "enabled": true,
+          "mode": "add",
+          "amount": 1,
+          "range": {
+            "full": true,
+            "t0": 0,
+            "t1": 4,
+            "m0": 48,
+            "m1": 72
+          },
+          "shape": "rect",
+          "invert": false,
+          "feather": 0.08,
+          "nodes": [
+            {
+              "id": "fn_1",
+              "type": "vortex",
+              "sec": 2.2,
+              "midi": 68,
+              "strength": 1.3,
+              "radius": 0.3
+            },
+            {
+              "id": "fn_2",
+              "type": "attractor",
+              "sec": 5.2,
+              "midi": 60,
+              "strength": 1.1,
+              "radius": 0.32
+            }
+          ],
+          "turbulence": 0.4,
+          "turbFreq": 3.5,
+          "fieldPhase": 0,
+          "flowAngle": 0,
+          "flowStrength": 0
+        }
+      ],
+      "activeLayerId": "fl_main",
+      "regions": [],
+      "activeRegionId": "",
+      "voices": [
+        {
+          "id": "pv_06a",
+          "name": "Afterglow 1",
+          "color": "#34d399",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 74,
+          "f1Midi": 62,
+          "startTime": 0.0,
+          "duration": 7.0,
+          "baseGain": 0.7,
+          "mass": 1.0,
+          "drag": 3.8,
+          "launchAngle": 20,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.0,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        },
+        {
+          "id": "pv_06b",
+          "name": "Afterglow 2",
+          "color": "#2dd4bf",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 69,
+          "f1Midi": 57,
+          "startTime": 0.8,
+          "duration": 6.5,
+          "baseGain": 0.6,
+          "mass": 1.6,
+          "drag": 3.8,
+          "launchAngle": -20,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": -0.35,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        }
+      ],
+      "activeVoiceId": "pv_06a",
+      "view": {
+        "viewMode": "piano",
+        "showArrows": true,
+        "showWells": true,
+        "showGuide": true,
+        "showRegions": true,
+        "showLayers": true,
+        "arrowDensity": 34,
+        "arrowSize": 1,
+        "arrowWidth": 1.1,
+        "tMin": 0,
+        "tMax": 8,
+        "midiMin": 50,
+        "midiMax": 80
+      },
+      "cueSec": 0
+    }
+  },
+  "manager": {
+    "instances": [
+      {
+        "id": "in_06_tempo",
+        "studio": "tempo",
+        "name": "Canon 3:4:5",
+        "color": "#facc15",
+        "doc": null,
+        "gainDb": -6,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.4,
+        "fadeOut": 3.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_06_risset",
+        "studio": "risset",
+        "name": "Ground (rising D)",
+        "color": "#a78bfa",
+        "doc": null,
+        "gainDb": -9,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 31,
+        "loop": true,
+        "fadeIn": 4.0,
+        "fadeOut": 1.5,
+        "inCycle": true,
+        "tremolo": {
+          "on": true,
+          "shape": "sine",
+          "rateUnit": "hz",
+          "bpm": 120,
+          "rate": 0.5,
+          "rateEnd": 7,
+          "rateEngine": "expo",
+          "depthUnit": "amp",
+          "depth": 0.5,
+          "depthDb": 12,
+          "fadeIn": 0,
+          "phase": 0,
+          "sync": "voice",
+          "smooth": 0.3,
+          "seed": 1,
+          "formula": "sin(2*pi*x)"
+        }
+      },
+      {
+        "id": "in_06_cloud",
+        "studio": "cloud",
+        "name": "Sieve sparks",
+        "color": "#94a3b8",
+        "doc": null,
+        "gainDb": -3,
+        "mute": false,
+        "solo": false,
+        "start": 6,
+        "length": null,
+        "loop": false,
+        "fadeIn": 2.0,
+        "fadeOut": 3.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_06_gliss",
+        "studio": "glissando",
+        "name": "Pedal & release",
+        "color": "#38bdf8",
+        "doc": null,
+        "gainDb": -8,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.3,
+        "fadeOut": 0.5,
+        "inCycle": true
+      },
+      {
+        "id": "in_06_field",
+        "studio": "field",
+        "name": "Afterglow",
+        "color": "#34d399",
+        "doc": null,
+        "gainDb": -9,
+        "mute": false,
+        "solo": false,
+        "start": 31.2,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.4,
+        "fadeOut": 3.0,
+        "inCycle": true
+      }
+    ],
+    "focus": {
+      "tempo": "in_06_tempo",
+      "risset": "in_06_risset",
+      "cloud": "in_06_cloud",
+      "glissando": "in_06_gliss",
+      "field": "in_06_field"
+    },
+    "cycleLoop": true,
+    "cycleMode": "auto",
+    "cycleLen": null,
+    "open": true,
+    "regions": [
+      {
+        "id": "rg_06_conv",
+        "kind": "range",
+        "name": "Convergence — canon solo",
+        "t0": 29.6,
+        "t1": 31.2,
+        "solo": [
+          "in_06_tempo"
+        ],
+        "mute": []
+      }
+    ]
+  }
+}

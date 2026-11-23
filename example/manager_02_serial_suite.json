@@ -1,0 +1,275 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "title": "Serial suite / 직렬 모음곡",
+  "description": "Four movements one after another (Glissando → Field → Risset → Glissando looped twice), arranged with Serial. Reorder with ↑ ↓ and press Serial again. / 4개 악장이 차례로 — 순서를 바꾸고 직렬을 다시 누르면 재배치.",
+  "prefs": {
+    "studio": "glissando"
+  },
+  "viewport": {
+    "midiMin": 36,
+    "midiMax": 90,
+    "timeMin": 0,
+    "timeMax": 8
+  },
+  "voices": [
+    {
+      "id": "v_s2a",
+      "name": "Low",
+      "color": "#38bdf8",
+      "f0Midi": 45,
+      "f1Midi": 57,
+      "f0Hz": 110.0,
+      "f1Hz": 220.0,
+      "startTime": 0.0,
+      "duration": 3.0,
+      "engine": "harmonic",
+      "baseGain": 0.7,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      }
+    },
+    {
+      "id": "v_s2b",
+      "name": "Mid",
+      "color": "#f472b6",
+      "f0Midi": 52,
+      "f1Midi": 64,
+      "f0Hz": 164.81,
+      "f1Hz": 329.63,
+      "startTime": 0.5,
+      "duration": 3.0,
+      "engine": "damped",
+      "baseGain": 0.6,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      }
+    },
+    {
+      "id": "v_s2c",
+      "name": "High",
+      "color": "#34d399",
+      "f0Midi": 59,
+      "f1Midi": 71,
+      "f0Hz": 246.94,
+      "f1Hz": 493.88,
+      "startTime": 1.0,
+      "duration": 3.0,
+      "engine": "anticipation",
+      "baseGain": 0.5,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      }
+    }
+  ],
+  "activeVoiceId": "v_s2a",
+  "versions": [],
+  "studioParams": {
+    "field": {
+      "voices": [
+        {
+          "id": "pv_s2a",
+          "name": "Swirl A",
+          "color": "#34d399",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 60,
+          "f1Midi": 72,
+          "startTime": 0.0,
+          "duration": 3.5,
+          "baseGain": 0.8,
+          "mass": 1.0,
+          "drag": 3.8,
+          "launchAngle": 25,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.0,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.7,
+            "tri": 0.25,
+            "saw": 0.15,
+            "sqr": 0.05,
+            "rich": 0.25
+          }
+        },
+        {
+          "id": "pv_s2b",
+          "name": "Swirl B",
+          "color": "#2dd4bf",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 67,
+          "f1Midi": 55,
+          "startTime": 0.4,
+          "duration": 3.2,
+          "baseGain": 0.8,
+          "mass": 1.6,
+          "drag": 3.8,
+          "launchAngle": -20,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": -0.35,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.7,
+            "tri": 0.25,
+            "saw": 0.15,
+            "sqr": 0.05,
+            "rich": 0.25
+          }
+        }
+      ],
+      "activeVoiceId": "pv_s2a",
+      "turbulence": 0.5
+    },
+    "risset": {
+      "rateHz": 0.08,
+      "voiceCount": 9,
+      "baseMidi": 36,
+      "spanSemitones": 60,
+      "envWidth": 0.2,
+      "masterGain": 0.75
+    }
+  },
+  "manager": {
+    "instances": [
+      {
+        "id": "in_s2_g1",
+        "studio": "glissando",
+        "name": "I. Rising cluster",
+        "color": "#38bdf8",
+        "doc": null,
+        "gainDb": -6,
+        "mute": false,
+        "solo": false,
+        "start": 0.0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.01,
+        "fadeOut": 0.2,
+        "inCycle": true
+      },
+      {
+        "id": "in_s2_f1",
+        "studio": "field",
+        "name": "II. Particles",
+        "color": "#34d399",
+        "doc": null,
+        "gainDb": -4,
+        "mute": false,
+        "solo": false,
+        "start": 4.0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.05,
+        "fadeOut": 0.3,
+        "inCycle": true
+      },
+      {
+        "id": "in_s2_r1",
+        "studio": "risset",
+        "name": "III. Endless rise",
+        "color": "#a78bfa",
+        "doc": null,
+        "gainDb": -2,
+        "mute": false,
+        "solo": false,
+        "start": 7.6,
+        "length": 6,
+        "loop": true,
+        "fadeIn": 0.8,
+        "fadeOut": 1.2,
+        "inCycle": true
+      },
+      {
+        "id": "in_s2_g2",
+        "studio": "glissando",
+        "name": "IV. Answer ×2",
+        "color": "#38bdf8",
+        "doc": {
+          "voices": [
+            {
+              "id": "v_s2d",
+              "name": "Answer",
+              "color": "#fb923c",
+              "f0Midi": 72,
+              "f1Midi": 48,
+              "f0Hz": 523.25,
+              "f1Hz": 130.81,
+              "startTime": 0.0,
+              "duration": 2.0,
+              "engine": "bounce",
+              "baseGain": 0.7,
+              "timbre": {
+                "sine": 0.5,
+                "tri": 0.2,
+                "saw": 0.45,
+                "sqr": 0.1,
+                "rich": 0.4
+              }
+            },
+            {
+              "id": "v_s2e",
+              "name": "Echo",
+              "color": "#fbbf24",
+              "f0Midi": 67,
+              "f1Midi": 43,
+              "f0Hz": 392.0,
+              "f1Hz": 98.0,
+              "startTime": 0.25,
+              "duration": 1.75,
+              "engine": "bounce",
+              "baseGain": 0.45,
+              "timbre": {
+                "sine": 0.6,
+                "tri": 0.5,
+                "saw": 0.0,
+                "sqr": 0.35,
+                "rich": 0.05
+              }
+            }
+          ],
+          "activeVoiceId": "v_s2d",
+          "params": null
+        },
+        "gainDb": -6,
+        "mute": false,
+        "solo": false,
+        "start": 13.6,
+        "length": 4,
+        "loop": true,
+        "fadeIn": 0.01,
+        "fadeOut": 0.03,
+        "inCycle": true
+      }
+    ],
+    "focus": {
+      "glissando": "in_s2_g1",
+      "field": "in_s2_f1",
+      "risset": "in_s2_r1"
+    },
+    "cycleLoop": true,
+    "open": true,
+    "regions": []
+  }
+}

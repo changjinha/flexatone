@@ -1,0 +1,640 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "prefs": {
+    "lang": "ko",
+    "studio": "glissando",
+    "layout": "landscape",
+    "uiZoom": 100,
+    "viewMode": "piano",
+    "gridSub": 16,
+    "showDeriv": true,
+    "locateSnap": true,
+    "durEditMode": "duration",
+    "groupApplyMode": false,
+    "legatoJoin": true,
+    "joinGlideMs": 20,
+    "output": {
+      "mode": "sone",
+      "faderNorm": 1,
+      "ampLevel": 1,
+      "taper": "daw",
+      "dbMin": -60,
+      "dbMax": 0,
+      "smoothMs": 8,
+      "analyzer": true,
+      "fullScaleDbSpl": 90,
+      "soneTarget": 12,
+      "lockMaxBoostDb": 12
+    }
+  },
+  "viewport": {
+    "midiMin": 30,
+    "midiMax": 92,
+    "timeMin": 0,
+    "timeMax": 35,
+    "normYMin": -0.1,
+    "normYMax": 1.2
+  },
+  "voices": [
+    {
+      "id": "v_cat_morph",
+      "name": "대성당 상승 (Morph blend)",
+      "color": "#38bdf8",
+      "startTime": 0,
+      "duration": 30,
+      "baseGain": 0.5,
+      "f0Hz": 65.4064,
+      "f1Hz": 261.6256,
+      "engine": "morph",
+      "lastNonCustomEngine": "morph",
+      "morphMode": "blend",
+      "gainUnit": "sone",
+      "morphNodes": [
+        {
+          "id": "mn_cat_1",
+          "engine": "harmonic",
+          "weight": 0.5,
+          "op": null,
+          "bypass": false,
+          "solo": false,
+          "alpha": 60
+        },
+        {
+          "id": "mn_cat_2",
+          "engine": "damped",
+          "weight": 0.3,
+          "op": null,
+          "bypass": false,
+          "solo": false,
+          "dampA": 0.3,
+          "dampN": 3,
+          "dampK": 2.5
+        },
+        {
+          "id": "mn_cat_3",
+          "engine": "bounce",
+          "weight": 0.2,
+          "op": null,
+          "bypass": false,
+          "solo": false,
+          "bounceN": 4,
+          "bounceK": 2.8,
+          "bounceP": 1.5
+        }
+      ],
+      "timbre": {
+        "sine": 0.6,
+        "tri": 0.3,
+        "saw": 0.3,
+        "sqr": 0.0,
+        "rich": 0.5
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.1,
+          "handles": []
+        },
+        {
+          "x": 0.3,
+          "y": 0.7,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.45
+            }
+          ]
+        },
+        {
+          "x": 0.8,
+          "y": 0.75,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.05,
+          "handles": []
+        }
+      ],
+      "regions": [
+        {
+          "id": "rg_cat_rat",
+          "t0": 0.5,
+          "t1": 0.7,
+          "mix": 0.5,
+          "timeMode": "global",
+          "ramp": "on",
+          "rampSec": 0.2,
+          "gainDb": 0,
+          "mute": false,
+          "solo": false,
+          "curve": {
+            "engine": "ratchet",
+            "lastNonCustomEngine": "ratchet",
+            "ratN": 9,
+            "ratSig": 0.35
+          }
+        }
+      ]
+    },
+    {
+      "id": "v_cat_add",
+      "name": "합성 파동 (Morph add × mul + bypass)",
+      "color": "#f472b6",
+      "startTime": 3,
+      "duration": 20,
+      "baseGain": 0.35,
+      "f0Hz": 130.8128,
+      "f1Hz": 391.9954,
+      "engine": "morph",
+      "lastNonCustomEngine": "morph",
+      "morphMode": "blend",
+      "gainUnit": "sone",
+      "morphNodes": [
+        {
+          "id": "mn_add_1",
+          "engine": "harmonic",
+          "weight": 1.0,
+          "op": "blend",
+          "bypass": false,
+          "solo": false,
+          "alpha": 50
+        },
+        {
+          "id": "mn_add_2",
+          "engine": "trig",
+          "weight": 0.04,
+          "op": "add",
+          "bypass": false,
+          "solo": false,
+          "trigFn": "sin",
+          "trigX0": 0,
+          "trigX1": 8,
+          "trigNorm": false,
+          "trigAmp": 1,
+          "trigBias": 0
+        },
+        {
+          "id": "mn_add_3",
+          "engine": "bezier",
+          "weight": 0.3,
+          "op": "mul",
+          "bypass": false,
+          "solo": false,
+          "bezX1": 0.7,
+          "bezY1": -0.3,
+          "bezX2": 0.3,
+          "bezY2": 1.3
+        },
+        {
+          "id": "mn_add_4",
+          "engine": "bounce",
+          "weight": 0.5,
+          "op": "diff",
+          "bypass": true,
+          "solo": false
+        }
+      ],
+      "timbre": {
+        "sine": 0.5,
+        "tri": 0.5,
+        "saw": 0.1,
+        "sqr": 0.1,
+        "rich": 0.3
+      },
+      "gainMode": "engine",
+      "gainEngineObj": {
+        "engine": "bounce",
+        "lastNonCustomEngine": "bounce",
+        "bounceN": 3,
+        "bounceK": 1.2,
+        "bounceP": 1.0,
+        "ampMin": 0.1,
+        "ampMax": 0.9,
+        "autoFit": true
+      }
+    },
+    {
+      "id": "v_cat_atan",
+      "name": "아크탄젠트 시그모이드 (Trig atan)",
+      "color": "#34d399",
+      "startTime": 6,
+      "duration": 12,
+      "baseGain": 0.35,
+      "f0Hz": 130.8128,
+      "f1Hz": 523.2511,
+      "engine": "trig",
+      "lastNonCustomEngine": "trig",
+      "trigFn": "atan",
+      "trigX0": -5,
+      "trigX1": 5,
+      "trigNorm": true,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.0,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.2
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.4,
+          "handles": []
+        },
+        {
+          "x": 0.5,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.3,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_cat_hand",
+      "name": "손으로 그린 궤적 (Custom spline)",
+      "color": "#fbbf24",
+      "startTime": 10,
+      "duration": 14,
+      "baseGain": 0.35,
+      "f0Hz": 195.9977,
+      "f1Hz": 587.3295,
+      "engine": "custom",
+      "lastNonCustomEngine": "harmonic",
+      "customPoints": [
+        {
+          "x": 0,
+          "y": 0,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.2
+            }
+          ]
+        },
+        {
+          "x": 0.25,
+          "y": 0.6,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.52
+            },
+            {
+              "u": 0.8,
+              "y": 0.46
+            }
+          ]
+        },
+        {
+          "x": 0.5,
+          "y": 0.35,
+          "handles": []
+        },
+        {
+          "x": 0.75,
+          "y": 1.08,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.78
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 1,
+          "handles": []
+        }
+      ],
+      "timbre": {
+        "sine": 0.5,
+        "tri": 0.5,
+        "saw": 0.0,
+        "sqr": 0.2,
+        "rich": 0.0
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.05,
+          "handles": []
+        },
+        {
+          "x": 0.2,
+          "y": 0.85,
+          "handles": []
+        },
+        {
+          "x": 0.8,
+          "y": 0.85,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.05,
+          "handles": []
+        }
+      ],
+      "regions": [
+        {
+          "id": "rg_cat_trig",
+          "t0": 0.3,
+          "t1": 0.6,
+          "mix": 1.0,
+          "timeMode": "local",
+          "ramp": "auto",
+          "rampSec": 0.06,
+          "gainDb": -4,
+          "mute": false,
+          "solo": false,
+          "curve": {
+            "engine": "trig",
+            "lastNonCustomEngine": "trig",
+            "trigFn": "sin",
+            "trigX0": 0,
+            "trigX1": 2,
+            "trigNorm": true,
+            "trigAmp": 1.2
+          }
+        }
+      ]
+    },
+    {
+      "id": "v_cat_bez",
+      "name": "베지에 오버슈트 (타악 음색은 함수파)",
+      "color": "#a78bfa",
+      "startTime": 14,
+      "duration": 10,
+      "baseGain": 0.3,
+      "f0Hz": 391.9954,
+      "f1Hz": 783.9909,
+      "engine": "bezier",
+      "lastNonCustomEngine": "bezier",
+      "bezX1": 0.8,
+      "bezY1": -0.4,
+      "bezX2": 0.2,
+      "bezY2": 1.4,
+      "gainUnit": "db",
+      "dbTaper": "daw",
+      "dbMin": -36,
+      "timbreMode": "func",
+      "timbreFunc": {
+        "source": "voice",
+        "expr": "",
+        "voiceId": "v_cat_atan"
+      },
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.2,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.0
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.1,
+          "handles": []
+        },
+        {
+          "x": 0.1,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.15,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v_cat_formula",
+      "name": "3변수 수식 (a·b·c)",
+      "color": "#fb923c",
+      "startTime": 18,
+      "duration": 12,
+      "baseGain": 0.32,
+      "f0Hz": 523.2511,
+      "f1Hz": 261.6256,
+      "engine": "formula",
+      "lastNonCustomEngine": "formula",
+      "formulaExpr": "t^a + b*sin(c*pi*t)*t*(1 - t)",
+      "formulaNorm": true,
+      "formulaVars": [
+        {
+          "name": "a",
+          "value": 1.6,
+          "min": 0.2,
+          "max": 4
+        },
+        {
+          "name": "b",
+          "value": 0.15,
+          "min": -1,
+          "max": 1
+        },
+        {
+          "name": "c",
+          "value": 5,
+          "min": 1,
+          "max": 20
+        }
+      ],
+      "timbre": {
+        "sine": 0.8,
+        "tri": 0.2,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.4
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.1,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_cat_poly",
+      "name": "4차 다항식 (Polynomial)",
+      "color": "#2dd4bf",
+      "startTime": 20,
+      "duration": 10,
+      "baseGain": 0.4,
+      "f0Hz": 97.9989,
+      "f1Hz": 391.9954,
+      "engine": "polynomial",
+      "lastNonCustomEngine": "polynomial",
+      "polyPoints": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 0.25,
+          "y": 0.65
+        },
+        {
+          "x": 0.5,
+          "y": 0.35
+        },
+        {
+          "x": 0.75,
+          "y": 0.95
+        },
+        {
+          "x": 1,
+          "y": 1
+        }
+      ],
+      "gainUnit": "sone",
+      "timbre": {
+        "sine": 0.4,
+        "tri": 0.3,
+        "saw": 0.5,
+        "sqr": 0.2,
+        "rich": 0.0
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.1,
+          "handles": []
+        },
+        {
+          "x": 0.4,
+          "y": 0.8,
+          "handles": [
+            {
+              "u": 0.5,
+              "y": 0.5
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": 0.05,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_cat_end1",
+      "name": "종지 1 (Plateau → 레가토)",
+      "color": "#f87171",
+      "startTime": 22,
+      "duration": 6,
+      "baseGain": 0.28,
+      "f0Hz": 783.9909,
+      "f1Hz": 1046.5023,
+      "engine": "plateau",
+      "lastNonCustomEngine": "plateau",
+      "platTm": 0.5,
+      "platYm": 0.3,
+      "platW": 0.4,
+      "timbre": {
+        "sine": 1.0,
+        "tri": 0.0,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.0
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.02,
+          "handles": []
+        },
+        {
+          "x": 0.3,
+          "y": 0.85,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.85,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_cat_end2",
+      "name": "종지 2 (부드러운 Ratchet)",
+      "color": "#38bdf8",
+      "startTime": 28,
+      "duration": 6,
+      "baseGain": 0.28,
+      "f0Hz": 1046.5023,
+      "f1Hz": 523.2511,
+      "engine": "ratchet",
+      "lastNonCustomEngine": "ratchet",
+      "ratN": 6,
+      "ratSig": 1.0,
+      "f1Fine": -18,
+      "timbre": {
+        "sine": 1.0,
+        "tri": 0.1,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.85,
+          "handles": []
+        },
+        {
+          "x": 0.5,
+          "y": 0.7,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0.02,
+          "handles": []
+        }
+      ]
+    }
+  ],
+  "activeVoiceId": "v_cat_morph",
+  "snapshots": [],
+  "studioParams": {
+    "glissando": {
+      "preset": "cluster",
+      "voiceCount": 6,
+      "centerNote": "C3",
+      "targetNote": "G4",
+      "spread": 24,
+      "stagger": 0.5,
+      "duration": 10,
+      "engine": "expo"
+    }
+  },
+  "manager": {
+    "instances": [],
+    "focus": {},
+    "cycleLoop": true,
+    "open": false,
+    "regions": []
+  }
+}

@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flexatone</title>
+
+  <!-- Tailwind CSS (CDN, zero-build) / 빌드 없는 Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<!--
+  Flexatone — Step 1 layout skeleton / 레이아웃 골격
+  - Pure markup + DOM mount IDs only. No inline behavior.
+    순수 마크업과 DOM 마운트 ID만 포함, 동작은 js/main.js 이하에서 연결.
+  - Elements with data-i18n="key" get their text from js/core/i18n.js (EN / KO).
+    data-i18n 속성이 있는 요소는 i18n.js 사전에서 텍스트를 교체합니다.
+-->
+<body class="min-h-screen bg-slate-950 text-slate-100 selection:bg-sky-500/30">
+  <div id="appRoot" class="w-full min-h-screen flex flex-col">
+
+    <!-- ===================================================================
+         HEADER & TRANSPORT / 상단 헤더 & 트랜스포트 바
+         =================================================================== -->
+    <header id="appHeader" class="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-3 py-2 sm:px-5">
+      <div class="max-w-[1800px] mx-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+
+        <!-- Brand + Studio Tabs / 로고 + 스튜디오 탭 -->
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+              <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 17c4 0 5-10 9-10s5 10 9 10" />
+              </svg>
+            </div>
+            <div class="leading-tight">
+              <h1 id="appTitle" class="text-base font-bold tracking-tight text-white">Flexatone</h1>
+              <p id="appSubtitle" class="text-[10px] text-slate-400 hidden sm:block" data-i18n="app.subtitle">Modular Trajectory &amp; Sound-Field Workstation</p>
+            </div>
+          </div>
+
+          <nav id="studioTabs" class="flex items-center rounded-lg bg-slate-950 border border-slate-800 p-0.5 text-xs" role="tablist" aria-label="Studios">
+            <button id="btnStudioGlissando" data-studio="glissando" role="tab" aria-selected="true" class="studio-tab is-active px-2.5 py-1 rounded-md font-semibold text-slate-300 hover:text-white transition">
+              <span data-i18n="studio.glissando">Glissando Studio</span>
+            </button>
+            <button id="btnStudioRisset" data-studio="risset" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.risset">Risset Studio</span>
+            </button>
+            <button id="btnStudioField" data-studio="field" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.field">Field Studio</span>
+            </button>
+            <button id="btnStudioDraw" data-studio="draw" data-help="app.studio.draw" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.draw">Draw Studio</span>
+            </button>
+            <button id="btnStudioCloud" data-studio="cloud" data-help="app.studio.cloud" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.cloud">Cloud Studio</span>
+            </button>
+            <button id="btnStudioSpace" data-studio="space" data-help="app.studio.space" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.space">Space Studio</span>
+            </button>
+            <button id="btnStudioTempo" data-studio="tempo" data-help="app.studio.tempo" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.tempo">Tempo Studio</span>
+            </button>
+            <button id="btnStudioChaos" data-studio="chaos" data-help="app.studio.chaos" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.chaos">Chaos Studio</span>
+            </button>
+            <button id="btnStudioFractal" data-studio="fractal" data-help="app.studio.fractal" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.fractal">Fractal Studio</span>
+            </button>
+            <button id="btnStudioWave" data-studio="wave" data-help="app.studio.wave" role="tab" aria-selected="false" class="studio-tab px-2.5 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+              <span data-i18n="studio.wave">Wave Studio</span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- Transport / 트랜스포트 -->
+        <div id="transportBar" class="flex flex-wrap items-center gap-1.5">
+          <button id="btnPlay" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition" title="Play / Pause (Space)">
+            <span id="icoPlay" aria-hidden="true">▶</span> <span id="lblPlay" data-i18n="transport.play">Play</span>
+          </button>
+          <button id="btnLoop" class="fx-toggle px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1 transition" aria-pressed="false" title="Loop (L)">
+            <span aria-hidden="true">↻</span> <span id="lblLoop" data-i18n="transport.loop">Loop</span>
+          </button>
+          <button id="btnStop" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/80 text-slate-200 hover:text-white border border-slate-700 text-xs font-medium flex items-center gap-1 transition" title="Stop">
+            <span aria-hidden="true">■</span> <span data-i18n="transport.stop">Stop</span>
+          </button>
+          <button id="btnCueReset" class="px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:bg-slate-800 text-xs font-mono text-amber-300 flex items-center gap-1 transition" title="Reset cue / playhead to 0">
+            <span aria-hidden="true">⏮</span> <span id="lblCueSec">0.00s</span>
+          </button>
+
+          <div class="h-5 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
+
+          <button id="btnUndo" disabled class="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 border border-slate-700 text-xs font-medium transition" title="Undo (Ctrl/⌘+Z)">
+            ↶ <span class="hidden md:inline" data-i18n="edit.undo">Undo</span>
+          </button>
+          <button id="btnRedo" disabled class="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 border border-slate-700 text-xs font-medium transition" title="Redo (Ctrl/⌘+Shift+Z)">
+            ↷ <span class="hidden md:inline" data-i18n="edit.redo">Redo</span>
+          </button>
+
+          <div class="h-5 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
+
+          <button id="btnScreenshot" class="px-2.5 py-1.5 rounded-lg bg-violet-600/90 hover:bg-violet-500 active:scale-95 text-white text-xs font-semibold flex items-center gap-1 transition">
+            <span aria-hidden="true">📸</span> <span data-i18n="io.screenshot">Screenshot</span>
+          </button>
+          <button id="btnNewProject" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition" title="New project">
+            📄 <span data-i18n="io.new">New</span>
+          </button>
+          <button id="btnSaveProject" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition" title="Save project (.json)">
+            💾 <span data-i18n="io.save">Save</span>
+          </button>
+          <button id="btnLoadProject" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition" title="Load project (.json)">
+            📂 <span data-i18n="io.load">Load</span>
+          </button>
+          <input id="fileLoadProject" type="file" accept=".json,application/json" class="hidden" />
+          <button id="btnExportWav" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-600/20 transition" title="Export 48 kHz / 16-bit WAV">
+            <span aria-hidden="true">⬇</span> <span data-i18n="io.exportWav">Export WAV</span>
+          </button>
+        </div>
+
+        <!-- View prefs: language, layout, UI zoom / 언어 · 레이아웃 · UI 배율 -->
+        <div id="viewPrefsBar" class="flex flex-wrap items-center gap-1.5">
+          <button id="btnLangToggle" class="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:bg-slate-800 text-[11px] font-semibold text-slate-200 transition" title="Language / 언어">
+            <span id="lblLang">EN</span><span class="text-slate-500"> / </span><span class="text-slate-400">한국어</span>
+          </button>
+          <button id="btnLayoutToggle" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-medium transition" title="Toggle Landscape / Portrait">
+            ⇄ <span id="lblLayout" data-i18n="view.landscape">Landscape</span>
+          </button>
+          <button id="btnLayoutReset" data-help="app.layoutReset" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-xs font-medium transition" title="Put every moved block back (positions only)">
+            ▦ <span data-i18n="view.layoutReset">Default layout</span>
+          </button>
+          <div class="flex items-center rounded-lg bg-slate-950 border border-slate-800 px-1 py-0.5 text-xs" title="UI Zoom (%)">
+            <button id="btnZoomOut" class="w-6 h-6 rounded text-slate-400 hover:text-white hover:bg-slate-800 font-bold transition" aria-label="UI zoom out">−</button>
+            <input id="inputUiZoom" type="number" min="40" max="200" step="10" value="100" class="w-14 bg-transparent text-center font-mono text-[11px] text-slate-200 focus:outline-none" aria-label="UI zoom percent" />
+            <span class="text-[10px] text-slate-500 pr-0.5">%</span>
+            <button id="btnZoomIn" class="w-6 h-6 rounded text-slate-400 hover:text-white hover:bg-slate-800 font-bold transition" aria-label="UI zoom in">+</button>
+          </div>
+          <button id="btnHelpMode" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-violet-200 border border-slate-700 text-xs font-semibold transition" aria-pressed="false" title="Help (H)">
+            <span aria-hidden="true">?</span> <span data-i18n="help.button">Help</span>
+          </button>
+          <button id="btnManager" class="mgr-launch-btn" aria-pressed="false" title="Manager (M)">
+            <span aria-hidden="true">⧉</span> <span data-i18n="mgr.button">Manager</span> <span id="mgrBadge" class="mgr-badge hidden"></span>
+          </button>
+        </div>
+      </div>
+      <!-- Output stage strip (filled by js/ui/output-panel.js) / 출력 단계 -->
+      <div id="outputStrip" class="max-w-[1800px] mx-auto mt-2"></div>
+    </header>
+
+    <!-- Toast / 알림 배너 -->
+    <div id="toastBanner" role="status" aria-live="polite" class="fixed bottom-4 right-4 z-50 hidden max-w-sm px-4 py-2.5 rounded-xl bg-slate-900/95 border border-sky-500/50 text-xs text-slate-100 shadow-2xl backdrop-blur"></div>
+
+    <!-- ===================================================================
+         WORKSPACE / 작업 영역
+         =================================================================== -->
+    <main id="workspaceContainer" class="flex-1 max-w-[1800px] w-full mx-auto p-3 sm:p-4 flex flex-col gap-3">
+
+      <!-- Studio mount for non-Glissando studios (filled by js/studios/*)
+           글리산도 외 스튜디오 마운트 슬롯 -->
+      <!-- Output analyzer bands (scrolls with the page) / 출력 분석 대역 -->
+      <section id="outputBandsHost" class="hidden"></section>
+
+      <section id="studioMount" class="hidden"></section>
+
+      <!-- ---------------- Multi-Voice Grapher strip / 멀티 보이스 그래퍼 ---------------- -->
+      <section id="voiceGrapherStrip" class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-sky-400" data-i18n="grapher.title" data-help="gliss.grapher">Multi-Voice Grapher</span>
+            <span id="voiceCountBadge" class="px-2 py-0.5 rounded-full bg-slate-800 text-[11px] font-mono text-slate-300">1</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button id="btnAddVoice" class="px-2.5 py-1 rounded-lg bg-sky-600/90 hover:bg-sky-500 text-white text-xs font-semibold transition">
+              + <span data-i18n="grapher.add">Add Voice</span>
+            </button>
+            <button id="btnDupVoice" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition">
+              ⧉ <span data-i18n="grapher.duplicate">Duplicate</span>
+            </button>
+            <button id="btnDelVoice" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-600/80 text-slate-200 hover:text-white border border-slate-700 text-xs font-medium transition">
+              ✕ <span data-i18n="grapher.delete">Delete</span>
+            </button>
+            <button id="btnToggleMatrix" class="fx-toggle px-2.5 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 text-xs font-semibold transition" aria-expanded="false" aria-controls="unifiedMatrixPanel">
+              ▦ <span data-i18n="grapher.matrix">Unified Matrix</span>
+            </button>
+            <button id="btnLegatoJoin" class="fx-toggle is-active px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold transition" aria-pressed="true" title="Back-to-back voices share one phase-continuous oscillator (removes the click at the junction)">
+              🔗 <span data-i18n="legato.join">Legato Join</span>
+            </button>
+            <label class="flex items-center gap-1 text-[11px] text-slate-400">
+              <span data-i18n="legato.glide">Junction glide (ms)</span>
+              <input id="inputJoinGlide" type="number" min="0" max="200" step="1" value="12" class="w-14 px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700 text-right font-mono text-[11px] text-slate-200" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Voice cards (rendered by ui/panels.js) / 보이스 카드 -->
+        <div id="voiceCardsContainer" class="flex flex-wrap gap-2"></div>
+
+        <!-- Unified Pitch/Time/Gain matrix / 통합 매트릭스 -->
+        <div id="unifiedMatrixPanel" class="hidden border-t border-slate-800 pt-2.5 overflow-x-auto custom-scroll">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="text-[11px] text-slate-400 border-b border-slate-800">
+                <th class="py-1.5 px-2" data-i18n="matrix.voice">Voice</th>
+                <th class="py-1.5 px-2" data-i18n="matrix.engine">Curve Engine</th>
+                <th class="py-1.5 px-2" data-i18n="matrix.f0">F₀</th>
+                <th class="py-1.5 px-2" data-i18n="matrix.f1">F₁</th>
+                <th class="py-1.5 px-2" data-i18n="matrix.start">Start (s)</th>
+                <th class="py-1.5 px-2" data-i18n="matrix.duration">Duration (s)</th>
+                <th class="py-1.5 px-2" data-i18n="matrix.gain">Base Gain</th>
+                <th class="py-1.5 px-2 text-center" data-i18n="matrix.soloMute">S / M</th>
+              </tr>
+            </thead>
+            <tbody id="unifiedMatrixBody" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ---------------- Main split grid / 메인 분할 그리드 ---------------- -->
+      <div id="mainSplitGrid" class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+
+        <!-- ============ LEFT: canvases / 좌측 캔버스 컬럼 ============ -->
+        <div id="leftCanvasCol" class="lg:col-span-7 flex flex-col gap-3 min-w-0">
+
+          <!-- Main trajectory canvas card / 메인 궤적 캔버스 -->
+          <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+            <!-- Toolbar / 툴바 -->
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <div class="flex rounded-lg bg-slate-950 border border-slate-800 p-0.5 text-xs" role="group" aria-label="View">
+                  <button id="btnViewPiano" class="px-2.5 py-1 rounded-md bg-sky-600 text-white font-semibold transition" aria-pressed="true">
+                    🎹 <span data-i18n="view.piano">Piano-Roll</span>
+                  </button>
+                  <button id="btnViewNorm" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white font-medium transition" aria-pressed="false">
+                    📐 <span data-i18n="view.norm">0–1 Norm</span>
+                  </button>
+                </div>
+
+                <label class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs">
+                  <span class="text-slate-400 text-[11px]" data-i18n="view.grid">Grid</span>
+                  <select id="selectGridSub" class="bg-transparent text-slate-200 font-mono text-xs focus:outline-none">
+                    <option value="0">Off</option>
+                    <option value="4">4</option>
+                    <option value="8">8</option>
+                    <option value="12">12</option>
+                    <option value="16" selected>16</option>
+                    <option value="24">24</option>
+                    <option value="32">32</option>
+                  </select>
+                </label>
+
+                <button id="btnLocateMode" class="fx-toggle px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white text-xs font-medium transition" aria-pressed="false" title="Drag curve body / endpoints to move & stretch">
+                  ✥ <span data-i18n="view.locate">Locate</span>
+                </button>
+                <button id="btnSelectMode" class="fx-toggle px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white text-xs font-medium transition" aria-pressed="false" title="Select a local time range of the active voice (drag on the canvas)">
+                  ⬚ <span data-i18n="view.select">Select</span>
+                </button>
+                <button id="btnLocateSnap" class="fx-toggle is-active px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white text-xs font-medium transition" aria-pressed="true" title="Snap to semitone / 0.1 s">
+                  🧲 <span data-i18n="view.snap">Snap</span>
+                </button>
+                <button id="btnScrubAudio" class="fx-toggle px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white text-xs font-medium transition" aria-pressed="false" title="Audition while dragging the playhead">
+                  🔊 <span data-i18n="view.scrub">Scrub</span>
+                </button>
+                <button id="btnShowDeriv" class="fx-toggle px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white text-xs font-medium transition" aria-pressed="false" title="Overlay derivative f′(t)">
+                  📈 <span data-i18n="view.deriv">f′(t)</span>
+                </button>
+              </div>
+
+              <!-- Axis / proportional zoom / 축별 · 비례 줌 -->
+              <div class="flex flex-wrap items-center gap-1.5 text-xs">
+                <div class="flex items-center rounded-lg bg-slate-950 border border-slate-800 px-1.5 py-0.5 gap-1">
+                  <span class="text-[10px] font-semibold text-sky-400" data-i18n="zoom.pitch">Pitch</span>
+                  <button id="btnPitchZoomOut" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 font-bold leading-none transition" title="Zoom out pitch (Y)">−</button>
+                  <button id="btnPitchZoomIn" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 font-bold leading-none transition" title="Zoom in pitch (Y)">+</button>
+                </div>
+                <div class="flex items-center rounded-lg bg-slate-950 border border-slate-800 px-1.5 py-0.5 gap-1">
+                  <span class="text-[10px] font-semibold text-emerald-400" data-i18n="zoom.time">Time</span>
+                  <button id="btnTimeZoomOut" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 font-bold leading-none transition" title="Zoom out time (X)">−</button>
+                  <button id="btnTimeZoomIn" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 font-bold leading-none transition" title="Zoom in time (X)">+</button>
+                </div>
+                <div class="flex items-center rounded-lg bg-slate-950 border border-slate-800 px-1.5 py-0.5 gap-1">
+                  <span class="text-[10px] font-semibold text-violet-400" data-i18n="zoom.both">X+Y</span>
+                  <button id="btnCornerZoomOut" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 font-bold leading-none transition" title="Proportional zoom out">−</button>
+                  <button id="btnCornerZoomIn" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 font-bold leading-none transition" title="Proportional zoom in">+</button>
+                </div>
+                <button id="btnFitAll" class="px-2.5 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 border border-sky-500/30 font-semibold transition">
+                  <span data-i18n="zoom.fit">Fit All</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Canvas + HUD / 캔버스 + HUD -->
+            <div id="mainCanvasWrapper" class="relative w-full h-[360px] sm:h-[440px] rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+              <canvas id="mainCanvas" class="w-full h-full block"></canvas>
+
+              <div id="canvasHud" class="pointer-events-none absolute top-2.5 right-2.5 bg-slate-950/85 backdrop-blur border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-slate-200 flex flex-col gap-0.5 shadow-lg min-w-[150px]">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-slate-400" data-i18n="hud.time">Time</span>
+                  <span id="hudTime" class="text-sky-300 font-semibold tabular-nums">0.00s</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-slate-400" data-i18n="hud.note">Note</span>
+                  <span id="hudNote" class="text-emerald-300 font-semibold">C4 +0¢</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-slate-400" data-i18n="hud.hz">Hz</span>
+                  <span id="hudHz" class="text-amber-300 font-semibold tabular-nums">261.63</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-slate-400" data-i18n="hud.norm">Norm y</span>
+                  <span id="hudNorm" class="tabular-nums">0.000</span>
+                </div>
+                <div id="hudRetroBadge" class="hidden mt-1 px-1.5 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-300 text-[10px] text-center">
+                  ↺ <span data-i18n="hud.retro">Retrograde</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- [function] gain envelope / 볼륨 엔벨로프 -->
+          <section id="gainSection" class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-emerald-400" data-i18n="gain.title">[function] Gain Envelope</span>
+                <div class="flex rounded-md bg-slate-950 border border-slate-800 p-0.5 text-[11px]" role="group">
+                  <button id="btnGainModePoints" class="px-2 py-0.5 rounded bg-emerald-600 text-white font-semibold transition" aria-pressed="true"><span data-i18n="gain.points">Points</span></button>
+                  <button id="btnGainModeEngine" class="px-2 py-0.5 rounded text-slate-400 hover:text-white font-medium transition" aria-pressed="false"><span data-i18n="gain.engine">Engine</span></button>
+                </div>
+                <div id="gainUnitGroup" class="flex items-center rounded-md bg-slate-950 border border-slate-800 p-0.5 text-[11px]" role="group" aria-label="Envelope unit">
+                  <button id="btnGainUnitAmp" class="px-1.5 py-0.5 rounded text-slate-400 hover:text-white font-medium transition" aria-pressed="false"><span data-i18n="gain.unit.amp">Amp</span></button>
+                  <button id="btnGainUnitDb" class="px-1.5 py-0.5 rounded text-slate-400 hover:text-white font-medium transition" aria-pressed="false">dB</button>
+                  <button id="btnGainUnitSone" class="px-1.5 py-0.5 rounded text-slate-400 hover:text-white font-medium transition" aria-pressed="false">Sone</button>
+                </div>
+                <div id="gainDbOpts" class="hidden flex items-center gap-1 text-[10px] text-slate-400 whitespace-nowrap">
+                  <button id="btnGainTaper" class="whitespace-nowrap px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-mono text-emerald-300 transition">A</button>
+                  <span data-i18n="gain.dbMin">dB min</span>
+                  <input id="inputGainDbMin" type="number" min="-120" max="-12" step="1" value="-60" class="w-12 px-1 py-0.5 rounded bg-slate-900 border border-slate-700 text-right font-mono text-[10px]" />
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span id="gainHoverHud" class="min-w-[200px] text-center whitespace-nowrap tabular-nums px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[10px] font-mono text-emerald-300/90">t: --.--s · y: -.-- · dB: --.-</span>
+                <div class="flex flex-wrap items-center gap-1">
+                  <button id="btnGainReset" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 transition"><span data-i18n="gain.reset">Flat</span></button>
+                  <button id="btnGainCresc" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 transition"><span data-i18n="gain.cresc">Cresc.</span></button>
+                  <button id="btnGainDecresc" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 transition"><span data-i18n="gain.decresc">Decresc.</span></button>
+                  <button id="btnGainSwell" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 transition"><span data-i18n="gain.swell">Swell</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="w-full h-[130px] rounded-lg overflow-hidden border border-slate-800 bg-slate-950">
+              <canvas id="gainCanvas" class="w-full h-full block"></canvas>
+            </div>
+            <p class="text-[10px] text-slate-500 hidden sm:block" data-i18n="gain.hint">Dbl-click: add point · Drag: move · Right-click: delete</p>
+          </section>
+
+          <!-- Tremolo / 트레몰로 (periodic amplitude modulation) -->
+          <section id="tremoloMount" class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2"></section>
+        </div>
+
+        <!-- ============ RIGHT: controls / 우측 컨트롤 컬럼 ============ -->
+        <div id="rightControlCol" class="lg:col-span-5 flex flex-col gap-3 min-w-0">
+
+          <!-- Local region (Select tool) / 로컬 구간 (선택 도구) — rendered by ui/panels.js -->
+          <section id="regionPanel" class="hidden bg-slate-900/90 border border-amber-500/30 rounded-xl p-3 flex flex-col gap-2"></section>
+
+          <!-- Curve engine rack / 곡선 엔진 랙 -->
+          <section id="engineRackSection" class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-sky-400" data-i18n="engine.title">Curve Engine</span>
+                <div class="flex rounded-lg bg-slate-950 border border-slate-800 p-0.5 text-[11px]" role="group" aria-label="Engine target">
+                  <button id="btnTargetCurve" class="px-2 py-0.5 rounded bg-sky-600 text-white font-semibold transition" aria-pressed="true"><span data-i18n="engine.targetCurve">Pitch</span></button>
+                  <button id="btnTargetAmp" class="px-2 py-0.5 rounded text-slate-400 hover:text-white font-medium transition" aria-pressed="false"><span data-i18n="engine.targetAmp">Amplitude</span></button>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button id="btnReverse" class="fx-toggle px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-xs font-medium transition" aria-pressed="false" title="f(1 − t)">
+                  ⇄ <span data-i18n="engine.reverse">Reverse</span>
+                </button>
+                <button id="btnInverse" class="fx-toggle px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-xs font-medium transition" aria-pressed="false" title="1 − f(t)">
+                  ⇅ <span data-i18n="engine.inverse">Inverse</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Amplitude range (visible when target = Amplitude) / 진폭 범위 -->
+            <div id="ampRangeControls" class="hidden grid grid-cols-3 gap-2 bg-slate-950/90 border border-emerald-800/50 rounded-lg p-2 text-[11px]">
+              <label class="flex flex-col gap-0.5">
+                <span class="text-slate-400" data-i18n="engine.ampMin">Amp Min</span>
+                <input id="inputAmpMin" type="number" min="0" max="1" step="0.01" value="0" class="px-1.5 py-1 rounded bg-slate-900 border border-slate-700 font-mono text-xs" />
+              </label>
+              <label class="flex flex-col gap-0.5">
+                <span class="text-slate-400" data-i18n="engine.ampMax">Amp Max</span>
+                <input id="inputAmpMax" type="number" min="0" max="1" step="0.01" value="1" class="px-1.5 py-1 rounded bg-slate-900 border border-slate-700 font-mono text-xs" />
+              </label>
+              <div class="flex items-end">
+                <button id="btnAmpAutoFit" class="fx-toggle w-full px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 text-xs transition" aria-pressed="false"><span data-i18n="engine.autoFit">Auto-Fit</span></button>
+              </div>
+            </div>
+
+            <!-- Engine tabs + dynamic param rack (rendered by ui/panels.js) -->
+            <div id="engineTabs" class="grid grid-cols-3 sm:grid-cols-4 gap-1" role="tablist" aria-label="Curve engines"></div>
+            <div id="paramRack" class="bg-slate-950/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5 min-h-[120px]"></div>
+          </section>
+
+          <!-- Pitch / timing / scale mapping / 피치 · 타이밍 · 스케일 매핑 -->
+          <section id="pitchTimingSection" class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="text-xs font-bold uppercase tracking-wider text-amber-400" data-i18n="pitch.title">Pitch &amp; Timing</span>
+              <div class="flex flex-wrap items-center gap-1.5">
+                <button id="btnGroupApply" class="fx-toggle px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 text-[11px] font-medium transition" aria-pressed="false" title="Apply edits to all selected voices">
+                  👥 <span data-i18n="pitch.groupApply">Group Apply</span>
+                </button>
+                <div class="flex rounded-lg bg-slate-950 border border-slate-800 p-0.5 text-[11px]" role="group" aria-label="Frequency scale">
+                  <button id="btnScaleLog" class="px-2 py-0.5 rounded bg-amber-600 text-white font-semibold transition" aria-pressed="true"><span data-i18n="pitch.log">Log</span></button>
+                  <button id="btnScaleLin" class="px-2 py-0.5 rounded text-slate-400 hover:text-white transition" aria-pressed="false"><span data-i18n="pitch.lin">Linear Hz</span></button>
+                </div>
+                <div class="flex rounded-lg bg-slate-950 border border-slate-800 p-0.5 text-[11px]" role="group" aria-label="Audio target">
+                  <button id="btnAudioPos" class="px-2 py-0.5 rounded bg-sky-600 text-white font-semibold transition" aria-pressed="true">f(t)</button>
+                  <button id="btnAudioVel" class="px-2 py-0.5 rounded text-slate-400 hover:text-white transition" aria-pressed="false">f′(t)</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- F0 / F1 cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div class="bg-slate-950/90 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-sky-300" data-i18n="pitch.f0">Start F₀</span>
+                  <input id="inputF0Note" type="text" value="C3" spellcheck="false" class="w-16 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-center font-mono text-xs text-white focus:border-sky-500 focus:outline-none" aria-label="F0 note name" />
+                </div>
+                <input id="sliderF0Midi" type="range" min="21" max="108" step="1" value="48" class="w-full" aria-label="F0 MIDI" />
+                <div class="grid grid-cols-2 gap-1.5">
+                  <label class="flex flex-col gap-0.5">
+                    <span class="text-slate-400 text-[10px]">Hz</span>
+                    <input id="inputF0Hz" type="number" step="0.01" min="15" max="16000" value="130.81" class="w-full px-1.5 py-1 rounded bg-slate-900 border border-slate-700 font-mono text-xs" />
+                  </label>
+                  <label class="flex flex-col gap-0.5">
+                    <span class="text-slate-400 text-[10px]" data-i18n="pitch.fine">Fine (¢)</span>
+                    <input id="inputF0Fine" type="number" step="1" min="-100" max="100" value="0" class="w-full px-1.5 py-1 rounded bg-slate-900 border border-slate-700 font-mono text-xs" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="bg-slate-950/90 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-emerald-300" data-i18n="pitch.f1">Target F₁</span>
+                  <input id="inputF1Note" type="text" value="C5" spellcheck="false" class="w-16 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-center font-mono text-xs text-white focus:border-emerald-500 focus:outline-none" aria-label="F1 note name" />
+                </div>
+                <input id="sliderF1Midi" type="range" min="21" max="108" step="1" value="72" class="w-full accent-emerald" aria-label="F1 MIDI" />
+                <div class="grid grid-cols-2 gap-1.5">
+                  <label class="flex flex-col gap-0.5">
+                    <span class="text-slate-400 text-[10px]">Hz</span>
+                    <input id="inputF1Hz" type="number" step="0.01" min="15" max="16000" value="523.25" class="w-full px-1.5 py-1 rounded bg-slate-900 border border-slate-700 font-mono text-xs" />
+                  </label>
+                  <label class="flex flex-col gap-0.5">
+                    <span class="text-slate-400 text-[10px]" data-i18n="pitch.fine">Fine (¢)</span>
+                    <input id="inputF1Fine" type="number" step="1" min="-100" max="100" value="0" class="w-full px-1.5 py-1 rounded bg-slate-900 border border-slate-700 font-mono text-xs" />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Start / Duration / Base Gain -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-950/90 border border-slate-800 rounded-xl p-2.5 text-xs">
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-slate-400" data-i18n="timing.start">Start (s)</span>
+                  <input id="inputStart" type="number" min="0" max="300" step="0.1" value="0" class="w-16 px-1 py-0.5 rounded bg-slate-900 border border-slate-700 text-right font-mono text-xs" />
+                </div>
+                <input id="sliderStart" type="range" min="0" max="300" step="0.1" value="0" class="w-full" aria-label="Start time" />
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center justify-between gap-1">
+                  <button id="btnToggleDurMode" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] text-amber-300 transition" title="Toggle Duration / End time">
+                    <span id="lblDurMode" data-i18n="timing.duration">Duration (s)</span> ⇆
+                  </button>
+                  <input id="inputDuration" type="number" min="0.05" max="300" step="0.1" value="2.5" class="w-16 px-1 py-0.5 rounded bg-slate-900 border border-slate-700 text-right font-mono text-xs" />
+                </div>
+                <input id="sliderDuration" type="range" min="0.05" max="300" step="0.05" value="2.5" class="w-full accent-amber" aria-label="Duration" />
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="text-slate-400" data-i18n="timing.baseGain">Base Gain</span>
+                  <input id="inputBaseGain" type="number" min="0" max="1.5" step="0.01" value="0.85" class="w-16 px-1 py-0.5 rounded bg-slate-900 border border-slate-700 text-right font-mono text-xs" />
+                </div>
+                <input id="sliderBaseGain" type="range" min="0" max="1.5" step="0.01" value="0.85" class="w-full accent-emerald" aria-label="Base gain" />
+              </div>
+            </div>
+          </section>
+
+          <!-- Additive timbre mixer / 가산 음색 믹서 -->
+          <section id="timbreSection" class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold uppercase tracking-wider text-violet-400" data-i18n="timbre.title">Additive Timbre</span>
+              <div class="flex rounded-lg bg-slate-950 border border-slate-800 p-0.5 text-[11px]" role="group" aria-label="Timbre mode">
+                <button id="btnTimbreMix" class="px-2 py-0.5 rounded bg-violet-600 text-white font-semibold transition" aria-pressed="true"><span data-i18n="timbre.mix">Mix</span></button>
+                <button id="btnTimbreFunc" class="px-2 py-0.5 rounded text-slate-400 hover:text-white transition" aria-pressed="false">f(x)</button>
+                <button id="btnTimbreSample" class="px-2 py-0.5 rounded text-slate-400 hover:text-white transition" aria-pressed="false"><span data-i18n="timbre.sample">Sample</span></button>
+              </div>
+            </div>
+
+            <!-- 5-wave mixer / 5파형 슬라이더 -->
+            <div id="timbreMixPanel" class="grid grid-cols-5 gap-2">
+              <label class="flex flex-col items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-lg p-2">
+                <span class="text-[10px] font-semibold text-sky-300" data-i18n="timbre.sine">Sine</span>
+                <input id="sliderTimbreSine" data-wave="sine" type="range" min="0" max="1" step="0.01" value="0.75" class="w-full" />
+                <span id="valTimbreSine" class="text-[10px] font-mono text-slate-400 tabular-nums">0.75</span>
+              </label>
+              <label class="flex flex-col items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-lg p-2">
+                <span class="text-[10px] font-semibold text-emerald-300" data-i18n="timbre.tri">Tri</span>
+                <input id="sliderTimbreTri" data-wave="tri" type="range" min="0" max="1" step="0.01" value="0.25" class="w-full accent-emerald" />
+                <span id="valTimbreTri" class="text-[10px] font-mono text-slate-400 tabular-nums">0.25</span>
+              </label>
+              <label class="flex flex-col items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-lg p-2">
+                <span class="text-[10px] font-semibold text-amber-300" data-i18n="timbre.saw">Saw</span>
+                <input id="sliderTimbreSaw" data-wave="saw" type="range" min="0" max="1" step="0.01" value="0.12" class="w-full accent-amber" />
+                <span id="valTimbreSaw" class="text-[10px] font-mono text-slate-400 tabular-nums">0.12</span>
+              </label>
+              <label class="flex flex-col items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-lg p-2">
+                <span class="text-[10px] font-semibold text-rose-300" data-i18n="timbre.sqr">Square</span>
+                <input id="sliderTimbreSqr" data-wave="sqr" type="range" min="0" max="1" step="0.01" value="0.05" class="w-full accent-rose" />
+                <span id="valTimbreSqr" class="text-[10px] font-mono text-slate-400 tabular-nums">0.05</span>
+              </label>
+              <label class="flex flex-col items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-lg p-2">
+                <span class="text-[10px] font-semibold text-violet-300" data-i18n="timbre.rich">Rich</span>
+                <input id="sliderTimbreRich" data-wave="rich" type="range" min="0" max="1" step="0.01" value="0.20" class="w-full accent-violet" />
+                <span id="valTimbreRich" class="text-[10px] font-mono text-slate-400 tabular-nums">0.20</span>
+              </label>
+            </div>
+
+            <!-- f(x) waveform panel / 함수 파형 패널 -->
+            <div id="timbreFuncPanel" class="hidden flex flex-col gap-2 bg-slate-950/90 border border-slate-800 rounded-lg p-2.5 text-xs">
+              <div class="flex flex-wrap items-center gap-2">
+                <label class="flex items-center gap-1">
+                  <span class="text-slate-400 text-[11px]" data-i18n="timbre.source">Source</span>
+                  <select id="selectTimbreSource" class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs">
+                    <option value="formula" data-i18n="timbre.srcFormula">Formula</option>
+                    <option value="voice" data-i18n="timbre.srcVoice">Voice curve</option>
+                  </select>
+                </label>
+                <select id="selectTimbreVoice" class="hidden bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs" aria-label="Source voice"></select>
+              </div>
+              <input id="inputTimbreExpr" type="text" spellcheck="false" value="sin(2*pi*x) + 0.35*sin(6*pi*x)" class="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 font-mono text-xs focus:border-violet-500 focus:outline-none" aria-label="Waveform expression f(x)" />
+              <div class="w-full h-[70px] rounded border border-slate-800 bg-slate-950 overflow-hidden">
+                <canvas id="timbreFuncCanvas" class="w-full h-full block"></canvas>
+              </div>
+              <p id="timbreFuncError" class="hidden text-[10px] text-rose-400 font-mono"></p>
+            </div>
+
+            <!-- Per-voice Sampler (ui/sample-editor.js mounts here) / 보이스별 샘플러 -->
+            <div id="timbreSamplePanel" class="hidden"></div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ---------------- Version gallery / 버전 갤러리 ---------------- -->
+      <section id="versionGallerySection" class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-violet-300" data-i18n="ver.title" data-help="gliss.versions">Version Gallery</span>
+            <span id="verCountBadge" class="text-[11px] font-mono text-slate-400">0</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-slate-400" data-i18n="ver.shotMode">Screenshot</span>
+            <div class="flex rounded-lg bg-slate-950 border border-slate-800 p-0.5 text-[11px]" role="group" aria-label="Screenshot mode">
+              <button id="btnShotFull" class="px-2 py-0.5 rounded bg-violet-600 text-white font-semibold transition" aria-pressed="true"><span data-i18n="ver.modeFull">Full</span></button>
+              <button id="btnShotClean" class="px-2 py-0.5 rounded text-slate-400 hover:text-white transition" aria-pressed="false"><span data-i18n="ver.modeClean">Axes + lines</span></button>
+            </div>
+            <button id="btnShotSvg" class="hidden px-2 py-0.5 rounded-lg border border-slate-700 bg-slate-800 text-[11px] text-slate-300 hover:text-white transition" aria-pressed="false">SVG</button>
+            <button id="btnClearVersions" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-600/80 text-[11px] text-slate-300 hover:text-white border border-slate-700 transition">
+              <span data-i18n="ver.clear">Clear All</span>
+            </button>
+          </div>
+        </div>
+        <div id="versionGrid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
+          <p id="versionEmpty" class="col-span-full text-xs text-slate-500 py-3 px-1" data-i18n="ver.empty">Press “Screenshot” to save the graph as a PNG; a restorable Version is stored with it.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- App entry (ES module, zero-build) / 앱 진입점 -->
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

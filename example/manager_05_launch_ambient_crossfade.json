@@ -1,0 +1,302 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-21T00:00:00.000Z",
+  "title": "Launch ambient & crossfades / 런치 앰비언트 · 크로스페이드",
+  "description": "A 24 s one-shot cycle (Loop cycle off) where long fade-ins/outs overlap into crossfades: Drone → Cloud A → Cloud B, Bells on top. \"Wind\" is outside the cycle: Launch it any time. \"Alt cloud\" is muted — swap it in with M. / 긴 페이드가 겹치는 24초 1회 사이클, Wind는 런치용, Alt cloud는 뮤트된 대안.",
+  "prefs": {
+    "studio": "glissando"
+  },
+  "viewport": {
+    "midiMin": 36,
+    "midiMax": 90,
+    "timeMin": 0,
+    "timeMax": 8
+  },
+  "voices": [
+    {
+      "id": "v_a5a",
+      "name": "Drone low",
+      "color": "#38bdf8",
+      "f0Midi": 38,
+      "f1Midi": 38,
+      "f0Hz": 73.42,
+      "f1Hz": 73.42,
+      "startTime": 0.0,
+      "duration": 8.0,
+      "engine": "plateau",
+      "baseGain": 0.5,
+      "timbre": {
+        "sine": 0.6,
+        "tri": 0.5,
+        "saw": 0.0,
+        "sqr": 0.35,
+        "rich": 0.05
+      }
+    },
+    {
+      "id": "v_a5b",
+      "name": "Drone fifth",
+      "color": "#a78bfa",
+      "f0Midi": 45,
+      "f1Midi": 45,
+      "f0Hz": 110.0,
+      "f1Hz": 110.0,
+      "startTime": 0.0,
+      "duration": 8.0,
+      "engine": "plateau",
+      "baseGain": 0.35,
+      "timbre": {
+        "sine": 0.6,
+        "tri": 0.5,
+        "saw": 0.0,
+        "sqr": 0.35,
+        "rich": 0.05
+      }
+    }
+  ],
+  "activeVoiceId": "v_a5a",
+  "versions": [],
+  "studioParams": {
+    "risset": {
+      "rateHz": 0.015,
+      "voiceCount": 14,
+      "baseMidi": 40,
+      "spanSemitones": 60,
+      "envWidth": 0.4,
+      "masterGain": 0.6
+    },
+    "field": {
+      "voices": [
+        {
+          "id": "pv_a5a",
+          "name": "Gust 1",
+          "color": "#34d399",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 60,
+          "f1Midi": 67,
+          "startTime": 0.0,
+          "duration": 4.0,
+          "baseGain": 0.6,
+          "mass": 1.0,
+          "drag": 3.8,
+          "launchAngle": 15,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.0,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.9,
+            "tri": 0.3,
+            "saw": 0.05,
+            "sqr": 0.0,
+            "rich": 0.1
+          }
+        },
+        {
+          "id": "pv_a5b",
+          "name": "Gust 2",
+          "color": "#2dd4bf",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 64,
+          "f1Midi": 57,
+          "startTime": 1.0,
+          "duration": 3.5,
+          "baseGain": 0.5,
+          "mass": 1.6,
+          "drag": 3.8,
+          "launchAngle": -15,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": -0.35,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.9,
+            "tri": 0.3,
+            "saw": 0.05,
+            "sqr": 0.0,
+            "rich": 0.1
+          }
+        }
+      ],
+      "activeVoiceId": "pv_a5a",
+      "turbulence": 0.7
+    }
+  },
+  "manager": {
+    "instances": [
+      {
+        "id": "in_a5_g1",
+        "studio": "glissando",
+        "name": "Drone",
+        "color": "#38bdf8",
+        "doc": null,
+        "gainDb": -10,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 24,
+        "loop": true,
+        "fadeIn": 3.0,
+        "fadeOut": 4.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_a5_r1",
+        "studio": "risset",
+        "name": "Cloud A",
+        "color": "#a78bfa",
+        "doc": null,
+        "gainDb": -6,
+        "mute": false,
+        "solo": false,
+        "start": 2,
+        "length": 12,
+        "loop": true,
+        "fadeIn": 4.0,
+        "fadeOut": 4.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_a5_r2",
+        "studio": "risset",
+        "name": "Cloud B",
+        "color": "#f472b6",
+        "doc": {
+          "rateHz": -0.02,
+          "voiceCount": 14,
+          "baseMidi": 47,
+          "spanSemitones": 60,
+          "gridMode": "fixed",
+          "fixedStep": 5,
+          "envWidth": 0.4,
+          "masterGain": 0.6
+        },
+        "gainDb": -6,
+        "mute": false,
+        "solo": false,
+        "start": 10,
+        "length": 14,
+        "loop": true,
+        "fadeIn": 4.0,
+        "fadeOut": 5.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_a5_g2",
+        "studio": "glissando",
+        "name": "Bells",
+        "color": "#fbbf24",
+        "doc": {
+          "voices": [
+            {
+              "id": "v_a5c",
+              "name": "Bell 1",
+              "color": "#fbbf24",
+              "f0Midi": 76,
+              "f1Midi": 72,
+              "f0Hz": 659.26,
+              "f1Hz": 523.25,
+              "startTime": 0.0,
+              "duration": 1.5,
+              "engine": "damped",
+              "baseGain": 0.4,
+              "timbre": {
+                "sine": 0.5,
+                "tri": 0.2,
+                "saw": 0.45,
+                "sqr": 0.1,
+                "rich": 0.4
+              }
+            },
+            {
+              "id": "v_a5d",
+              "name": "Bell 2",
+              "color": "#fb923c",
+              "f0Midi": 79,
+              "f1Midi": 74,
+              "f0Hz": 783.99,
+              "f1Hz": 587.33,
+              "startTime": 2.0,
+              "duration": 1.5,
+              "engine": "damped",
+              "baseGain": 0.35,
+              "timbre": {
+                "sine": 0.5,
+                "tri": 0.2,
+                "saw": 0.45,
+                "sqr": 0.1,
+                "rich": 0.4
+              }
+            }
+          ],
+          "activeVoiceId": "v_a5c",
+          "params": null
+        },
+        "gainDb": -14,
+        "mute": false,
+        "solo": false,
+        "start": 6,
+        "length": 12,
+        "loop": true,
+        "fadeIn": 1.0,
+        "fadeOut": 2.0,
+        "inCycle": true
+      },
+      {
+        "id": "in_a5_f1",
+        "studio": "field",
+        "name": "Wind (launch me)",
+        "color": "#34d399",
+        "doc": null,
+        "gainDb": -10,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": true,
+        "fadeIn": 2.0,
+        "fadeOut": 3.0,
+        "inCycle": false
+      },
+      {
+        "id": "in_a5_r3",
+        "studio": "risset",
+        "name": "Alt cloud (muted)",
+        "color": "#94a3b8",
+        "doc": {
+          "rateHz": 0.05,
+          "voiceCount": 6,
+          "baseMidi": 52,
+          "spanSemitones": 36,
+          "masterGain": 0.6
+        },
+        "gainDb": -6,
+        "mute": true,
+        "solo": false,
+        "start": 2,
+        "length": 12,
+        "loop": true,
+        "fadeIn": 4.0,
+        "fadeOut": 4.0,
+        "inCycle": true
+      }
+    ],
+    "focus": {
+      "glissando": "in_a5_g1",
+      "risset": "in_a5_r1",
+      "field": "in_a5_f1"
+    },
+    "cycleLoop": false,
+    "open": true,
+    "regions": []
+  }
+}
