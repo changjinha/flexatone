@@ -229,6 +229,7 @@ Whenever Claude modifies or adds modules in `~/Documents/flexatone/`:
 2. Open `http://localhost:8000` with DevTools Console open and verify **zero** `SyntaxError`, `ReferenceError`, or `404` module errors.
 3. Run `window.runSelfCheck()` in the browser console to validate core math, unit conversions (`MIDI↔Hz`, `Amp↔dB↔Sone`), all 11 curve boundary conditions, and `GeneratorRegistry` integrity.
 4. Record the update in `CHANGELOG.md` (see §7).
+5. Commit and push to GitHub (see §8).
 
 ---
 
@@ -251,3 +252,25 @@ Whenever Claude modifies or adds modules in `~/Documents/flexatone/`:
    writing, take the next free number, and never rewrite or renumber someone else's entry.
 7. **Naming:** this log is the project's change history. It is not the in-app **Version** (Screenshot backup, §5b).
    `docs/STUDIO_INTEGRATION_LOG.md` stays the detailed record of conflicts and decisions; `CHANGELOG.md` is the short, numbered summary.
+
+---
+
+## 8. GitHub Sync (Mandatory) / GitHub 동기화 (필수)
+
+**After the `CHANGELOG.md` entry (§7) is written, commit and push the change to GitHub. An update is not finished until it is pushed.**
+`CHANGELOG.md` 항목(§7)을 쓴 뒤에는 변경사항을 커밋하고 GitHub로 push 해야 업데이트가 끝난 것으로 본다.
+
+- **Remote:** `origin` → `https://github.com/changjinha/flexatone.git`, branch `main`.
+- **Order:** code change → check (§6) → `CHANGELOG.md` entry (§7) → commit + push (§8) → report to the user.
+
+1. **Stage only your own files.** `git add <the files you changed, plus CHANGELOG.md>` — never `git add .` or `-A`,
+   because parallel sessions may have uncommitted work in the same folder. Check `git status --short` first.
+2. **Commit message:** `v0.MINOR.PATCH: <one-line summary>` using the version number you just logged.
+   (Commit message trailers required by the environment are added as usual.)
+3. **Push:** `git push origin main`.
+4. **Never:** `git push --force`, `--no-verify`, history rewrites, or committing secrets (`.env`, keys, tokens,
+   `.claude/settings.local.json`). Respect `.gitignore` (`.DS_Store`, `.claude/settings.local.json`, `.backup/`).
+5. **If push fails** (auth, network, rejected because the remote moved): do **not** force. Try `git pull --rebase origin main`
+   once; if that conflicts or still fails, stop and tell the user the exact error. The change stays committed locally.
+6. **Honesty:** say in the report whether the push succeeded; never claim a sync that did not happen.
+7. **Docs-only or no-op sessions:** if nothing changed (`git status` clean for your files), skip the commit and say so.
