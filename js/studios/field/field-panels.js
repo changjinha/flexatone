@@ -31,6 +31,13 @@ import { createFieldCanvases } from './field-canvases.js';
 import { createLocateButtons } from '../../ui/locate-tool.js';
 import { REGION_SHAPES, REGION_TARGETS, REGION_GAIN_MAX, createFieldRegion } from './field-regions.js';
 import { exportBakedJson } from './field-audio.js';
+import { FIELD_PRESET_IDS, createFieldPreset } from './field-presets.js';
+import { HELP_DB } from '../../ui/option-inspector.js';
+
+HELP_DB['fpreset.select'] = {
+  en: { title: 'Field preset', summary: 'Replaces the whole Field document with a ready-made field: particles, force nodes, wells, guiding curve and view.', detail: 'One undo step. Default · Vortex choir · Gravity wells · Pure glide (physics off) · Storm · Mirror (retrograde). Choosing a preset again starts it fresh.', formula: '' },
+  ko: { title: '필드 프리셋', summary: '필드 문서 전체를 미리 만든 장으로 바꿉니다: 입자, 힘 노드, 우물, 가이드 곡선, 보기.', detail: '실행 취소 1단계. 기본 · 소용돌이 합창 · 중력 우물 · 순수 글리산도(물리 끔) · 폭풍 · 거울(역행). 같은 프리셋을 다시 고르면 처음 상태로 시작합니다.', formula: '' },
+};
 
 const SECTION = 'bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2';
 
@@ -114,6 +121,12 @@ export function mountFieldWorkspace(root, hooks) {
             d.activeVoiceId = copy.id;
           }); commit(); } } }),
           el('button', { class: BTN, text: `✕ ${t('field.delParticle')}`, dataset: { help: 'field.particleEdit' }, on: { click: deleteActiveParticle } }),
+          labelled('fpreset.label', select('fpreset.select', [['', 'fpreset.custom'], ...FIELD_PRESET_IDS.map((id) => [id, `fpreset.${id}`])], () => getFieldParams().preset || '', (id) => {
+            if (!id) return;
+            StudioRegistry.setParams('field', createFieldPreset(id));
+            commit();
+            hooks.showToast(t('fpreset.applied', t(`fpreset.${id}`)));
+          }), 'fpreset.select'), // presets like the other studios / 프리셋
           createTrajectoryImportButton('field'), // Glissando trajectory → this studio / 글리산도 궤적 불러오기
           el('button', { class: 'px-2.5 py-1 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-[11px] font-semibold', text: `⇪ ${t('field.bakeGliss')}`, dataset: { help: 'field.bakeGliss' }, on: { click: () => bake('replace') } }),
           el('button', { class: BTN, text: t('field.bakeAppend'), dataset: { help: 'field.bakeGliss' }, on: { click: () => bake('append') } }),

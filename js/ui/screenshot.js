@@ -10,9 +10,11 @@
  *   'full'  — the graph as shown, without editing aids (handles, cursor tooltip, playhead)
  *   'clean' — axes and lines only, on white (like Apple Grapher); with appState.screenshotSvg it is
  *             saved as a vector SVG (papers, score editors) instead of a PNG
- * Other studios (Field, Risset, …): the largest visible canvas of the workspace is saved as is;
- * no Version is made, because a Version backs up the Glissando document.
- * 다른 스튜디오는 작업 공간에서 가장 큰 캔버스를 그대로 저장하며, Version은 만들지 않음.
+ * Other studios: 'full' saves the largest visible canvas of the workspace as is; 'clean' draws the studio's
+ * pitch lines on white axes (ui/clean-chart.js, PNG or SVG; Risset has no lines → full). No Version is made,
+ * because a Version backs up the Glissando document.
+ * 다른 스튜디오: 'full'은 가장 큰 캔버스 그대로, 'clean'은 그 스튜디오의 음고 선을 흰 축 위에 (PNG/SVG, 리세는 full).
+ * Version은 만들지 않음.
  */
 
 import { appState, captureVersion } from '../core/state.js';
@@ -20,6 +22,8 @@ import { StudioRegistry } from '../studios/registry.js';
 import { triggerDownload } from '../audio/audio-engine.js';
 import { renderMainScreenshot, renderMainSvg } from './canvases.js';
 import { activeWorkspaceId } from './studio-host.js';
+import { listSourceLines, MEAN_LINE } from '../studios/trajectory-link.js';
+import { cleanLinesCanvas, cleanLinesSvg } from './clean-chart.js';
 
 const THUMB_WIDTH = 240;
 
@@ -67,13 +71,21 @@ function stamp() {
  * Take a screenshot: download the PNG (or SVG) and (Glissando editor only) store a Version.
  * @returns {Promise<{ ok: boolean, mode?: 'full'|'clean', versioned?: boolean, format?: 'png'|'svg' }>}
  */
+/** Pitch lines of a workspace studio for the Axes + lines mode (none → full). / 축 + 선 모드용 음고 선 */
+function workspaceLines(studio) {
+  try { return listSourceLines(studio).filter((l) => l.key !== MEAN_LINE); } catch { return []; }
+}
+
 export async function takeScreenshot() {
   const inWorkspace = !!activeWorkspaceId();
-  const mode = !inWorkspace && appState.screenshotMode === 'clean' ? 'clean' : 'full';
-  const canvas = inWorkspace ? copyWorkspaceCanvas() : renderMainScreenshot(mode);
+  const studio = StudioRegistry.resolveStudioId();
+  // every studio with pitch lines has the Axes + lines mode (ui/clean-chart.js); Risset has none / 음고 선이 있으면 축 + 선 모드
+  const lines = inWorkspace && appState.screenshotMode === 'clean' ? workspaceLines(studio) : [];
+  const mode = appState.screenshotMode === 'clean' && (!inWorkspace || lines.length) ? 'clean' : 'full';
+  const canvas = !inWorkspace ? renderMainScreenshot(mode) : mode === 'clean' ? cleanLinesCanvas(lines) : copyWorkspaceCanvas();
   if (!canvas) return { ok: false };
-  const base = `flexatone_${StudioRegistry.resolveStudioId()}_${mode}_${stamp()}`;
-  const svg = !inWorkspace && mode === 'clean' && appState.screenshotSvg ? renderMainSvg() : null;
+  const base = `flexatone_${studio}_${mode}_${stamp()}`;
+  const svg = mode === 'clean' && appState.screenshotSvg ? (inWorkspace ? cleanLinesSvg(lines) : renderMainSvg()) : null;
   if (svg) {
     triggerDownload(new Blob([svg], { type: 'image/svg+xml' }), `${base}.svg`);
   } else {
@@ -81,7 +93,7 @@ export async function takeScreenshot() {
     if (!blob) return { ok: false };
     triggerDownload(blob, `${base}.png`);
   }
-  if (inWorkspace) return { ok: true, mode, versioned: false, format: 'png' };
+  if (inWorkspace) return { ok: true, mode, versioned: false, format: svg ? 'svg' : 'png' };
   captureVersion({ thumb: makeThumb(canvas), mode });
   return { ok: true, mode, versioned: true, format: svg ? 'svg' : 'png' };
 }

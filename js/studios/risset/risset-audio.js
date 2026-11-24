@@ -64,12 +64,22 @@ export function isRissetPlaying() {
   return !!live;
 }
 
+// Tempo Manager on the studio's own transport (core/studio-tempo.js, installed by the UI tier).
+// 스튜디오 자체 트랜스포트의 템포 (UI 계층이 설치)
+let timeScaleSource = null;
+export function setRissetTimeScaleSource(fn) {
+  timeScaleSource = typeof fn === 'function' ? fn : null;
+}
+
 function frame(now) {
   const dt = Math.min(0.1, Math.max(0, (now - lastTs) / 1000));
   lastTs = now;
   const params = getRissetParams();
   const rt = getRissetRuntime();
-  stepRuntime(params, rt, dt, { running: !!live, scrubbing: runtimeBox.scrubbing });
+  let ts = 1;
+  try { ts = timeScaleSource ? Number(timeScaleSource()) || 1 : 1; } catch { ts = 1; }
+  rt.timeScale = ts; // the bank's ω follows the clock (as in the Manager) / 뱅크 ω도 시계를 따름
+  stepRuntime(params, rt, dt * ts, { running: !!live, scrubbing: runtimeBox.scrubbing });
   if (live) updateLive(params, rt, live);
   frameListener?.(rt);
   loopId = requestAnimationFrame(frame);

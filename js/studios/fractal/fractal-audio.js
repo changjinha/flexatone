@@ -15,6 +15,7 @@
  * 재생 중 프랙탈 연산 없음: 곡선은 캐시된 베이킹 배열의 부분 배열.
  */
 
+import { lineMixGain } from '../../core/line-mix.js';
 import { t } from '../../core/i18n.js';
 import { createTimbreWave } from '../../audio/studio-fx.js';
 import { studioLiveOutput, connectStudioOutput } from '../../audio/studio-fx.js';
@@ -94,7 +95,12 @@ export function scheduleFractal(ctx, dest, { params = getFractalParams(), nowTim
   const bake = getFractalBake(params); // memoised: no re-bake unless the shape changed / 캐시 사용
   const wave = createTimbreWave(ctx, params.timbre); // Mix or ƒ(x) (shared timbre synthesis) / 믹스 또는 ƒ(x)
   let count = 0;
-  bake.voices.forEach((v, i) => { if (scheduleBakedFractalVoice(ctx, dest, v, wave, nowTime, cueSec, nodeList, ampMask, pitchWarp, brightWarp, params.voiceMod, i)) count++; });
+  bake.voices.forEach((v, i) => {
+    const mix = lineMixGain(params, v.id ?? `f${i}`); // S / M / gain of this line (core/line-mix.js) / 선별 S·M·게인
+    if (!(mix > 0)) return;
+    const vv = mix === 1 ? v : { ...v, gain: Float32Array.from(v.gain, (g) => g * mix) };
+    if (scheduleBakedFractalVoice(ctx, dest, vv, wave, nowTime, cueSec, nodeList, ampMask, pitchWarp, brightWarp, params.voiceMod, i)) count++;
+  });
   return count;
 }
 

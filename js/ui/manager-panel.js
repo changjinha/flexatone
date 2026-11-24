@@ -20,6 +20,7 @@ import {
   setInstanceWarp, setInstanceTake,
 } from '../core/manager-state.js';
 import { mountModsCard } from './manager-mods.js';
+import { mountScenesCard } from './manager-scenes.js';
 import { EXTEND_METHODS, EXTEND_NEEDS_LEVELS, EXTEND_MIN_SEC, extendCycle, extendPreview, removeLastExtension, listExtensions, maxExtension } from '../core/manager-extend.js';
 import { INTERP_METHODS, INTERP_NEEDS_LINES, INTERP_MIN_GAP, interpolateRanges, interpGap, isInterpLog } from '../core/manager-interpolate.js';
 import { takeReversals, takeOffset } from '../core/take-config.js';
@@ -367,6 +368,7 @@ function renderPanel() {
       ${extendMarkup(C)}
       ${interpMarkup()}
       <div class="mgr-mods-host"></div>
+      <div class="mgr-scenes-host"></div>
       ${regionsMarkup()}
       ${channelsMarkup()}
     </div>`;
@@ -374,6 +376,7 @@ function renderPanel() {
   if (sc && ui.scrollTop) sc.scrollTop = ui.scrollTop;
   mountOutputStrip();
   mountModsCard(panel.querySelector('.mgr-mods-host'), { showToast: hooks.showToast }); // ⇆ Modulation (ui/manager-mods.js)
+  mountScenesCard(panel.querySelector('.mgr-scenes-host'), { showToast: hooks.showToast }); // ▶ Scenes (ui/manager-scenes.js)
   applySize();
   drawMaster();
   placeWarpPop();
@@ -1457,6 +1460,26 @@ function buildGeometry() {
   hi = Math.ceil(hi + 3);
   if (hi - lo < 24) { const c = (hi + lo) / 2; lo = c - 12; hi = c + 12; }
   return { lines, bands, blocks, lo: clamp(lo, 0, 132), hi: clamp(hi, 6, 140) };
+}
+
+/**
+ * Master View pitch lines of the audible tracks, grouped per track (cycle seconds, heard pitch) — for MIDI
+ * export (ui/midi-window.js). Warp source tracks, Risset bands and block studios have no lines.
+ * 들리는 트랙의 마스터 뷰 음고 선을 트랙별로 (사이클 초, 들리는 음고) — MIDI 내보내기용.
+ */
+export function masterViewLineGroups() {
+  const g = buildGeometry();
+  const insts = listInstances().filter((i) => i.inCycle);
+  const anySolo = insts.some((i) => i.solo);
+  const by = new Map();
+  for (const ln of g.lines) {
+    const inst = ln.inst;
+    if (ln.warpSrc || inst.mute || (anySolo && !inst.solo)) continue;
+    if (!by.has(inst.id)) by.set(inst.id, { name: inst.name, studio: inst.studio, lines: [] });
+    by.get(inst.id).lines.push({ name: ln.name, pts: ln.pts.map((q) => ({ t: q.t, m: q.m })) });
+  }
+  const skipped = insts.filter((i) => !by.has(i.id) && !i.mute && !(anySolo && !i.solo) && !i.warp?.on).map((i) => i.name);
+  return { groups: [...by.values()], skipped };
 }
 
 function geometry() {

@@ -30,6 +30,102 @@ Leave out the lines that do not apply. Write what is true now, including failing
 
 ---
 
+## [0.31.0] — 2026-11-24 — Studio tempo, MIDI files (MPE) and MIDI Learn, cross-studio parity, Manager Scenes / 스튜디오 템포·MIDI 파일(MPE)·MIDI Learn·스튜디오 통일·매니저 씬
+- **Added / 추가:**
+  - **B1 Studio tempo (⏱ chip next to the cue in the header):** the Tempo Manager on each studio's own transport.
+    - Modes × / BPM / **Length** (duration lock: the content plays in exactly that many seconds).
+    - **Tape** (pitch follows the speed) and **Follow the Manager** (master × this studio's focused track, on by default).
+    - At a tempo other than 1×, the header transport renders the studio the way the Manager does and plays it from one buffer (`audio/tempo-player.js`).
+      - Pitch is kept in Glissando, Field, Fractal and Wave.
+      - Draw, Chaos, Cloud, Tempo and Space are varispeed, as in the Manager.
+      - The playhead stays in document seconds, so cue, loop, pause and play-from work unchanged.
+      - Edits while playing re-render and cross-fade from the playhead; Export WAV uses the tempo.
+    - Risset scales its live clock (pitch kept).
+  - **B2 MIDI files (🎹 MIDI → File):**
+    - **Export:** the studio on screen, or the Manager's audible tracks (cycle time, heard pitch, one MIDI track each), as a `.mid` file. Three formats:
+      - **MPE**: lower zone, ±48, one note per channel;
+      - **multi-channel pitch bend**: ±2 … ±96, channels 1–16 except 10;
+      - **notes only**: nearest semitone, for notation.
+    - **Import:** a `.mid` file becomes Glissando voices whose curves follow the pitch bends. Each import is one undo step. Three targets:
+      - add voices;
+      - replace all voices;
+      - a new Glissando track in the Manager.
+    - The reader handles tempo maps, running status, SMPTE division, RPN bend ranges and the MPE zone message.
+    - Notes that continue where another stopped (legato, re-struck wide glides) can be joined into one glide.
+  - **B3 MIDI input + Learn (🎹 MIDI → Device):**
+    - Connect a Web MIDI input, press Learn, click any slider, number box, checkbox, select or button, then move a knob or press a key.
+    - CC and pitch bend sweep the control between lo and hi (invert optional). A note clicks a button, toggles a checkbox or sets a slider by velocity.
+    - A mapping made inside a studio acts only while that studio is shown. Mappings are kept in this browser (localStorage), not in the project.
+  - **B4 Parity:**
+    - **Axes + lines screenshots in every studio.** The 📸 mode chip in the header switches Full → Axes + lines → SVG. The studio's pitch lines are drawn on white axes, time in seconds and pitch as note names (`ui/clean-chart.js`); Risset has no lines and saves the full window.
+    - **Lines rack (S / M / gain per line)** for Chaos voices, Fractal voices and Wave ridges (`core/line-mix.js`, `ui/line-mix-rack.js`). It is saved in the document, so playback, WAV and the Manager hear it.
+    - **Field presets:** Default, Vortex choir, Gravity wells, Pure glide, Storm, Mirror.
+  - **B5 Manager Scenes (▶ Scenes card, under Modulation):**
+    - A scene is a set of tracks launched together: it starts its tracks and stops the other launched ones.
+    - Switch: at once, or at the end of the playing scene (a queued scene shows its countdown).
+    - Follow: next scene once, or loop.
+    - Length: 0 = auto, the longest track (a continuous Risset counts as 8 s).
+    - **⇥ Write to cycle** turns the list into an arrangement with range solos (the tool Extend → Ritornello uses); **↶ Undo write** puts the arrangement back.
+- **Changed / 변경:**
+  - Tempo contract: mode `length` with `lockSec` (`tempoRate(cfg, naturalSec)`); the Manager does not offer it yet.
+  - Wave's sanitiser keeps `lineMix`; the Wave render keys include it.
+- **Files / 파일:**
+  - New:
+    - `js/core/studio-tempo.js`, `js/audio/tempo-player.js`, `js/ui/studio-tempo-ui.js`
+    - `js/core/midi-file.js`, `js/ui/midi-window.js`, `js/ui/midi-learn.js`
+    - `js/core/line-mix.js`, `js/ui/line-mix-rack.js`, `js/ui/clean-chart.js`, `js/ui/screenshot-mode-chip.js`, `js/studios/field/field-presets.js`
+    - `js/core/scene-config.js`, `js/core/manager-scenes.js`, `js/audio/scene-player.js`, `js/ui/manager-scenes.js`
+  - Changed:
+    - `js/core/tempo.js`, `js/core/state.js`, `js/ui/studio-host.js`, `js/ui/screenshot.js`, `js/ui/manager-panel.js`, `js/main.js`, `styles.css`
+    - `js/studios/risset/risset-audio.js`
+    - `js/studios/{chaos,fractal,wave}/*-audio.js`, `*-panels.js`, `js/studios/wave/wave-engine.js`, `js/studios/field/field-panels.js`
+- **Data / 데이터:**
+  - `studioParams._tempo[studio]`: per-studio tempo + `follow`; saved and undoable, kept outside the studio document.
+  - `lineMix` in Chaos / Fractal / Wave documents.
+  - Field `preset`.
+  - `manager.scenes`, `sceneQuant`, `sceneFollow`, `sceneWrite` (arrangement before the first write); range regions may carry `scene`.
+  - All optional: older projects load unchanged.
+- **Checks / 점검:**
+  - `runSelfCheck()` 167/167 (new: studio tempo, MIDI round trip, line mix, Field presets, scenes). No console errors.
+  - B1, Export WAV at ×2 halves the length (+0.05 s tail) in each of these studios:
+    - Glissando 4 → 2.05 s
+    - Field 3.55 → 1.875 s
+    - Draw 4.5 → 2.325 s (varispeed)
+    - Fractal / Wave / Cloud 30 → 15.1 s
+  - B1 transport and Risset:
+    - Field at ×2 through the header stopped after 1.82 s (expected 1.775), and Loop wrapped.
+    - The Risset clock ran exactly ×2 (shape / automation clocks 0.1 → 0.2 per measured interval).
+    - Cloud takes about 2 s to render before playing.
+  - B2, round trip of two Glissando glides (48→72, 79→55):
+    - MPE: max error 0.006 semitones, 2 notes.
+    - Multi-channel ±2: 0.15 semitones, 26 re-struck notes joined back into 2 lines.
+    - Notes only: 0.5 semitones (quantised).
+    - Import through the window: add / replace / new Manager track all worked.
+  - B3: with simulated messages, note 60 toggled Loop (header) and CC 7 swept a Glissando slider 1 / 16 / 9.
+  - B4:
+    - Chaos RMS 0.159, M on voice 1 → 0.134, S on voice 2 → 0.050.
+    - Fractal M → 0.
+    - Wave ridge M → 0.109 → 0.077.
+    - Storm preset: 6 particles.
+    - Axes + lines SVG: 6 polylines.
+  - B5:
+    - Scene switch launched exactly its tracks; "at the scene's end" switched after 2.0 s on a 2.35 s scene.
+    - Write gave ranges 0–2.03 and 2.03–4.37 s with a fixed cycle, and Undo write restored it.
+  - Not verified:
+    - Listening by ear.
+    - A real MIDI device (the Web MIDI permission flow).
+    - Opening the exported `.mid` in a DAW or MPE synth.
+    - Follow over a long session.
+- **Limits / 한계:**
+  - Studio tempo:
+    - Tape glide is not animated on studio transports.
+    - Studio-specific live highlights (e.g. Cloud's sounding events) do not show while the tempo player plays.
+    - The Manager offers no Length mode.
+  - Multi-channel export with ±2 re-strikes every 1.5 semitones (use MPE for glides).
+  - Writing scenes to the cycle and the arrangement fields are not in the undo history; use ↶ Undo write. Importing as a Manager track takes two undo steps.
+  - Line S / M follows line numbers, so they shift when the number of lines changes.
+- **Details / 상세:** `docs/STUDIO_INTEGRATION_LOG.md` → "Studio tempo · MIDI · Learn · parity · Scenes (B1–B5)"
+
 ## [0.21.0] — 2026-11-23 — Manager Modulation: matrix · sidechain · triggers / 매니저 모듈레이션: 매트릭스 · 사이드체인 · 트리거
 - **Added / 추가:** **⇆ Modulation** card in the Manager (under Interpolate). One route = a signal of one track → a parameter
   of another track, in cycle time; routes on the same parameter add up. / 한 트랙의 신호 → 다른 트랙의 파라미터.

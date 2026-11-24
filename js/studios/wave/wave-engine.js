@@ -27,6 +27,7 @@
  * (sound and view parameters are NOT part of it). Same input → same output (seeded PRNG).
  */
 
+import { normalizeLineMix } from '../../core/line-mix.js';
 import { clamp, lerp, roundTo, deepClone, createSeededRandom } from '../../core/math-utils.js';
 import { evaluateCurveObjectY } from '../../modules/curve-engine.js';
 import { timbreSpecExtras } from '../../modules/timbre-spec.js';
@@ -177,6 +178,7 @@ export function sanitizeWaveParams(raw) {
   const pick = (v, list, dv) => (list.includes(v) ? v : dv);
   const p = {};
   p.preset = typeof s.preset === 'string' ? s.preset.slice(0, 24) : d.preset;
+  p.lineMix = normalizeLineMix(s.lineMix); // ridge S / M / gain (core/line-mix.js) / 리지별 S·M·게인
   p.eq = pick(s.eq, WAVE_EQS, d.eq);
   p.Nx = Math.round(num(s.Nx, d.Nx, 16, 256));
   p.pLo = roundTo(num(s.pLo, d.pLo, 0, 116), 3);

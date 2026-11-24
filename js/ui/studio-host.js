@@ -14,6 +14,8 @@
 import { appState, setTransport } from '../core/state.js';
 import { StudioRegistry } from '../studios/registry.js';
 import * as gliss from '../audio/audio-engine.js';
+import { studioRates, getStudioTempo } from '../core/studio-tempo.js';
+import { tempoPlayable, tempoTransport, studioNaturalSec, isTempoPlaying, stop as stopTempo } from '../audio/tempo-player.js';
 
 const GLISS_TRANSPORT = Object.freeze({
   isPlaying: gliss.isPlaying,
@@ -78,8 +80,20 @@ export function activeWorkspaceId() {
   return id && workspaces.has(id) ? id : null;
 }
 
+/**
+ * True when the studio's own transport plays at a tempo other than 1× (core/studio-tempo.js); then the header
+ * transport goes to the tempo player. Risset scales its live clock instead. / 템포가 1×가 아니면 템포 재생기로
+ */
+export function studioTempoRouted(studio = StudioRegistry.resolveStudioId()) {
+  if (!tempoPlayable(studio)) return false;
+  const nat = getStudioTempo(studio).mode === 'length' ? studioNaturalSec(studio) : null; // only the length mode needs it / 길이 모드만
+  return studioRates(studio, nat).active;
+}
+
 /** Transport of the active studio (Glissando by default). / 활성 스튜디오의 트랜스포트 */
 export function activeTransport() {
+  const studio = StudioRegistry.resolveStudioId();
+  if (studioTempoRouted(studio)) return tempoTransport(studio);
   const id = activeWorkspaceId();
   return id ? workspaces.get(id).transport : GLISS_TRANSPORT;
 }
@@ -88,6 +102,7 @@ export function activeTransport() {
 export function stopAllAudio() {
   for (const w of workspaces.values()) { try { if (w.transport.isPlaying()) w.transport.stop(); } catch (err) { console.error(err); } }
   if (gliss.isPlaying()) gliss.stopAudio();
+  if (isTempoPlaying()) stopTempo();
   if (appState.transport.playing) setTransport({ playing: false, playheadSec: -1 });
 }
 

@@ -535,3 +535,66 @@ body.mgr-docked { padding-right: var(--mgr-dock-w, 0px); }
 .fx-icon-tip.is-param { max-width: 300px; padding: 6px 9px; border-color: rgba(139,92,246,.55); }
 .fx-icon-tip-title { display: block; color: #c4b5fd; font-weight: 700; margin-bottom: 2px; }
 .fx-icon-tip-hint { display: block; margin-top: 4px; color: #64748b; font-size: 10px; }
+
+/* ---------------------------------------------------------------------------
+   Studio tempo chip + panel (ui/studio-tempo-ui.js) / 스튜디오 템포 칩
+   --------------------------------------------------------------------------- */
+.fx-stempo-chip { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; border-radius: 8px; background: #020617; border: 1px solid #1e293b; color: #94a3b8; font: 600 11px ui-monospace, monospace; }
+.fx-stempo-chip:hover { background: #1e293b; color: #e2e8f0; }
+.fx-stempo-chip.on { color: #fcd34d; border-color: #b45309; background: #451a03; }
+.fx-stempo-panel { position: fixed; z-index: 80; width: 290px; padding: 10px; border-radius: 10px; background: #0f172a; border: 1px solid #334155; box-shadow: 0 12px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 8px; font-size: 11px; color: #cbd5e1; }
+.fx-stempo-seg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: #020617; border: 1px solid #1e293b; }
+.fx-stempo-seg button { flex: 1; padding: 3px 0; border-radius: 6px; color: #94a3b8; }
+.fx-stempo-seg button.on { background: #b45309; color: #fff; font-weight: 700; }
+.fx-stempo-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fx-stempo-num { width: 64px; background: #020617; border: 1px solid #334155; border-radius: 6px; padding: 2px 4px; color: #fde68a; font-family: ui-monospace, monospace; }
+.fx-stempo-range { flex: 1; min-width: 90px; accent-color: #f59e0b; }
+.fx-stempo-check { display: flex; align-items: center; gap: 6px; }
+.fx-stempo-heard { font-family: ui-monospace, monospace; color: #fcd34d; }
+.fx-stempo-note { color: #94a3b8; font-size: 10px; line-height: 1.35; }
+
+/* ---------------------------------------------------------------------------
+   MIDI window + Learn (ui/midi-window.js, ui/midi-learn.js) / MIDI 창
+   --------------------------------------------------------------------------- */
+.fx-midi-dialog { width: min(860px, calc(100vw - 32px)); }
+.fx-midi-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: #020617; border: 1px solid #1e293b; }
+.fx-midi-tab { padding: 2px 10px; border-radius: 6px; font-size: 11px; color: #94a3b8; }
+.fx-midi-tab.on { background: #a21caf; color: #fff; font-weight: 700; }
+.fx-midi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px; }
+.fx-midi-card { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 10px; background: #0b1222; border: 1px solid #1e293b; font-size: 11px; color: #cbd5e1; }
+.fx-midi-card h3 { font-size: 12px; font-weight: 700; color: #f5d0fe; }
+.fx-midi-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fx-midi-lbl { color: #94a3b8; min-width: 64px; }
+.fx-midi-select { background: #020617; border: 1px solid #334155; border-radius: 6px; padding: 2px 4px; color: #e2e8f0; max-width: 100%; }
+.fx-midi-num { width: 56px; background: #020617; border: 1px solid #334155; border-radius: 6px; padding: 2px 4px; color: #f5d0fe; font-family: ui-monospace, monospace; }
+.fx-midi-info { color: #e9d5ff; }
+.fx-midi-note { color: #94a3b8; font-size: 10px; line-height: 1.35; }
+.fx-midi-file { font-family: ui-monospace, monospace; color: #f5d0fe; }
+.fx-midi-dot { width: 6px; height: 6px; border-radius: 50%; background: #334155; display: inline-block; }
+.fx-midi-dot.on { background: #a21caf; }
+.fx-midi-dot.hit { background: #f0abfc; box-shadow: 0 0 6px #f0abfc; }
+.fx-mlearn-map { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px; background: #020617; }
+.fx-mlearn-msgtag { font-family: ui-monospace, monospace; font-size: 10px; color: #f0abfc; min-width: 92px; }
+.fx-mlearn-banner { position: fixed; z-index: 90; left: 50%; top: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; background: #3b0764; border: 1px solid #c026d3; color: #f5d0fe; font-size: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); max-width: calc(100vw - 32px); }
+body.fx-mlearn-on input, body.fx-mlearn-on select, body.fx-mlearn-on button { cursor: crosshair !important; }
+.fx-mlearn-pick { outline: 2px solid #e879f9 !important; outline-offset: 2px; }
+
+/* ---------------------------------------------------------------------------
+   Manager Scenes card (ui/manager-scenes.js) / 매니저 씬 카드
+   --------------------------------------------------------------------------- */
+.mgr-scenes-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 6px; font-size: 11px; }
+.mgr-scenes-sel { background: #020617; border: 1px solid #334155; border-radius: 6px; padding: 1px 4px; color: #e2e8f0; font-size: 11px; }
+.mgr-scenes-body { display: flex; flex-direction: column; gap: 4px; }
+.mgr-scenes-row { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; align-items: center; gap: 6px; padding: 4px; border-radius: 8px; background: #020617; border: 1px solid #1e293b; }
+.mgr-scenes-row.playing { border-color: #f472b6; }
+.mgr-scenes-play { position: relative; overflow: hidden; min-width: 30px; }
+.mgr-scenes-play.on { background: #831843; color: #fff; }
+.mgr-scenes-play.wait { outline: 1px dashed #f472b6; }
+.mgr-scenes-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: #f472b6; }
+.mgr-scenes-name { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 2px 6px; color: #f1f5f9; font-size: 11px; min-width: 0; }
+.mgr-scenes-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
+.mgr-scenes-chip { padding: 1px 6px; border-radius: 999px; border: 1px solid #334155; color: #64748b; font-size: 10px; white-space: nowrap; }
+.mgr-scenes-chip.in { background: rgba(255,255,255,.04); font-weight: 600; }
+.mgr-scenes-chip.live::after { content: ' ●'; color: #4ade80; }
+.mgr-scenes-len { width: 52px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 1px 4px; color: #fbcfe8; font: 11px ui-monospace, monospace; }
+.mgr-scenes-q { font: 10px ui-monospace, monospace; color: #f9a8d4; }

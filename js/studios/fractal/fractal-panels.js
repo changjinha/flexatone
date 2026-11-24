@@ -10,6 +10,7 @@
  * 모든 컨트롤에 data-help가 있고, 슬라이더 드래그 1회 = 실행 취소 1단계.
  */
 
+import { createLineMixRack } from '../../ui/line-mix-rack.js';
 import { clamp, roundTo } from '../../core/math-utils.js';
 import { t, getLang } from '../../core/i18n.js';
 import { endHistoryGesture, appState } from '../../core/state.js';
@@ -438,7 +439,7 @@ export function mountFractalWorkspace(root, hooks) {
       buildHeader(),
       el('div', { class: 'grid grid-cols-1 lg:grid-cols-12 gap-3' }, [
         buildCanvasCol(),
-        el('div', { class: 'lg:col-span-5 flex flex-col gap-3 min-w-0' }, [buildModeRack(params), buildMapRack(params), buildRefineRack(params), buildSoundRack(), ((r) => { syncers.push(r.sync); return r.root; })(createStudioTremoloRack({ get: getFractalParams, edit: editFractal })), buildBakeRack()]),
+        el('div', { class: 'lg:col-span-5 flex flex-col gap-3 min-w-0' }, [buildModeRack(params), buildMapRack(params), buildRefineRack(params), buildSoundRack(), ((r) => { syncers.push(r.sync); return r.root; })(createStudioTremoloRack({ get: getFractalParams, edit: editFractal })), ((r) => { syncers.push(r.sync); return r.root; })(createLineMixRack({ studio: 'fractal', get: getFractalParams, edit: editFractal })), buildBakeRack()]),
       ]),
     );
   }

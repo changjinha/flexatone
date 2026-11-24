@@ -50,6 +50,9 @@ import { takeScreenshot } from './ui/screenshot.js';
 import { initRackLayout, syncRackLayout, resetRackLayout } from './ui/rack-layout.js';
 import { initTrajectoryUi } from './ui/trajectory-ui.js';
 import { initSendRouter } from './ui/send-router.js';
+import { initStudioTempoUi } from './ui/studio-tempo-ui.js';
+import { initMidiWindow } from './ui/midi-window.js';
+import { initScreenshotModeChip } from './ui/screenshot-mode-chip.js';
 import { initNumberScrub } from './ui/number-scrub.js';
 import { initOptionInspector } from './ui/option-inspector.js';
 import { initHelpOverlay } from './ui/help-overlay.js';
@@ -449,6 +452,9 @@ function boot() {
   initRackLayout();
   initTrajectoryUi({ showToast, requestRender });
   initSendRouter({ showToast }); // ⇄ Sends: send / receive order tool / 보내기 순서 도구
+  initStudioTempoUi(); // ⏱ studio tempo on the header transport / 스튜디오 템포
+  initMidiWindow({ showToast }); // 🎹 MIDI: .mid export / import, input + Learn / MIDI 창
+  initScreenshotModeChip(); // Full / Axes + lines / SVG in every studio / 스크린샷 모드
   initPanels({ showToast, fitAll: fitAllViewport, requestRender });
   bindHeader();
   bindKeyboard();

@@ -10,6 +10,7 @@
  * 모든 컨트롤에 data-help가 있고(아래에서 도움말 등록), 숫자 입력은 number-scrub이 처리.
  */
 
+import { createLineMixRack } from '../../ui/line-mix-rack.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToNoteName, noteNameToMidi } from '../../core/units.js';
 import { t, getLang } from '../../core/i18n.js';
@@ -357,7 +358,7 @@ export function mountWaveWorkspace(root, hooks) {
       buildStrip(),
       el('div', { class: 'grid grid-cols-1 lg:grid-cols-12 gap-3' }, [
         buildCanvasCol(),
-        el('div', { class: 'lg:col-span-5 flex flex-col gap-3 min-w-0' }, [hosts.eq, buildSonifyRack(), ((r) => { sink.push(r.sync); return r.root; })(createStudioTremoloRack({ get: getWaveParams, edit: editWave }))]),
+        el('div', { class: 'lg:col-span-5 flex flex-col gap-3 min-w-0' }, [hosts.eq, buildSonifyRack(), ((r) => { sink.push(r.sync); return r.root; })(createStudioTremoloRack({ get: getWaveParams, edit: editWave })), ((r) => { sink.push(r.sync); return r.root; })(createLineMixRack({ studio: 'wave', get: getWaveParams, edit: editWave }))]),
       ]),
     );
   }

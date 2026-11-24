@@ -16,6 +16,7 @@
  * Live and offline share scheduleChaos(), so Export WAV = what you hear (incl. output fader).
  */
 
+import { lineMixGain } from '../../core/line-mix.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -61,6 +62,8 @@ export function scheduleChaos(ctx, dest, { doc = getChaosParams(), B = getChaosB
   const fade = Math.min(EDGE_FADE_SEC, playDur * 0.1);
   let count = 0;
   B.voices.forEach((v, i) => {
+    const mix = lineMixGain(doc, `c${i}`); // S / M / gain of this line (core/line-mix.js) / 선별 S·M·게인
+    if (!(mix > 0)) return;
     const osc = ctx.createOscillator();
     osc.setPeriodicWave(wave);
     const filter = ctx.createBiquadFilter();
@@ -75,7 +78,7 @@ export function scheduleChaos(ctx, dest, { doc = getChaosParams(), B = getChaosB
       const hz0 = midiToFreq(v.pitch[k0 + j]);
       const hz = clamp(pitchWarp ? pitchWarp((k0 + j) / BAKE_RATE, hz0) : hz0, 20, 18000); // Manager Warp / 매니저 곡률
       freq[j] = hz;
-      let a = scale * v.gain[k0 + j];
+      let a = scale * mix * v.gain[k0 + j];
       const loc = j / BAKE_RATE;
       if (loc < fade) a *= loc / fade;
       if (playDur - loc < fade) a *= Math.max(0, (playDur - loc) / fade);
@@ -162,6 +165,10 @@ export const startChaosAudio = transport.start;
 export const stopChaosAudio = transport.stop;
 export const toggleChaosPause = transport.togglePause;
 export const toggleChaosPlay = transport.togglePlay;
+/** Re-schedule from the playhead now (an edit the bake does not see, e.g. line S / M). / 플레이헤드부터 재스케줄 */
+export function restartChaosAudio() {
+  if (transport.pass()) setTimeout(() => { if (transport.pass()) transport.restart(transport.playheadSec()); }, 120);
+}
 
 /** Baked result currently sounding (null when stopped). / 현재 재생 중인 베이킹 결과 */
 export function getLiveBake() {

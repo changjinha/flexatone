@@ -20,6 +20,7 @@
  * 재생 중 PDE 연산 없음: 모든 곡선·행렬은 wave-engine.js의 캐시에서 가져옴.
  */
 
+import { lineMixGain } from '../../core/line-mix.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -73,7 +74,7 @@ export function buildWavePlan(params = getWaveParams(), { bake = getWaveBake(par
     const r = extractRidges(bake, so);
     return {
       kind: 'ridge', bake: timed, params, length: timed.length, tracks: r.tracks, scale: r.scale, ampMask, pitchWarp,
-      key: `ridge|${timed.sig}|${r.key}|${so.gain}|${so.stereo}|${JSON.stringify(params.timbre)}`,
+      key: `ridge|${timed.sig}|${r.key}|${so.gain}|${so.stereo}|${JSON.stringify(params.timbre)}|${JSON.stringify(params.lineMix || null)}`,
     };
   }
   const amp = buildAmplitude(bake, so);
@@ -327,6 +328,8 @@ export function scheduleRidges(ctx, dest, plan, nowTime, cueSec, nodeList) {
     const from = Math.max(tStart, cueSec);
     const playDur = tEnd - from;
     if (playDur < 0.02) continue;
+    const mix = lineMixGain(params, `w${tracks.indexOf(tr)}`); // S / M / gain of this ridge (core/line-mix.js) / 리지별 S·M·게인
+    if (!(mix > 0)) continue;
     const t0 = nowTime + (from - cueSec);
     const samples = clamp(Math.ceil(playDur * Math.min(bake.rate, 100)) + 1, 3, 12000);
     const freqCurve = new Float32Array(samples);
@@ -338,7 +341,7 @@ export function scheduleRidges(ctx, dest, plan, nowTime, cueSec, nodeList) {
       const s = sampleTrack(tr, bake, Math.min(tEnd, from + loc)) || { pitch: tr.pitch[0], amp: 0 };
       const hz0 = midiToFreq(s.pitch);
       freqCurve[j] = clamp(plan.pitchWarp ? plan.pitchWarp(from + loc, hz0) : hz0, 20, 0.45 * ctx.sampleRate); // Manager Warp / 매니저 곡률
-      let g = clamp(so.gain * s.amp, 0, 1);
+      let g = clamp(so.gain * mix * s.amp, 0, 1);
       if (plan.ampMask && g > 0) g *= Math.max(0, plan.ampMask(from + loc, freqCurve[j]));
       if (loc < fade) g *= loc / fade;
       if (playDur - loc < fade) g *= (playDur - loc) / fade;
@@ -548,7 +551,7 @@ export async function renderWaveBuffer({ params = getWaveParams(), bake = null, 
  */
 export function waveRenderKey(doc) {
   const p = resolveWaveDoc(doc);
-  return `${waveSignature(p)}|${JSON.stringify(p.sonify)}|${JSON.stringify(p.timbre)}|${JSON.stringify(p.tremolo || null)}|${JSON.stringify(p.voiceMod || null)}`;
+  return `${waveSignature(p)}|${JSON.stringify(p.sonify)}|${JSON.stringify(p.timbre)}|${JSON.stringify(p.tremolo || null)}|${JSON.stringify(p.voiceMod || null)}|${JSON.stringify(p.lineMix || null)}`;
 }
 
 /** Render at 48 kHz / 16-bit and download. / 48 kHz WAV 내보내기 */

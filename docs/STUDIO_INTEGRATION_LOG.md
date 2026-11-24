@@ -1324,3 +1324,103 @@ route format. / 로드맵 B를 렌더 시점 방식으로: 파라미터 모듈�
 ### Checks / 점검
 See CHANGELOG 0.21.0.
 
+
+## Studio tempo · MIDI · Learn · parity · Scenes (B1–B5) (2026-11-24) / 스튜디오 템포 · MIDI · Learn · 통일 · 씬
+
+### B1 — Tempo Manager on the studios' own transports / 스튜디오 자체 트랜스포트의 템포
+
+| File | Tier | Role |
+|---|---|---|
+| `js/core/tempo.js` | core | mode `length` + `lockSec`; `tempoRate(cfg, naturalSec)`; `patchTempo(cur, patch, naturalSec)` |
+| `js/core/studio-tempo.js` | core | `studioParams._tempo[studio]` (+ `follow`), `studioRates(studio, naturalSec)` → `{ rate, tape, doc, own, track, active }` |
+| `js/audio/tempo-player.js` | audio | renders the studio doc like a Manager track (`renderAt`), plays one buffer, playhead in document seconds, edit-while-playing re-render, `exportTempoWav` |
+| `js/ui/studio-host.js` | ui | `activeTransport()` → the tempo transport while `studioTempoRouted(studio)` |
+| `js/ui/studio-tempo-ui.js` | ui | ⏱ chip + panel; installs the Risset clock source |
+| `js/studios/risset/risset-audio.js` | studios | `setRissetTimeScaleSource(fn)`: live `frame()` steps `dt · rate` and sets `rt.timeScale` |
+
+Decisions:
+1. **One routing point.** The tempo is applied by routing the header transport (studio-host), not inside the eight live
+   transports. While the tempo is not 1×, the studio is rendered offline exactly as the Manager would render it and played
+   back from a single buffer. The studios' own transports stay untouched.
+2. **Pitch rule = Manager rule.** Studios with a pitch-preserving time scale (Glissando, Field, Fractal, Wave) render the
+   `doc` part; the others render at 1× and play the whole rate as `playbackRate`. `playRates()` → `docR · v = rate`.
+3. **Playhead in document time.** `doc = from + elapsed · rate`. The buffer offset is `from / docR`, so cue, loop, pause and
+   play-from need no change in any canvas.
+4. **Follow.** The heard rate is `own × (follow ? master × focused track : 1)`. Length mode solves `own` so that the
+   *heard* length is `lockSec`.
+5. **Stored apart from the document** (`_tempo`, like `_sends`): Manager instance documents and sound keys are unchanged.
+
+### B2 — MIDI files / MIDI 파일 (`js/core/midi-file.js`, `js/ui/midi-window.js`)
+
+- **Writer:**
+  - SMF type 1, PPQ 960 at 120 BPM.
+  - Several channel messages in one event get their own zero deltas.
+  - Order at one tick: set-up (−10 / −9) → bends (−4) → note-off (−3) → note-on (1).
+- **`linePieces`:**
+  - Samples a line at 100 Hz.
+  - The base note is re-struck when the line leaves ±(range − 0.5).
+  - In 'notes' mode it cuts at every change of the nearest semitone.
+- **Channel allocation:**
+  - The least recently used free channel takes the next note; with none free, the oldest note is cut (`stolen`).
+  - Each MIDI track allocates its channels on its own.
+- **Reader:**
+  - Handles running status, sysex skip, tempo map (all tracks), SMPTE.
+  - RPN 0 sets the bend range per channel; the default is 2, or 48 on member channels once an MPE zone message was seen.
+  - A bend at the note-on tick sets the note's first point.
+- **`notesToLines(join)`:** continues a line of the same track when a note starts within 12 ms of its end and within 0.6 st of
+  its last pitch. Any channel qualifies, so the multi-channel re-strikes join back.
+- **Manager export:** `masterViewLineGroups()` (manager-panel) returns the Master View lines of the audible tracks in cycle
+  time with the heard pitch.
+
+### B3 — Web MIDI + Learn (`js/ui/midi-learn.js`)
+
+- **Control key:**
+  - the element's `id`;
+  - or the nearest `data-help` key + index of that host + index of the control kind inside it.
+  - Scope = the studio on screen, or `*` for header / Manager controls.
+- **Resolve:** happens on every message, so rebuilt panels keep their mappings.
+- **Apply:**
+  - The control's own min / max / step are used (bounds seen at Learn time for unbounded number boxes).
+  - An `input` event, then a debounced `change` (one undo step per gesture).
+- **Learn mode:**
+  - The window steps aside and a banner stays.
+  - Capture-phase `pointerdown` picks a control; clicks / input / change are swallowed meanwhile.
+  - Esc or Done ends it.
+- `handleMidiMessage(bytes)` and `learnTarget(node)` exist for tests without a device.
+
+### B4 — Parity / 통일
+
+- **Axes + lines in every studio:**
+  - `ui/clean-chart.js` draws `listSourceLines(studio)` (the lines the studio sends / shows in the Manager).
+  - Fixed dark palette, so the lines print on white.
+  - The 📸 chip sets `screenshotMode` / `screenshotSvg` (the same preferences as the Version gallery).
+- **Lines rack:**
+  - `doc.lineMix[key]` with the Master View line keys (`c0…`, `f0…`, `w0…`).
+  - Applied where each studio schedules its voices:
+    - Chaos `B.voices.forEach`;
+    - Fractal `scheduleFractal`;
+    - Wave `scheduleRidges`, ridge mode only.
+  - Chaos restarts its pass after an S / M click (`restartChaosAudio`). Its own follow code only reacts to a new bake.
+- **Field presets:** `studios/field/field-presets.js`, whole documents, one undo step.
+
+### B5 — Manager Scenes / 매니저 씬
+
+- **Data and actions:**
+  - `core/scene-config.js` is pure; state.js imports it (`normalizeScenes`).
+  - `core/manager-scenes.js` holds the actions, the self-check and `writeScenesToCycle` / `unwriteScenes`.
+- **Player (`audio/scene-player.js`):**
+  - Uses the mixer's free launch.
+  - 'end' quantize = the next multiple of the playing scene's length from its start.
+  - Follow = a timer at the scene's end.
+  - When every launched track was stopped by hand, the scene ends.
+- **Write to cycle:**
+  - Scene tracks loop from 0 for the total length.
+  - One range with `solo = tracks` and `scene = id` per scene; the cycle is fixed.
+  - The arrangement before the first write is kept in `manager.sceneWrite`, because arrangement fields are not in the undo snapshot.
+
+### Not done / 하지 않은 것
+
+- Tape glide on the studio transports.
+- Length mode for Manager tracks.
+- MIDI output (live) and MIDI notes as a voice source.
+- Per-line S / M for Wave spectral mode (no lines) and for Cloud grains (Cloud has module S / M).

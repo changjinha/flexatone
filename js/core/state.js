@@ -63,6 +63,7 @@ import { createDefaultTremolo, normalizeTremolo } from './tremolo-config.js';
 import { createDefaultWarp, normalizeWarp } from './warp-config.js';
 import { createDefaultTake, normalizeTake } from './take-config.js';
 import { normalizeMods } from './mod-config.js';
+import { normalizeScenes, SCENE_QUANT, SCENE_FOLLOW } from './scene-config.js';
 import { serializeSamples, loadSamples, referencedSampleIds } from './sample-library.js';
 
 // ==========================================================================
@@ -456,7 +457,7 @@ export function normalizeVoice(raw = {}, index = 0) {
 /** Empty manager block; instances are created by core/manager-state.js ensureManager(). */
 export function createDefaultManagerState() {
   // extensions: log of the Extend tool (core/manager-extend.js), newest last / 연장 도구 기록 (최신이 마지막)
-  return { instances: [], focus: {}, cycleLoop: true, cycleMode: 'auto', cycleLen: null, open: false, regions: [], tempo: createDefaultTempoConfig(), extensions: [], mods: [] }; // mods: Modulation matrix (core/mod-config.js) / 모듈레이션
+  return { instances: [], focus: {}, cycleLoop: true, cycleMode: 'auto', cycleLen: null, open: false, regions: [], tempo: createDefaultTempoConfig(), extensions: [], mods: [], scenes: [], sceneQuant: 'now', sceneFollow: 'off', sceneWrite: null }; // mods: Modulation matrix (core/mod-config.js); scenes: core/manager-scenes.js / 모듈레이션·씬
 }
 
 /** Manager mixer fields kept across undo/redo (not part of the document). / 실행 취소 대상이 아닌 믹서 필드 */
@@ -475,6 +476,8 @@ function managerSnapshot() {
     }),
     focus: m.focus,
     mods: m.mods || [], // Modulation matrix routes (undoable) / 모듈레이션 라우트
+    scenes: m.scenes || [], // Scenes (undoable) / 씬
+    sceneOpts: { quant: m.sceneQuant, follow: m.sceneFollow },
     // Extend tool: its log, the regions it made and the cycle length it set (restored only when undo / redo
     // crosses an Extend / Remove step) / 연장 도구: 기록·생성한 구간·사이클 길이 (연장 단계를 넘나들 때만 복원)
     ext: { list: m.extensions || [], regions: (m.regions || []).filter((r) => r.ext), cycleMode: m.cycleMode, cycleLen: m.cycleLen },
@@ -500,6 +503,8 @@ function restoreManager(snap) {
   });
   m.focus = { ...(snap.focus || {}) };
   m.mods = Array.isArray(snap.mods) ? snap.mods : [];
+  m.scenes = Array.isArray(snap.scenes) ? snap.scenes : [];
+  if (snap.sceneOpts) { m.sceneQuant = snap.sceneOpts.quant || 'now'; m.sceneFollow = snap.sceneOpts.follow || 'off'; }
   const ids = (list) => (Array.isArray(list) ? list : []).map((x) => x.id).join();
   if (snap.ext && ids(snap.ext.list) !== ids(m.extensions)) {
     // lengths an extension wrote down on looping clips follow it: back to "auto" when it goes, set again when it returns
@@ -1264,9 +1269,14 @@ export function normalizeManagerState(raw, open = false) {
       solo: (Array.isArray(r.solo) ? r.solo : []).filter((id) => ids.has(id)),
       mute: (Array.isArray(r.mute) ? r.mute : []).filter((id) => ids.has(id)),
       ...(typeof r.ext === 'string' && r.ext ? { ext: r.ext } : {}),
+      ...(typeof r.scene === 'string' && r.scene ? { scene: r.scene } : {}), // written by Scenes / 씬이 쓴 구간
     });
   }
   m.mods = normalizeMods(raw.mods, ids); // Modulation matrix / 모듈레이션 매트릭스
+  m.scenes = normalizeScenes(raw.scenes, ids); // Scenes / 씬
+  m.sceneQuant = SCENE_QUANT.includes(raw.sceneQuant) ? raw.sceneQuant : 'now';
+  m.sceneFollow = SCENE_FOLLOW.includes(raw.sceneFollow) ? raw.sceneFollow : 'off';
+  m.sceneWrite = raw.sceneWrite && Array.isArray(raw.sceneWrite.prev) ? raw.sceneWrite : null;
   // Extend log: { id, method, seconds, from, to, prev: { cycleMode, cycleLen }, froze: [{ id, length }] } / 연장 기록
   for (const x of Array.isArray(raw.extensions) ? raw.extensions : []) {
     if (!x || typeof x.id !== 'string' || !x.id) continue;

@@ -9,6 +9,7 @@
  * 모든 컨트롤에 data-help가 있으며 숫자 입력은 number-scrub이 처리.
  */
 
+import { createLineMixRack } from '../../ui/line-mix-rack.js';
 import { clamp, roundTo } from '../../core/math-utils.js';
 import { t, getLang, pickLocalized } from '../../core/i18n.js';
 import { endHistoryGesture, registerSelfCheck } from '../../core/state.js';
@@ -29,7 +30,7 @@ import {
 } from './chaos-engine.js';
 import { CHAOS_ID, CHAOS_COLORS, PRESET_IDS, getChaosParams, editChaos, getChaosBake, setChaosSystem, applyChaosPreset } from '../chaos-studio.js';
 import { createChaosCanvases, AXIS_COLORS } from './chaos-canvases.js';
-import { isChaosPlaying, refreshChaosLive, exportChaosJson, exportChaosWav } from './chaos-audio.js';
+import { isChaosPlaying, refreshChaosLive, exportChaosJson, exportChaosWav, restartChaosAudio } from './chaos-audio.js';
 import { CHAOS_HELP, CHAOS_HELP_KEYS } from './chaos-i18n.js';
 
 // Help entries → the shared inspector DB (ui tier). / 도움말을 공용 DB에 등록
@@ -406,6 +407,7 @@ export function mountChaosWorkspace(root, hooks) {
           sys.kind === 'map' ? buildDiscreteRack() : null,
           buildSoundRack(),
           ((r) => { syncers.push(r.sync); return r.root; })(createStudioTremoloRack({ get: getChaosParams, edit: editChaos })),
+          ((r) => { syncers.push(r.sync); return r.root; })(createLineMixRack({ studio: 'chaos', get: getChaosParams, edit: editChaos, onChange: restartChaosAudio })), // S / M / gain per voice / 보이스별 S·M·게인
         ]),
       ]),
     );
