@@ -1566,3 +1566,67 @@ inline-height path was simulated).
   Cents`, `liquify.amount`); signals: per-layer level profile (`layerLevelProfile`), active partial count, ridge pitch of the
   strongest line.
 - Later effects: clone, smudge, gradient map (colour → timbre), ripple / distort, emboss; layer blend modes; side-chain between layers.
+
+---
+
+## Grid Studio rebuilt as the space-warp studio + Draw object effects (2026-11-24)
+
+The first Grid prototype (above: "Grid Studio (prototype)") was a painted raster with an additive bank. It overlapped with the
+Draw Studio (both: draw on a time × pitch canvas → sound), and it was not what the studio was meant to be. **That section is
+superseded**: the raster, the fine matrix, the bank worklet, the stage cache, the painting tools and the Tier 2 matrix effects
+are gone (`grid-effects.js`, `grid-bank.js`, `grid-tools.js` deleted). `modules/ridge-tracker.js` stays as an unused shared module.
+첫 그리드 프로토타입(래스터 + 가산 뱅크)은 드로잉 스튜디오와 겹쳤고 의도와 달랐음 → 해당 절은 폐기. 래스터·뱅크·칠하기 도구 삭제.
+
+### The split / 역할 분담
+
+One set of maps of the time × pitch plane (`js/modules/space-warp.js`), used two ways:
+
+| | Draw Studio | Grid Studio |
+|---|---|---|
+| What an effect belongs to | one stroke (`stroke.fx`) | the space (`doc.space`) |
+| What moves | the points of that object; axes and other strokes stay | the coordinate grid itself; every line in it is carried along |
+| Lines | drawn and edited here | read-only, from a source studio (never edited) |
+| Liquify brush | Warp tool (W): strokes stored in the active stroke's Liquify effect | drag in the Editor: strokes stored in the space's Liquify effect |
+| Display | straight axes, moved stroke | Editor = straight grid + original lines, Result = deformed grid + carried lines |
+| Normalised centres (lens, twirl, mirror) | the stroke's bounding box | the space range |
+
+### Files / 파일
+
+| File | Role |
+|---|---|
+| `js/modules/space-warp.js` (new, pure) | `SpaceWarpRegistry` (a warp = one object: `map(q, p, env)` or `variants(p, env)`), ten warps — liquify, lens, twirl, wave, turbulence, pixelate, mirror, glitch, halftone, chromatic copies — `warpPoint`, `warpPolyline` (dense sampling, cut at breaks / gaps / time reversal), 3 self-checks |
+| `js/ui/warp-stack-ui.js` (new) | the stack editor both studios use (cards generated from the schema, `warp.*` strings and help) |
+| `js/studios/grid-studio.js`, `grid/grid-engine.js`, `grid-audio.js`, `grid-canvases.js`, `grid-panels.js`, `grid-i18n.js`, `grid-checks.js` | rewritten; `grid/grid-layout.js` (two windows + resize lock) kept |
+| `js/studios/draw/draw-engine.js` | `stroke.fx` (sanitised stack), applied after Transform and before time clean-up / snap; `pieceFxGainAt` (gates, copy gain) in `pieceGainAt` / `pieceGainPoints`; tool `warp`; `DRAW_CELL`; doc `liq` (brush) |
+| `js/studios/draw/draw-canvases.js` | Warp tool (pointer → `commitWarp`, one undo step per drag) |
+| `js/studios/draw/draw-panels.js` | "Object effects" rack (shared stack editor), "Warp brush" rack, key W, strings / help |
+
+### Decisions / 결정
+
+1. **Grid has no lines of its own.** `doc.source.studio` = any Trajectory Send source (default Glissando) or the demo lines.
+   `listSourceLines` is read on every render and memoised on the source document; the source is never written.
+2. **Sound.** Source = Glissando and `sound: 'source'`: each run uses the voice's own PeriodicWave and its amplitude envelope,
+   read at the *source* time of every point (`w` travels with the point), so the envelope bends with the space. Otherwise the
+   Grid timbre at a flat level (the other sources give pitch lines only). One oscillator per run; static headroom guard.
+3. **A warp is a forward map of points**, so liquify is evaluated analytically per point (brush samples replayed in order) — no
+   mesh, no matrix. `smooth` and brush momentum of the raster version were dropped (they need a field).
+4. **Runs.** A warped line is cut where the map breaks (`q.tag`), at gaps, and where time turns back; every run is strictly
+   forward in time. ≤ 600 runs sound (longest × loudest first); Bake writes ≤ 64 voices.
+5. **Deformed grid** = images of the lines t = const / pitch = const of the range (`warpedGridLines`); halftone and chromatic
+   copies do not bend it (gain, copies).
+6. **Draw:** effects with gain (halftone, chromatic copy gain) are baked with up to 65 gain points per piece; pan of a
+   chromatic copy is ignored there (a stroke has no pan).
+7. **Manager:** the adapter in `audio/studio-clips.js` is unchanged in shape (`scalesTime`, `ampMask`, `pitchWarp`, key, lines);
+   `brightWarp` is not applied. A Grid track reads the *editor* document of its source studio.
+8. Glitch events use an avalanche hash per (event, draw): `createSeededRandom` with the combined stage seed produced clustered
+   gaps for some seeds.
+
+### Checks / 점검
+
+`runSelfCheck()` **222 / 222** (new: Space warp ×3, Grid ×9; Draw's 6 unchanged and passing). Browser (port 8028, no console
+error): Grid — brush in the Editor = 1 undo step, Glissando voices untouched, Result ignores painting, play with 0 bakes while
+playing, edit while playing, slider drag = 1 undo step, WAV, project save / load, EN ⇄ KO and a help entry for every control.
+Draw — pixelate + chromatic on the active stroke (1 piece → 21, raw unchanged), 21 baked voices, offline render, Warp tool =
+1 undo step, undo. **Not verified:** by ear; Manager add / launch with the rebuilt Grid in the UI (only the self-checks ran);
+sources other than Glissando and the demo lines; a pen; Draw's Warp tool on a stroke in Node (direct) mode.
+

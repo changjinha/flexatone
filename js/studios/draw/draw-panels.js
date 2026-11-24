@@ -12,7 +12,9 @@
 
 import { clamp, deepClone } from '../../core/math-utils.js';
 import { midiToNoteName } from '../../core/units.js';
-import { t, getLang } from '../../core/i18n.js';
+import { t, getLang, I18N } from '../../core/i18n.js';
+import { createWarpStackRack } from '../../ui/warp-stack-ui.js';
+import { LIQUIFY_TOOLS } from '../../modules/space-warp.js';
 import { appState, endHistoryGesture } from '../../core/state.js';
 import { StudioRegistry } from '../registry.js';
 import { el, num } from '../../ui/panels.js';
@@ -36,7 +38,33 @@ import { DRAW_HELP, DEMO_SVGS } from './draw-i18n.js';
 for (const [k, v] of Object.entries(DRAW_HELP)) HELP_DB[k] = v;
 
 const SECTION = 'bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2';
-const TOOL_KEYS = { draw: 'D', select: 'V', node: 'N', erase: 'E', line: 'L' };
+const TOOL_KEYS = { draw: 'D', select: 'V', node: 'N', erase: 'E', line: 'L', warp: 'W' };
+
+// Object effects (shared with the Grid Studio: ui/warp-stack-ui.js, modules/space-warp.js). Here they
+// move the points of one stroke; the axes and the other strokes stay. / 객체 효과: 획 하나의 점만 옮김
+Object.assign(I18N.en, {
+  'draw.tool.warp': 'Warp',
+  'draw.fxTitle': 'Object effects',
+  'draw.fxHint': 'Move the active stroke only — the axes and the other strokes stay. (The Grid Studio bends the space itself.)',
+  'draw.liq.brush': 'Warp brush', 'draw.liq.size': 'Size', 'draw.liq.strength': 'Strength',
+  'draw.liq.push': 'Push', 'draw.liq.twirlCW': 'Twirl ↻', 'draw.liq.twirlCCW': 'Twirl ↺', 'draw.liq.pinch': 'Pinch', 'draw.liq.bloat': 'Bloat', 'draw.liq.reconstruct': 'Reconstruct',
+});
+Object.assign(I18N.ko, {
+  'draw.tool.warp': '변형',
+  'draw.fxTitle': '객체 효과',
+  'draw.fxHint': '활성 획만 움직입니다 — 축과 다른 획은 그대로입니다. (공간 자체를 휘는 것은 그리드 스튜디오입니다.)',
+  'draw.liq.brush': '변형 브러시', 'draw.liq.size': '크기', 'draw.liq.strength': '세기',
+  'draw.liq.push': '밀기', 'draw.liq.twirlCW': '비틀기 ↻', 'draw.liq.twirlCCW': '비틀기 ↺', 'draw.liq.pinch': '오므리기', 'draw.liq.bloat': '부풀리기', 'draw.liq.reconstruct': '복원',
+});
+const helpE = (title, summary, detail = '') => ({ title, summary, detail: detail || summary, formula: '' });
+HELP_DB['draw.tool.warp'] = {
+  en: helpE('Warp tool (W)', 'A liquify brush for the active stroke: drag to push, twirl, pinch or bloat its points.', 'Stored as brush strokes in the stroke’s Liquify effect (non-destructive: its Amount scales them, “Clear strokes” removes them). Only this stroke moves; the axes do not.'),
+  ko: helpE('변형 도구 (W)', '활성 획을 위한 리퀴파이 브러시: 드래그해 점을 밀고, 비틀고, 오므리고, 부풀립니다.', '획의 리퀴파이 효과에 브러시 스트로크로 저장됩니다 (비파괴: 세기로 조절, “스트로크 지우기”로 제거). 이 획만 움직이고 축은 움직이지 않습니다.'),
+};
+HELP_DB['draw.fx'] = {
+  en: helpE('Object effects', 'A stack of warps that belongs to the active stroke: liquify, lens, twirl, wave, turbulence, pixelate, mirror, glitch, halftone, chromatic copies.', 'Applied after Transform and before the time clean-up and the pitch snap. Centres refer to the stroke’s own bounding box. Baked into the Glissando voices (a gate is kept as up to 65 gain points; pan is not kept).'),
+  ko: helpE('객체 효과', '활성 획에 속한 변형 스택: 리퀴파이, 렌즈, 비틀기, 물결, 난류, 픽셀레이트, 미러, 글리치, 할프톤, 크로매틱 복제.', '변환 뒤, 시간 정리와 음고 스냅 앞에 적용됩니다. 중심은 획 자신의 경계 상자 기준입니다. 글리산도 보이스로 그대로 베이킹됩니다 (게이트는 게인 점 최대 65개로, 팬은 옮겨지지 않음).'),
+};
 
 /** SVG text → polylines (one per geometry element / sub-path) via the DOM. / SVG → 폴리라인 */
 export function sampleSvgPaths(text) {
@@ -405,7 +433,42 @@ export function mountDrawWorkspace(root, hooks) {
 
   // ------------------------------------------------------------------ keyboard tools
   const isTyping = (tg) => tg?.tagName === 'INPUT' || tg?.tagName === 'TEXTAREA' || tg?.tagName === 'SELECT' || tg?.isContentEditable;
-  const KEY_TOOL = { d: 'draw', v: 'select', n: 'node', e: 'erase', l: 'line' };
+  // ------------------------------------------------------------------ object effects (shared warp stack)
+  function buildFxRack() {
+    const r = createWarpStackRack({
+      titleKey: 'draw.fxTitle', hintKey: 'draw.fxHint', rackId: 'draw-fx', help: 'draw.fx', color: 'text-pink-300',
+      get: () => getActiveStroke()?.fx ?? null,
+      edit: (fn, opts = {}) => editDraw((d) => { const s = d.strokes.find((x) => x.id === d.activeStrokeId); if (s) { s.fx = s.fx || []; fn(s.fx); } }, { coalesceKey: opts.coalesceKey || null }),
+      toast: hooks.showToast,
+    });
+    syncers.push(r.sync);
+    return r.root;
+  }
+
+  /** Brush of the Warp tool. / 변형 도구의 브러시 */
+  function buildFxBrush() {
+    const L = () => getDrawParams().liq || { tool: 'push', size: 8, strength: 0.6 };
+    const set = (k, v) => editDraw((d) => { d.liq = { ...(d.liq || {}), [k]: v }; }, { history: false });
+    const sel = el('select', { class: 'bg-slate-950 border border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-200', dataset: { help: 'draw.tool.warp' }, on: { change: (e) => set('tool', e.target.value) } }, LIQUIFY_TOOLS.map((k) => el('option', { value: k, text: t(`draw.liq.${k}`) })));
+    sel.addEventListener('keydown', (e) => e.stopPropagation());
+    const numIn = (k, min, max, step) => {
+      const inp = el('input', { type: 'number', min, max, step, class: 'w-16 px-1 py-0.5 rounded bg-slate-950 border border-slate-700 text-right font-mono text-[11px] text-sky-200', dataset: { help: 'draw.tool.warp' } });
+      inp.addEventListener('change', () => set(k, Math.min(max, Math.max(min, num(inp.value, L()[k])))));
+      syncers.push(() => { if (document.activeElement !== inp) inp.value = String(L()[k]); });
+      return inp;
+    };
+    syncers.push(() => { if (document.activeElement !== sel) sel.value = L().tool; });
+    return el('section', { class: SECTION, dataset: { rack: 'draw-warp-brush', help: 'draw.tool.warp' } }, [
+      el('h3', { class: 'text-xs font-bold uppercase tracking-wider text-pink-300', text: t('draw.liq.brush'), dataset: { help: 'draw.tool.warp' } }),
+      el('div', { class: 'flex flex-wrap items-center gap-2 text-[11px] text-slate-300' }, [
+        sel,
+        el('label', { class: 'flex items-center gap-1', dataset: { help: 'draw.tool.warp' } }, [t('draw.liq.size'), numIn('size', 1, 80, 0.5)]),
+        el('label', { class: 'flex items-center gap-1', dataset: { help: 'draw.tool.warp' } }, [t('draw.liq.strength'), numIn('strength', 0.01, 1, 0.01)]),
+      ]),
+    ]);
+  }
+
+  const KEY_TOOL = { d: 'draw', v: 'select', n: 'node', e: 'erase', l: 'line', w: 'warp' };
   function onKey(e) {
     if (isTyping(e.target) || e.altKey) return;
     const k = e.key.toLowerCase();
@@ -431,7 +494,7 @@ export function mountDrawWorkspace(root, hooks) {
       buildHeader(),
       el('div', { class: 'grid grid-cols-1 lg:grid-cols-12 gap-3' }, [
         buildCanvasCol(),
-        el('div', { class: 'lg:col-span-4 flex flex-col gap-3 min-w-0' }, [buildStrokeList(params), buildDrawingRack(), buildSoundRack(), ((r) => { syncers.push(r.sync); return r.root; })(createStudioTremoloRack({ get: getDrawParams, edit: editDraw })), buildTransformRack(), buildImportRack()]),
+        el('div', { class: 'lg:col-span-4 flex flex-col gap-3 min-w-0' }, [buildStrokeList(params), buildDrawingRack(), buildSoundRack(), ((r) => { syncers.push(r.sync); return r.root; })(createStudioTremoloRack({ get: getDrawParams, edit: editDraw })), buildTransformRack(), buildFxBrush(), buildFxRack(), buildImportRack()]),
       ]),
     );
   }

@@ -23,8 +23,9 @@ import { t } from '../../core/i18n.js';
 import { appState, endHistoryGesture } from '../../core/state.js';
 import {
   computeStroke, createStroke, newStrokeId, thinRaw, roundRaw, offsetRaw, enterDirectMode, pieceAnchors, piecePitchAt,
-  pieceWidthAt, applyTransform, cutRaw, STROKE_COLORS,
+  pieceWidthAt, applyTransform, cutRaw, STROKE_COLORS, DRAW_CELL,
 } from './draw-engine.js';
+import { createWarpStage, LIQUIFY_MAX_OPS } from '../../modules/space-warp.js';
 import { getDrawParams, editDraw, getActiveStroke, isStrokeAudible, getProcessedMap } from '../draw-studio.js';
 import { drawCueLine, drawPlayheadLine } from '../../ui/transport-lines.js';
 import { attachLocate, cueOrAudition } from '../../ui/locate-tool.js';
@@ -321,7 +322,7 @@ export function createDrawCanvases(els, hooks) {
       els.hud.hz.textContent = `${midiToFreq(midi).toFixed(1)} Hz`;
     }
     if (locate.isDragging()) { els.main.style.cursor = 'grabbing'; return; }
-    els.main.style.cursor = { draw: 'crosshair', line: 'crosshair', select: drag?.type === 'move' ? 'grabbing' : 'default', node: 'pointer', erase: 'cell' }[params.tool] || 'default';
+    els.main.style.cursor = { draw: 'crosshair', line: 'crosshair', warp: 'crosshair', select: drag?.type === 'move' ? 'grabbing' : 'default', node: 'pointer', erase: 'cell' }[params.tool] || 'default';
   }
 
   // ------------------------------------------------------------------ pointer tools
@@ -343,6 +344,15 @@ export function createDrawCanvases(els, hooks) {
     }
     if (tool === 'line') {
       drag = { type: 'line', a: lineSnap(m, toPt(m, p, width()), e.shiftKey, params), b: null, color: STROKE_COLORS[params.strokes.length % STROKE_COLORS.length], w: width() };
+      return;
+    }
+    if (tool === 'warp') {
+      // Object liquify: the brush moves the points of the active stroke only / 객체 리퀴파이: 활성 획의 점만 옮김
+      const act = getActiveStroke(params);
+      const n = (act?.fx || []).find((x) => x.type === 'liquify')?.params.ops.length || 0;
+      if (!act || n >= LIQUIFY_MAX_OPS) return;
+      drag = { type: 'warp', id: act.id, opIndex: n, pts: [[m.xToTime(p.x) / DRAW_CELL.ut, m.yToMidi(p.y) / DRAW_CELL.um]], last: p };
+      if (params.liq?.tool !== 'push') commitWarp(drag);
       return;
     }
     if (tool === 'erase') {
@@ -414,6 +424,12 @@ export function createDrawCanvases(els, hooks) {
       drag.preview = computeStroke(createStroke(params.strokes.length, drag.raw, act, 'ds_preview'));
     } else if (drag.type === 'line') {
       drag.b = lineSnap(m, toPt(m, p, drag.w), e.shiftKey, params);
+    } else if (drag.type === 'warp') {
+      if (Math.hypot(p.x - drag.last.x, p.y - drag.last.y) >= 3) {
+        drag.pts.push([m.xToTime(p.x) / DRAW_CELL.ut, m.yToMidi(p.y) / DRAW_CELL.um]);
+        drag.last = p;
+        commitWarp(drag);
+      }
     } else if (drag.type === 'erase') {
       drag.path.push(p);
     } else if (drag.type === 'box') {
@@ -447,6 +463,22 @@ export function createDrawCanvases(els, hooks) {
       editDraw((d) => { Object.assign(d.view, { tMin, tMax: tMin + tSpan, midiMin, midiMax: midiMin + mSpan }); }, { history: false });
     }
     rerender();
+  }
+
+  /** Write the brush stroke being dragged into the active stroke's Liquify effect (one undo step per drag). */
+  function commitWarp(d0) {
+    const pts = d0.pts.length > 60 ? d0.pts.filter((_, k) => k % Math.ceil(d0.pts.length / 60) === 0 || k === d0.pts.length - 1) : d0.pts;
+    editDraw((d) => {
+      const s = d.strokes.find((x) => x.id === d0.id);
+      if (!s) return;
+      s.fx = s.fx || [];
+      let it = s.fx.find((x) => x.type === 'liquify');
+      if (!it) { it = createWarpStage('liquify', { id: 'w-liquify' }); s.fx.unshift(it); }
+      it.on = true;
+      const liq = d.liq || {};
+      const op = { tool: liq.tool || 'push', size: Number(liq.size) || 8, strength: Number(liq.strength) || 0.6, pts: pts.map((q) => [q[0], q[1]]) };
+      if (d0.opIndex < it.params.ops.length) it.params.ops[d0.opIndex] = op; else it.params.ops.push(op);
+    }, { coalesceKey: 'draw-warp' });
   }
 
   function commitStroke(raw) {
@@ -516,7 +548,7 @@ export function createDrawCanvases(els, hooks) {
       const ids = [];
       for (const [id, list] of polys) if (list.some((pl) => pl.some((q) => q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1))) ids.push(id);
       editDraw((d) => { d.selectedIds = ids; if (ids.length) d.activeStrokeId = ids[0]; }, { history: false });
-    } else if (d0.type === 'move' || d0.type === 'node') {
+    } else if (d0.type === 'move' || d0.type === 'node' || d0.type === 'warp') {
       endHistoryGesture();
     }
     rerender();

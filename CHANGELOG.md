@@ -30,6 +30,19 @@ Leave out the lines that do not apply. Write what is true now, including failing
 
 ---
 
+## [0.44.0] — 2026-11-24 — Grid Studio rebuilt: it bends the space; Draw gets object effects / 그리드 = 공간 변형, 드로잉 = 객체 효과
+- **Changed / 변경:**
+  - **Grid Studio is now the space-warp studio.** It has no lines of its own: it shows the lines of a source studio (default Glissando, read-only) on the time × pitch grid and deforms that grid. Editor = original space + lines, Result = deformed grid + the lines as the space carries them (= the sound). The source voices are never edited.
+    - Space effects: liquify (brush in the Editor), lens, twirl, wave, turbulence, pixelate, mirror, glitch, halftone, chromatic copies; ten space presets.
+    - A Glissando voice keeps its own timbre and envelope ("Source voice"), or every line plays the Grid timbre.
+  - **Draw Studio: object effects.** The same warps as a stack per stroke — only that stroke moves, the axes stay. New Warp tool (W) = a liquify brush for the active stroke.
+- **Added / 추가:** `js/modules/space-warp.js` (warp registry + maps, shared), `js/ui/warp-stack-ui.js` (shared stack editor).
+- **Removed / 제거:** the raster version of the Grid Studio (painting tools, fine matrix, stage cache, `GridBank` worklet, Tier 2 matrix effects, image import): `grid-effects.js`, `grid-bank.js`, `grid-tools.js`. Blur and Noise have no line-based form and are gone with it.
+- **Files / 파일:** `js/modules/space-warp.js`, `js/ui/warp-stack-ui.js`, `js/studios/grid-studio.js`, `js/studios/grid/*`, `js/studios/draw/draw-engine.js`, `draw-canvases.js`, `draw-panels.js`, `js/ui/shortcut-help.js`, `docs/STUDIO_INTEGRATION_LOG.md`.
+- **Data / 데이터:** `studioParams.grid` has a new shape (`source`, `space`, `range`, `sound`, …); a raster document saved with 0.33.0 loads as the default Grid document (its rasters are dropped — no migration). Draw strokes gain `fx` (missing = none) and the document gains `liq`; older Draw documents load unchanged.
+- **Checks / 점검:** `runSelfCheck()` **222 / 222** (Space warp ×3, Grid ×9, Draw ×6 unchanged). Clicked through on port 8028 with no console error — see the log. **Not verified:** by ear; the rebuilt Grid in the Manager UI (self-checks only); sources other than Glissando / demo lines.
+- **Details / 상세:** `docs/STUDIO_INTEGRATION_LOG.md` → "Grid Studio rebuilt as the space-warp studio + Draw object effects".
+
 ## [0.33.0] — 2026-11-24 — Grid Studio (prototype): painted raster + image effects as sound / 그리드 스튜디오
 - **Added / 추가:**
   - **Grid Studio** (`grid`, order 110): a painted time × pitch raster (≤ 4 layers, ≤ 200 000 cells) whose image effects are the matching sound operations.

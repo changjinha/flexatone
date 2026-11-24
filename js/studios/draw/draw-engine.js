@@ -25,6 +25,7 @@
 
 import { clamp, lerp, roundTo, deepClone, createSeededRandom, fitStrokeToSpline } from '../../core/math-utils.js';
 import { evaluateCurveObjectY } from '../../modules/curve-engine.js';
+import { sanitizeWarpStack, isIdentityStack, warpPolyline } from '../../modules/space-warp.js';
 
 export const DRAW_ID = 'draw';
 export const MAX_DRAW_VOICES = 64;
@@ -33,7 +34,9 @@ export const ARC_TIME_SCALE = 12; // semitones per second of horizontal travel /
 export const REVERSAL_MODES = Object.freeze(['drop', 'split', 'arc']);
 export const SNAP_MODES = Object.freeze(['off', 'semitone', 'quarter', 'scale']);
 export const GAIN_SOURCES = Object.freeze(['width', 'fixed']);
-export const TOOLS = Object.freeze(['draw', 'select', 'node', 'erase', 'line']);
+export const TOOLS = Object.freeze(['draw', 'select', 'node', 'erase', 'line', 'warp']);
+/** Cell of the object effects (modules/space-warp.js): a brush is round in these units. / 객체 효과의 셀 단위 */
+export const DRAW_CELL = Object.freeze({ ut: 0.125, um: 0.5 });
 export const TIME_DIVS = Object.freeze([0, 0.25, 0.5, 1]); // 0 = off
 export const PRESET_IDS = Object.freeze(['rising', 'swarm', 'mirror']);
 
@@ -91,6 +94,7 @@ export function createStroke(index = 0, raw = [], template = null, id = newStrok
     timbre: { sine: 0.75, tri: 0.2, saw: 0.1, sqr: 0, rich: 0.15 },
     transform: { transpose: 0, stretch: 1, reverse: false, invert: false },
     direct: false, // Node-tool edited: raw = anchors, no simplify / snap / 노드 편집 직접 모드
+    fx: [], // object effects: a space-warp stack that moves this stroke only (axes untouched) / 객체 효과: 이 획만 움직이는 변형 스택
   };
   if (template) {
     for (const k of ['reversal', 'timeMode', 'arcSpeed', 'smooth', 'pitchSnap', 'scaleId', 'scaleRoot', 'snapStrength', 'gainSource', 'widthDepth', 'baseGain']) base[k] = template[k] ?? base[k];
@@ -111,6 +115,7 @@ export function normalizeStroke(s, index = 0) {
   if (!GAIN_SOURCES.includes(v.gainSource)) v.gainSource = 'width';
   v.transform = { ...d.transform, ...(s?.transform || {}) };
   v.timbre = { ...d.timbre, ...(s?.timbre || {}) };
+  v.fx = sanitizeWarpStack(s?.fx);
   return v;
 }
 
@@ -140,6 +145,7 @@ export function createDefaultDrawParams() {
     seed: 1,
     echo: { count: 3, dt: 0.5, dp: -3, decay: 0.8 },
     importScale: 0.6,
+    liq: { tool: 'push', size: 8, strength: 0.6 }, // brush of the Warp tool (object liquify) / 변형 도구의 브러시
   };
 }
 
@@ -310,6 +316,20 @@ export function pieceWidthAt(piece, t) {
   return lerpW(piece.pts, t);
 }
 
+/** Gain factor written by the object effects (Halftone gate, Chromatic copy gain) at absolute time; 1 without effects. */
+export function pieceFxGainAt(piece, t) {
+  if (!piece.fxGain) return 1;
+  const pts = piece.pts;
+  if (t <= pts[0].t) return pts[0].g ?? 1;
+  let lo = 0;
+  let hi = pts.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (pts[mid].t <= t) lo = mid; else hi = mid; }
+  const a = pts[lo];
+  const b = pts[hi];
+  const u = b.t - a.t > 1e-9 ? clamp((t - a.t) / (b.t - a.t), 0, 1) : 1;
+  return (a.g ?? 1) + ((b.g ?? 1) - (a.g ?? 1)) * u;
+}
+
 /**
  * Least-squares quadratic handle per segment (control at u = ½ → x(s) = s, so
  * y(s) = (1−s)²y₀ + 2s(1−s)c + s²y₁ and c = Σb(y − a) / Σb²). Replaces the nearest-sample
@@ -399,7 +419,7 @@ export function fitPiece(pts, { smooth = 0.35, direct = false } = {}) {
 // Whole stroke + signature cache / 획 전체 + 서명 캐시
 // --------------------------------------------------------------------------
 
-const GEOMETRY_KEYS = ['raw', 'reversal', 'arcSpeed', 'smooth', 'pitchSnap', 'scaleId', 'scaleRoot', 'snapStrength', 'transform', 'direct'];
+const GEOMETRY_KEYS = ['raw', 'reversal', 'arcSpeed', 'smooth', 'pitchSnap', 'scaleId', 'scaleRoot', 'snapStrength', 'transform', 'direct', 'fx'];
 
 /** Signature of every geometry input (sound params excluded). / 형상 입력 서명 */
 export function strokeSignature(s) {
@@ -415,17 +435,34 @@ export function getProcessCount() {
   return processCount;
 }
 
+/** Environment of a stroke's object effects: its bounding box is the domain. / 획 객체 효과의 환경 (경계 상자 = 영역) */
+export function strokeWarpEnv(points) {
+  let t0 = Infinity;
+  let t1 = -Infinity;
+  let m0 = Infinity;
+  let m1 = -Infinity;
+  for (const q of points) { if (q.t < t0) t0 = q.t; if (q.t > t1) t1 = q.t; if (q.p < m0) m0 = q.p; if (q.p > m1) m1 = q.p; }
+  return { seed: 1, ut: DRAW_CELL.ut, um: DRAW_CELL.um, t0, t1: Math.max(t1, t0 + 0.05), m0, m1: Math.max(m1, m0 + 0.5) };
+}
+
 /** Uncached pipeline. / 캐시 없는 파이프라인 */
 export function computeStroke(s) {
   const raw = (s.raw || []).map((q) => ({ t: Number(q.t), p: Number(q.p), w: Number(q.w) }));
   const tr = applyTransform(raw, s.transform);
-  const runs = s.direct ? [dropReversals(tr)] : cleanupTime(tr, s.reversal, s.arcSpeed);
+  // Object effects (modules/space-warp.js): the points of THIS stroke are moved — the axes and the
+  // other strokes stay where they are. Normalised centres refer to the stroke's own bounding box.
+  // 객체 효과: 이 획의 점만 옮김 (축과 다른 획은 그대로). 정규화된 중심은 획 자신의 경계 상자 기준.
+  let lines = [tr];
+  const fx = !isIdentityStack(s.fx) && tr.length >= 2;
+  if (fx) lines = warpPolyline(tr.map((q) => ({ t: q.t, m: q.p, w: q.w })), s.fx, strokeWarpEnv(tr), { monotone: false }).map((r) => r.pts.map((q) => ({ t: Math.max(0, q.t), p: clamp(q.m, 0, 135), w: q.w, g: q.g })));
+  const runs = [];
+  for (const ln of lines) runs.push(...(s.direct ? [dropReversals(ln)] : cleanupTime(ln, s.reversal, s.arcSpeed)));
   const pieces = [];
   let dropped = 0;
   for (const run of runs) {
     const snapped = s.direct ? run : run.map((q) => ({ ...q, p: snapPitch(q.p, s.pitchSnap, s.snapStrength, s.scaleId, s.scaleRoot) }));
-    const piece = fitPiece(snapped, { smooth: s.smooth, direct: !!s.direct });
-    if (piece) pieces.push(piece);
+    const piece = fitPiece(snapped, { smooth: s.smooth, direct: !!s.direct && !fx });
+    if (piece) { piece.fxGain = fx && snapped.some((q) => q.g !== undefined && q.g < 0.999); pieces.push(piece); }
     else dropped += 1;
   }
   return { pieces, runs: runs.length, dropped, rawCount: raw.length };
@@ -464,10 +501,11 @@ export function countPieces(doc, map = processDoc(doc)) {
 /** Gain envelope sampled at n+1 points (width → gain). / 두께 → 게인 */
 export function pieceGainPoints(piece, stroke, n = 16) {
   const out = [];
+  if (piece.fxGain) n = Math.max(n, Math.min(64, Math.ceil(piece.dur * 40))); // gates need more points / 게이트는 점이 더 필요
   for (let i = 0; i <= n; i++) {
     const x = i / n;
     const w = pieceWidthAt(piece, piece.t0 + x * piece.dur);
-    const g = stroke.gainSource === 'fixed' ? 1 : lerp(1, clamp(w, 0, 1), clamp(Number(stroke.widthDepth) || 0, 0, 1));
+    const g = (stroke.gainSource === 'fixed' ? 1 : lerp(1, clamp(w, 0, 1), clamp(Number(stroke.widthDepth) || 0, 0, 1))) * pieceFxGainAt(piece, piece.t0 + x * piece.dur);
     out.push({ x: roundTo(x, 4), y: roundTo(clamp(g, 0, 1), 4), handles: [] });
   }
   return out;
@@ -475,8 +513,9 @@ export function pieceGainPoints(piece, stroke, n = 16) {
 
 /** Instantaneous gain multiplier (0..1) from width. / 순간 게인 계수 */
 export function pieceGainAt(piece, stroke, t) {
-  if (stroke.gainSource === 'fixed') return 1;
-  return lerp(1, clamp(pieceWidthAt(piece, t), 0, 1), clamp(Number(stroke.widthDepth) || 0, 0, 1));
+  const fxg = pieceFxGainAt(piece, t);
+  if (stroke.gainSource === 'fixed') return fxg;
+  return fxg * lerp(1, clamp(pieceWidthAt(piece, t), 0, 1), clamp(Number(stroke.widthDepth) || 0, 0, 1));
 }
 
 /** Absolute anchors of a piece (for the Node tool). / 조각의 절대 앵커 */
