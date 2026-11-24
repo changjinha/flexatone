@@ -1288,3 +1288,39 @@ what is transformed, so two readings were built as two methods (the Extend card'
   The panel supplies `measure.voiceGain` (`lineEnvelopeAt`, Glissando voices only). A linear crossfade is used on purpose:
   the layers start together on the same curve, so their sum is the linear interpolation of level and wave mix.
 
+## Manager Modulation (A2 · A3 · A4) (2026-11-23) / 매니저 모듈레이션
+
+Roadmap B (mod matrix) in a render-time form: parameter modulation (A2), sidechain (A3) and triggers (A4) share one
+route format. / 로드맵 B를 렌더 시점 방식으로: 파라미터 모듈레이션·사이드체인·트리거가 같은 라우트 형식.
+
+### Files / 파일
+- `core/mod-config.js` (pure): route format, targets and units, statuses (self / loop / kind), pulse train, follower,
+  peaks, crossings, frame lookup.
+- `core/manager-mods.js`: actions (add / set / remove / move, one undo step each) + self-check.
+- `audio/mod-sources.js`: signals in cycle time (lines from `audio/send-sources.js`, envelopes from an as-heard render),
+  per-target modulation `{ pitch, level, trem, bright, doc, retrig }`, Cloud document rewrite, previews.
+- `ui/manager-mods.js`: the card; `ui/manager-panel.js` only hosts it (`.mgr-mods-host`).
+
+### Decisions / 결정
+- **Render time, not a live control bus:** the Manager plays rendered clips, so modulation is folded into the same hooks the
+  Warp tracks use (`warpOf` → pitch fn, level / tremolo / brightness mod). Rendered clips, live Risset (`getMask` /
+  `getWarp`), WAV and video therefore agree. Cache keys include the matrix key, so a route change re-renders its target.
+- **No time density from the matrix:** `timeOf` / lengths ask `warpOf(…, { matrix: false })`, so a source's length never
+  depends on a route (no recursion through `naturalLength`). Source placement uses `plainLength` (one pass without Warp time).
+- **Sound-dependent sources** (envelope, peaks) are the only ones that can loop; checked in list order like Sends. Their
+  envelopes are rendered asynchronously (`ensureModEnvelopes`, a source waits for its own envelope sources); Play and
+  export await them; live edits re-render the target when an envelope arrives (key goes from "pending" to "ready").
+- **Combining:** routes on one parameter add (no replace); trem is clamped 0…1 after adding to the Warp's tremolo.
+- **Retrigger** rewrites the target's buffer (length = clip length in buffer seconds, 4 ms fades at each restart); the part
+  before the first trigger is untouched. Not for live Risset (no clip).
+- **Cloud doc targets:** the four time curves are resampled into a 64-point custom curve with the modulation added at the
+  cycle time of each point; amount unit = × the curve range.
+
+### Limits / 한계
+- Looping clips modulated only through Cloud curves are not unrolled per pass (the first pass's curve repeats).
+- Envelope renders are capped at 180 s per source; Risset sources are rendered offline for their envelope.
+- Not checked by ear or in video export.
+
+### Checks / 점검
+See CHANGELOG 0.21.0.
+

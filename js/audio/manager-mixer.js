@@ -55,6 +55,8 @@ import { createTremoloEvaluator } from '../modules/tremolo.js';
 import { renderFieldBuffer, getFieldTimeline } from '../studios/field/field-audio.js';
 import { createRissetEngine, resolveRissetDoc, renderRissetBuffer } from '../studios/risset/risset-audio.js';
 import { isClipStudio, resolveClipParams, clipStudioLength, renderClipStudio, clipStudioScalesTime, clipStudioKey } from './studio-clips.js';
+import { configureModSources, modOfTrack, ensureModEnvelopes, applyDocMods } from './mod-sources.js';
+import { evalCloudCurve } from '../studios/cloud/cloud-engine.js';
 
 const LEAD_SEC = 0.08;
 const LOOKAHEAD_SEC = 0.5;
@@ -236,10 +238,14 @@ function warpStage(src) {
  * Warp of a target track: { key, fn: (cycleSec, midi) → midi | null, mod: (cycleSec, midi) →
  * { levelDb, trem, bright } | null }. / 대상 트랙의 곡률 (음고 fn, 그 밖의 구동 mod)
  */
-function warpOf(target) {
+function warpOf(target, { matrix = true } = {}) {
   if (!target) return { key: '', fn: null, mod: null, rate: null };
   const stages = warpSourcesFor(target).map(warpStage).filter(Boolean);
-  if (!stages.length) return { key: '', fn: null, mod: null, rate: null };
+  // Modulation matrix (audio/mod-sources.js): adds pitch / level / tremolo / brightness on top of the Warp.
+  // Time density never comes from it, so timeOf / lengths ask without it (no recursion through lengths).
+  // 모듈레이션 매트릭스: 곡률 위에 음고·음량·트레몰로·밝기를 더함 (시간 밀도는 없음 → 길이 계산은 제외)
+  const mm = matrix && target.id && !('ctxDoc' in target) ? modOfTrack(target) : null;
+  if (!stages.length) return mm ? withMatrix({ key: '', fn: null, mod: null, rate: null }, mm) : { key: '', fn: null, mod: null, rate: null };
   const ts = stages.find((st) => st.mod.time); // the first time-driving source sets mode and clock / 시간 구동 첫 출처가 방식·시계를 정함
   return {
     key: stages.map((st) => st.key).join('§'),
@@ -249,6 +255,27 @@ function warpOf(target) {
     timeMode: ts?.timeMode || 'keep',
     timeClock: ts?.timeClock || 'track',
     end: Math.max(...stages.map((st) => st.start + st.length)),
+  };
+  return mm ? withMatrix(w, mm) : w;
+}
+
+/** Fold a track's modulation into its Warp hooks. / 모듈레이션을 곡률 훅에 합침 */
+function withMatrix(w, mm) {
+  const fn0 = w.fn;
+  const mod0 = w.mod;
+  const anyMod = mm.level || mm.trem || mm.bright;
+  return {
+    ...w,
+    key: `${w.key}|${mm.key}`,
+    fn: mm.pitch ? (T, m) => (fn0 ? fn0(T, m) : m) + mm.pitch(T) : fn0,
+    mod: anyMod ? (T, m) => {
+      const r = mod0 ? mod0(T, m) : null;
+      return {
+        levelDb: (r?.levelDb || 0) + (mm.level ? mm.level(T) : 0),
+        trem: clamp((r?.trem || 0) + (mm.trem ? mm.trem(T) : 0), 0, 1),
+        bright: (r?.bright || 0) + (mm.bright ? mm.bright(T) : 0),
+      };
+    } : mod0,
   };
 }
 
@@ -265,7 +292,7 @@ function warpOf(target) {
 /** Time drive of a target: { rate, mode, clock, end } or null. / 대상의 시간 구동 */
 function timeOf(inst) {
   if (!inst || inst.warp?.on || inst.studio === 'risset' && inst.take?.on) return null;
-  const w = warpOf(inst);
+  const w = warpOf(inst, { matrix: false });
   return w.rate ? { rate: w.rate, mode: w.timeMode, clock: w.timeClock, end: w.end, key: w.key } : null;
 }
 
@@ -551,7 +578,11 @@ async function renderPass(inst, doc, sampleRate, start, toReal = null) {
   const rate = channelRates(inst).doc;
   let buf;
   if (inst.studio === 'glissando') buf = await renderOfflineBuffer({ voices: applyTempoToVoices(glissVoices(doc), rate), sampleRate, ampMask, pitchWarp, brightWarp, voiceMod: doc?.params?.voiceMod ?? null });
-  else if (isClipStudio(inst.studio)) buf = await renderClipStudio(inst.studio, resolveParams(inst, doc), sampleRate, { rate, ampMask, pitchWarp, brightWarp, varispeed: varispeed(inst) });
+  else if (isClipStudio(inst.studio)) {
+    // Modulation of document curves (Cloud) is written in before rendering / 문서 곡선 모듈레이션은 렌더 전에
+    const params = applyDocMods(inst, resolveParams(inst, doc), start, channelRates(inst).rate, evalCloudCurve);
+    buf = await renderClipStudio(inst.studio, params, sampleRate, { rate, ampMask, pitchWarp, brightWarp, varispeed: varispeed(inst) });
+  }
   else buf = await renderFieldBuffer({ params: applyTempoToFieldParams(resolveParams(inst, doc), rate), sampleRate, outputStage: false, ampMask, pitchWarp, brightWarp });
   return applyChannelTremolo(buf, inst.tremolo);
 }
@@ -638,7 +669,7 @@ async function renderHeard(inst, doc, sampleRate, L) {
     const r = channelRates(inst);
     base = await renderRissetBuffer({ seconds: Math.min(180, Math.max(1, Math.ceil(L))), params: shiftRissetPitch(resolveParams(inst, doc), r.tape), sampleRate, outputStage: false, ampMask: renderGain(inst), pitchWarp: renderWarp(inst), timeScale: r.rate, extraTremolo: inst.tremolo?.on ? inst.tremolo : null });
   } else {
-    base = await renderClipBuffer(inst, sampleRate, doc);
+    base = retriggerBuffer(inst, await renderClipBuffer(inst, sampleRate, doc));
     rate = varispeed(inst);
     loop = !!inst.loop;
   }
@@ -758,8 +789,60 @@ function cachedTake(inst, doc, sampleRate) {
 }
 
 /** Buffer a track plays: a take, or one (possibly unrolled) pass of its document. / 트랙이 재생하는 버퍼 */
-function renderTrackBuffer(inst, sampleRate) {
-  return inst.take?.on ? cachedTake(inst, getInstanceDoc(inst), sampleRate) : renderClipBuffer(inst, sampleRate);
+async function renderTrackBuffer(inst, sampleRate) {
+  const buf = await (inst.take?.on ? cachedTake(inst, getInstanceDoc(inst), sampleRate) : renderClipBuffer(inst, sampleRate));
+  return retriggerBuffer(inst, buf);
+}
+
+/**
+ * Retrigger (Modulation matrix, A4): every trigger time restarts the clip from its beginning; the part
+ * before the first trigger plays as usual. Output = the clip's length in buffer seconds (loops like before).
+ * 리트리거: 트리거마다 클립을 처음부터 다시 시작. 첫 트리거 전은 그대로.
+ */
+function retriggerBuffer(inst, buf) {
+  if (!buf) return buf;
+  const mm = modOfTrack(inst);
+  if (!mm?.retrig?.length) return buf;
+  const vs = varispeed(inst);
+  const start = Number(inst.start) || 0;
+  const L = clipLength(inst);
+  const sr = buf.sampleRate;
+  const outLen = Math.max(1, Math.ceil(L * vs * sr));
+  const cuts = mm.retrig.map((T) => Math.round((T - start) * vs * sr)).filter((i) => i > 0 && i < outLen);
+  if (!cuts.length) return buf;
+  const segs = [0, ...new Set(cuts)].sort((a, b) => a - b);
+  const fade = Math.max(1, Math.round(0.004 * sr));
+  const out = new AudioBuffer({ length: outLen, numberOfChannels: buf.numberOfChannels, sampleRate: sr });
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const src = buf.getChannelData(c);
+    const dst = out.getChannelData(c);
+    for (let k = 0; k < segs.length; k++) {
+      const s0 = segs[k];
+      const s1 = k + 1 < segs.length ? segs[k + 1] : outLen;
+      for (let i = s0; i < s1; i++) {
+        let j = k === 0 ? i : i - s0;
+        if (inst.loop) j %= src.length;
+        else if (j >= src.length) break;
+        let g = 1;
+        if (k > 0 && i - s0 < fade) g = (i - s0) / fade;
+        if (k + 1 < segs.length && s1 - i < fade) g = Math.min(g, (s1 - i) / fade);
+        dst[i] = src[j] * g;
+      }
+    }
+  }
+  return out;
+}
+
+/** One pass in real seconds without Warp time density (Modulation sources). / 곡률 시간 밀도 없는 1회 길이 */
+function plainLength(inst, doc = getInstanceDoc(inst)) {
+  if (!inst) return 0;
+  if (inst.take?.on) return takeLength(inst.take);
+  if (inst.studio === 'risset') return Infinity;
+  let base;
+  if (inst.studio === 'glissando') base = getPlayableTimeline(glissVoices(doc)).endSec;
+  else if (isClipStudio(inst.studio)) base = clipStudioLength(inst.studio, resolveParams(inst, doc));
+  else base = getFieldTimeline(resolveParams(inst, doc)).endSec;
+  return base / channelRates(inst).rate;
 }
 
 /**
@@ -1082,6 +1165,7 @@ export async function seekCycle(sec) {
 }
 
 async function prepareBuffers(ctx) {
+  await ensureModEnvelopes({ notify: false }); // sidechain / peak sources first / 사이드체인·피크 출처 먼저
   const jobs = [];
   for (const inst of listInstances()) {
     if (!inst.inCycle || !isBufferClip(inst) || inst.warp?.on) continue;
@@ -1320,6 +1404,7 @@ export async function exportCycleWav({ download = true } = {}) {
   const instances = listInstances().filter((i) => i.inCycle && isInstanceAudible(i) && clipLength(i) >= 0.02);
   if (!instances.length) return { ok: false, message: t('toast.noAudio') };
   const sr = EXPORT_SAMPLE_RATE;
+  await ensureModEnvelopes({ notify: false }); // Modulation envelopes before any track is rendered / 모듈레이션 엔벨로프 먼저
   const C = cycleLength(listInstances());
   const parts = [];
   for (const inst of instances) {
@@ -1375,3 +1460,13 @@ export async function exportCycleWav({ download = true } = {}) {
   if (download) triggerDownload(new Blob([wav], { type: 'audio/wav' }), filename);
   return { ok: true, filename, bytes: wav.byteLength, buffer: rendered, message: t('toast.wavDone', filename) };
 }
+
+// Modulation matrix sources read the mixer through these hooks (no circular import). / 모듈레이션 출처용 훅
+configureModSources({
+  clipLength,
+  plainLength,
+  soundKey: (inst) => sourceSoundKey(inst, getInstanceDoc(inst)),
+  heardKey: (inst) => docKey(inst),
+  renderHeard: (inst, sampleRate, L) => renderHeard(inst, getInstanceDoc(inst), sampleRate, L),
+  onReady: () => { syncMixer(); notify(); },
+});

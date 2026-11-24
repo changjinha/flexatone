@@ -19,6 +19,7 @@ import {
   setRegion, removeRegion, regionRule, setRegionRule, studioShortName, MANAGER_STUDIOS, BASE_MANAGER_STUDIOS, setManagerTempo, getMasterTempo, contentRate, channelRates,
   setInstanceWarp, setInstanceTake,
 } from '../core/manager-state.js';
+import { mountModsCard } from './manager-mods.js';
 import { EXTEND_METHODS, EXTEND_NEEDS_LEVELS, EXTEND_MIN_SEC, extendCycle, extendPreview, removeLastExtension, listExtensions, maxExtension } from '../core/manager-extend.js';
 import { INTERP_METHODS, INTERP_NEEDS_LINES, INTERP_MIN_GAP, interpolateRanges, interpGap, isInterpLog } from '../core/manager-interpolate.js';
 import { takeReversals, takeOffset } from '../core/take-config.js';
@@ -365,12 +366,14 @@ function renderPanel() {
       ${timelineMarkup(C)}
       ${extendMarkup(C)}
       ${interpMarkup()}
+      <div class="mgr-mods-host"></div>
       ${regionsMarkup()}
       ${channelsMarkup()}
     </div>`;
   const sc = panel.querySelector('.mgr-scroll');
   if (sc && ui.scrollTop) sc.scrollTop = ui.scrollTop;
   mountOutputStrip();
+  mountModsCard(panel.querySelector('.mgr-mods-host'), { showToast: hooks.showToast }); // ⇆ Modulation (ui/manager-mods.js)
   applySize();
   drawMaster();
   placeWarpPop();

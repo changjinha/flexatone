@@ -30,6 +30,40 @@ Leave out the lines that do not apply. Write what is true now, including failing
 
 ---
 
+## [0.21.0] — 2026-11-23 — Manager Modulation: matrix · sidechain · triggers / 매니저 모듈레이션: 매트릭스 · 사이드체인 · 트리거
+- **Added / 추가:** **⇆ Modulation** card in the Manager (under Interpolate). One route = a signal of one track → a parameter
+  of another track, in cycle time; routes on the same parameter add up. / 한 트랙의 신호 → 다른 트랙의 파라미터.
+  - **From / 출처:** *Pitch line* (one of the track's lines or their mean, 0…1 between its lowest and highest pitch),
+    *Loudness (sidechain)* (its clip as heard, −60…0 dB → 0…1, attack / release follower), *Triggers* (line onsets,
+    a line crossing its centre, loudness peaks above a threshold) as an attack / decay pulse.
+  - **To / 대상:** Level (dB), Tremolo depth, Brightness, Pitch (st), **Retrigger** (every trigger restarts the clip),
+    Cloud density / width / collapse / centre (× the curve's range; flat curve: density × its value, width / centre
+    ±12 st, collapse ±1).
+  - Amount, invert, attack / release, a preview of the signal over the cycle (trigger ticks), on / off, ▲ ▼, ×.
+    Quick buttons: + Modulate, + Sidechain duck, + Retrigger.
+  - Loops: a route that would make tracks follow each other's sound (envelope / peaks) is not applied ("⟲ loop"); the
+    earlier route in the list wins. Pitch lines and onsets read documents and never loop.
+- **How / 방식:** evaluated at render time and folded into each track's Warp hooks (pitch / level / tremolo /
+  brightness), so rendered clips, live Risset, cycle WAV and video hear the same thing. Source envelopes are rendered
+  once (22.05 kHz, 10 ms RMS) and awaited before Play / export; until ready a route reads 0 and the target re-renders
+  when it arrives. Cloud curves are rewritten in the clip's params before rendering. Retrigger rewrites the clip buffer.
+- **Files / 파일:** `js/core/mod-config.js` (new), `js/core/manager-mods.js` (new), `js/audio/mod-sources.js` (new),
+  `js/ui/manager-mods.js` (new), `js/audio/manager-mixer.js` (`warpOf` + `withMatrix`, `timeOf` without matrix,
+  `renderPass` Cloud doc mods, `retriggerBuffer`, `plainLength`, envelopes before Play / export), `js/core/state.js`,
+  `js/ui/manager-panel.js` (card host), `styles.css`
+- **Data / 데이터:** `manager.mods = [{ id, on, src: { inst, kind, line, trig, thrDb }, dst: { inst, param }, amount, invert,
+  attackMs, releaseMs }]` — saved, undoable, normalised on load (routes to missing tracks dropped). Old projects: none.
+- **Checks / 점검:** `runSelfCheck()` 162 / 162 (new: statuses — self, loop through 2 and 3 tracks, retrigger forces a
+  trigger source; pulse, follower, peaks, crossings). On `manager_10_launch_garden.json`, rendered with `exportCycleWav`:
+  sidechain (Glissando envelope → Tempo track −12 dB): level difference vs −12 × envelope, median error 0.01 dB, 90 % 0.12 dB
+  over 560 windows; trigger pulse −20 dB, release 200 ms: −19.2 dB at the hit, −7.4 dB at 200 ms (expected −7.4); Retrigger
+  (32 Glissando onsets): every restart identical (correlation 1.0), clip before the first trigger unchanged (1.0); pitch
+  route reaches the pitch hook; Cloud density follows the Glissando line (30 → 56.8 ev/s, grains 928 → 1458). Card: quick
+  buttons by click, loop status, undo, autosave reload, live cycle playback with routes — no console errors.
+  **Not verified:** by ear; video export; Risset as an envelope source in live play; very long cycles (envelope renders ≤ 180 s).
+- **Fixed during the work / 작업 중 수정:** a flat Cloud curve (lo = hi) got no modulation (span 0).
+- **Details / 상세:** `docs/STUDIO_INTEGRATION_LOG.md` → "Manager Modulation (A2 · A3 · A4)"
+
 ## [0.18.1] — 2026-11-23 — Split layout: window : toolboxes ≈ 2 : 1 / 분할 레이아웃 비율 2:1
 - **Changed / 변경:** The default width of the window column is now ⅔ of the workspace (was 58 %), so window : toolboxes ≈ 2 : 1. A width you set by dragging the column line is kept; double-click the line to go back to the new default.
 - **Files / 파일:** `js/ui/rack-layout.js`
