@@ -1244,3 +1244,47 @@ See CHANGELOG 0.12.0.
   visible controls have a parameter-specific text; the rest are the Loudness dB box, the Tempo note table, Risset EQ band
   selectors and the Wave initial-condition type. New parameters: give the label an i18n key and either a one-parameter
   `data-help` entry or a `PARAM_HELP` line.
+
+## Fractal — pitch-preserving Manager tempo (2026-11-23) / 프랙탈 음고 유지 매니저 템포
+
+- `studio-clips.js` Fractal adapter: `masks: true` → `scalesTime: true`; render gets `timeScale: o.rate`. The mixer then
+  plays only the tape part as varispeed (`varispeed()` → `r.tape`) and the Master View shifts Fractal lines by the tape
+  ratio only. 어댑터를 scalesTime으로 전환 — 문서 배속은 프랙탈이 직접 렌더, 테이프 배속만 varispeed.
+- `fractal-engine.js` `retimeFractalBake(bake, r)`: the same bake read r× faster (start, length, sample spacing ÷ r; Hz /
+  gain arrays shared), like Wave's `retimeWaveBake`. No re-bake on a tempo change.
+- `fractal-audio.js`: `timeScale` option on `scheduleFractal` / `renderFractalBuffer`. Per-voice vibrato / tremolo
+  (voice-mod) and the studio output tremolo run on document time, so they speed up with the tempo (Glissando's rule via
+  `applyTempoToVoices`). Shape masks and Warp are read in real (channel-local) time, as the scalesTime contract says.
+- Checks: new self-check "Fractal: Tempo Manager retime keeps pitch, divides every time by the rate" (158/158 pass).
+  Browser: instance 2× → clip 30 → 15 s, measured pitch 65.57 → 65.70 (varispeed would be +12); 0.5× → 60 s, same
+  pitch; master 2× with Tape → +12.1 st; real-time mask [5, 7.5) s at 2× is silent (−200 dB) with −14.1 dB on both sides;
+  Master View draws the line over 15 s at the same pitch; no console errors.
+
+## Manager Interpolate tool (2026-11-23) / 매니저 보간 도구
+
+Request: "매니저 툴에 interpolation 기능 추가 — 양옆의 범위를 선택하면 그 사이를 매끄럽게 transform". The request did not say
+what is transformed, so two readings were built as two methods (the Extend card's pattern).
+
+- **Where:** `core/manager-interpolate.js` (pure; planners + `interpolateRanges(method, regionA, regionB, measure)`), card
+  `interpMarkup()` in `ui/manager-panel.js` (after Extend, `data-rack="mgr-interp"`, help keys `mgr.interp`, `mgr.ipMethod`,
+  `mgr.ipRange`, `mgr.ipApply`, `mgr.ipRemove`; texts in the panel's own `Object.assign(I18N.…)` block).
+- **Ranges:** the existing time ranges (`kind: 'range'`). A = earlier, B = later, gap = [A.t1, B.t0) ≥ 0.1 s. The card picks
+  the selected range and its nearest neighbour, else the closest pair; both can be chosen from the two selects.
+- **glide:** the panel passes the Master View's heard lines (`geometry().lines`, Warp sources left out) as `measure.lines`.
+  `lineEdge` reads pitch + slope (over ¼ of the range, 0.05–0.5 s) where the line leaves A / enters B; `hermitePitch` limits
+  the tangents to 3 × the interval (≥ 12 st). Voices are `engine: 'custom'` with 33 spline points, written in document
+  seconds (gap × track rate). Tracks without lines (Risset bands, block studios) cannot be glided → error toast pointing to Dissolve.
+- **fade:** needs a take that starts inside a clip → new `take.off` (`core/take-config.js` `takeOffset`, `takeLength`;
+  mixer `renderTake` trims the buffer, `docKey` includes it; `clipGeometry` shifts the lines). The B take ends on g1:
+  k = ⌊gap / window⌋ whole passes, or — window longer than the gap — only the end of the window, unlooped.
+- **Undo / remove:** one `dispatch` with history; logged in `manager.extensions` (`method: 'ip-…'`, `prev` = current cycle
+  settings so removal leaves the cycle length alone). `removeLastExtension()` removes it; the card's button is enabled only
+  while an interpolation is the newest step.
+- **Open points:** see the 0.19.0 CHANGELOG entry (Warp double-bend on glide tracks, level bump in the middle of a dissolve,
+  flat level of glide voices, not listened to).
+- **all (default, 0.19.1):** user follow-up "음고뿐만 아니라 default로는 그 어떤 변수든 interpolate". `planAll` = `collectJoins` +
+  `buildJoinTracks(…, layers = true)` (two voices per join: `voiceBase` of each side, `gainPoints` [gA → 0] and [0 → gB], on
+  the track made for that side's source) + `planFade` with `skipA` / `skipB` for the tracks that were not joined on a side.
+  The panel supplies `measure.voiceGain` (`lineEnvelopeAt`, Glissando voices only). A linear crossfade is used on purpose:
+  the layers start together on the same curve, so their sum is the linear interpolation of level and wave mix.
+

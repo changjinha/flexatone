@@ -20,7 +20,8 @@ import {
   setInstanceWarp, setInstanceTake,
 } from '../core/manager-state.js';
 import { EXTEND_METHODS, EXTEND_NEEDS_LEVELS, EXTEND_MIN_SEC, extendCycle, extendPreview, removeLastExtension, listExtensions, maxExtension } from '../core/manager-extend.js';
-import { takeReversals } from '../core/take-config.js';
+import { INTERP_METHODS, INTERP_NEEDS_LINES, INTERP_MIN_GAP, interpolateRanges, interpGap, isInterpLog } from '../core/manager-interpolate.js';
+import { takeReversals, takeOffset } from '../core/take-config.js';
 import { WARP_MODES, WARP_PARAMS, WARP_SENS_MIN, WARP_SENS_MAX, WARP_TIME_MODES, WARP_TIME_CLOCKS } from '../core/warp-config.js';
 import { buildTimeMap } from '../modules/time-warp.js';
 import { tempoRate, normalizeTempoConfig, tapeSemitones } from '../core/tempo.js';
@@ -28,7 +29,7 @@ import { computeEnclosedLobes, bandWeight } from '../core/shape-select.js';
 import { clamp } from '../core/math-utils.js';
 import { midiToNoteName, freqToMidi } from '../core/units.js';
 import { getVoiceFreqAtNormT } from '../modules/curve-engine.js';
-import { filterAudibleVoices } from '../modules/gain-bus.js';
+import { filterAudibleVoices, evaluateVoiceGainAtNormT } from '../modules/gain-bus.js';
 import { StudioRegistry } from '../studios/registry.js';
 import { getBakedMap, isParticleAudible } from '../studios/field-studio.js';
 import { lookupBakedSample } from '../studios/field/vector-field-engine.js';
@@ -64,6 +65,7 @@ const ui = {
   warpOpen: null, // id of the track whose Warp options panel is open / 곡률 옵션 패널이 열린 트랙
   sel: new Set(), // selected tracks (view only, not saved; separate from M / S) / 선택된 트랙 (보기 전용, M·S와 별개)
   ext: { method: EXTEND_METHODS[0], mult: 1, sec: null }, // Extend tool: method, amount as × cycle or seconds / 연장 도구: 방법, 양(사이클 배수 또는 초)
+  ip: { method: INTERP_METHODS[0], a: null, b: null }, // Interpolate tool: method and the two range ids (null = picked automatically) / 보간 도구: 방법, 두 구간 id
   addOpen: false, // "＋ Add studio" menu open / 스튜디오 추가 메뉴 열림
   gainUnit: 'db', // track fader shown in 'db' or 'sone' (loudness ratio, ×2 per +10 dB) / 트랙 페이더 단위
   scrollTop: 0, // scroll position kept across re-renders / 재렌더 간 스크롤 위치
@@ -90,6 +92,14 @@ export function initManagerPanel(h) {
   panel.addEventListener('input', onInput);
   panel.addEventListener('pointerdown', onPointerDown);
   panel.addEventListener('focusout', () => setTimeout(() => { if (ui.deferred && !isEditing()) { ui.deferred = false; renderPanel(); } }, 0));
+  // A click on the studio behind the Manager (or a studio tab) closes it — not in Half mode, where the
+  // studio is meant to be used beside it / 뒤의 스튜디오(또는 스튜디오 탭)를 클릭하면 닫힘 (절반 모드 제외)
+  document.addEventListener('pointerdown', (e) => {
+    if (!isManagerOpen() || size.mode === 'half' || e.button !== 0) return;
+    const tg = e.target;
+    if (!(tg instanceof Element) || panel.contains(tg)) return;
+    if (tg.closest('#workspaceContainer, #studioTabs')) toggleManagerPanel(false);
+  }, true);
   subscribe(() => {
     ui.lines = null;
     mixer.syncMixer();
@@ -124,6 +134,37 @@ Object.assign(I18N.en, {
   'mgrHelp.size.d': 'Window = floating window. Half = docked on the right half; the studio moves aside and stays usable, for monitoring. Full = the whole window. Drag the left edge to set the width; double-click it for the default.',
   'mgrHelp.check.t': 'Track checkbox (selection)',
   'mgrHelp.check.d': 'Checks a track. The selection is shared by the Manager tools: Extend uses only the checked tracks (nothing checked = all tracks). A checked Warp track keeps its bend in the extension; an unchecked one is left out. If only Warp tracks are checked, every sounding track is extended with just their bends. The box in the header checks all / none.',
+  'mgr.interp': 'Interpolate',
+  'mgr.ip.all': 'Everything',
+  'mgr.ipDef.all': 'Every variable moves from the left state to the right state, not only the pitch. Pitch lines are joined by smooth curves as in Pitch glide; each join is played by two layers on the same curve — one with all the settings of the left line (timbre, tremolo, level, and its track\'s fader and tremolo), one with those of the right line — crossfaded in a straight line. The layers run in step, so level and wave mix pass exactly through the values in between; settings a voice cannot change over time cross over as sound. Tracks without pitch lines are dissolved, so nothing in the two ranges is left out.',
+  'mgr.ip.glide': 'Pitch glide',
+  'mgr.ip.fade': 'Dissolve',
+  'mgr.ipDef.glide': 'Every pitch line that sounds in the left range is joined to a line in the right range by a smooth curve: it leaves at the left pitch and slope and arrives at the right pitch and slope, with no step and no corner. Lines are paired low to low and high to high; with unequal counts a line splits or several merge. The joins are voices of new Glissando tracks (a Glissando source lends its timbre). Needs tracks with pitch lines on both sides.',
+  'mgr.ipDef.fade': 'For any track, also those without pitch lines. The sound of the left range (its window, looped) carries on and leaves in the second half of the gap; the sound of the right range (its window, looped so that it runs straight into the range) enters in the first half. Both are takes of the clips as they sounded. Both are at full level around the middle, which can be up to 3 dB louder.',
+  'mgr.ipFrom': 'From',
+  'mgr.ipTo': 'to',
+  'mgr.ipGap': (a, b, d) => `fills ${a} → ${b} s (${d} s)`,
+  'mgr.ipApply': 'Interpolate',
+  'mgr.ipRemove': 'Remove last',
+  'mgr.ipNeedRanges': 'Make two ranges with “Select range” in the timeline — one on each side of the part to fill. They must not overlap.',
+  'mgr.ipNoGap': 'These two ranges touch or overlap: there is nothing between them to fill.',
+  'mgr.ipDone': (name, from, to, n) => `${name}: ${from} → ${to} s filled (${n} tracks added)`,
+  'mgr.ipRemoved': 'Last interpolation removed',
+  'mgr.ipErrGap': 'Nothing to fill: pick two ranges with at least 0.1 s between them',
+  'mgr.ipErrEmpty': 'Nothing to interpolate: no track sounds inside the two ranges',
+  'mgr.ipErrLines': 'Pitch glide needs a pitch line in the left range and in the right range — use Dissolve for tracks without pitch lines',
+  'mgr.ext.ip-glide': 'Interpolate: pitch glide',
+  'mgr.ext.ip-fade': 'Interpolate: dissolve',
+  'mgrHelp.interp.t': 'Interpolate',
+  'mgrHelp.interp.d': 'Pick a range on each side; the part between them is filled with a smooth transformation from the left state to the right state. Only adds tracks, and one range that mutes what the joined tracks had in between. Uses the checked tracks (nothing checked = all). One undo step; Remove last takes it out again.',
+  'mgrHelp.ipMethod.t': 'Interpolation method',
+  'mgrHelp.ipMethod.d': 'Everything (the default) carries every variable across: pitch by smooth curves, level, timbre, tremolo and track settings by two layers crossfaded in step, tracks without pitch lines by a dissolve. Pitch glide joins the pitch lines of both sides with smooth curves (new Glissando tracks). Dissolve carries the sound of the left range on and brings the sound of the right range in early (takes) — for any track. The text below the buttons says exactly what the chosen one does.',
+  'mgrHelp.ipRange.t': 'The two ranges',
+  'mgrHelp.ipRange.d': 'The ranges on the left and right of the part to fill (made with Select range in the timeline). Their order does not matter: the earlier one is the start state. The longer a range, the longer the piece the pitch slope is measured over (a quarter of it, 0.05–0.5 s) and the longer the window Dissolve loops.',
+  'mgrHelp.ipApply.t': 'Interpolate',
+  'mgrHelp.ipApply.d': 'Fills the part between the two ranges (one undo step). It is made from the tracks as they are now: after editing them, remove the interpolation and run it again.',
+  'mgrHelp.ipRemove.t': 'Remove last interpolation',
+  'mgrHelp.ipRemove.d': 'Removes the tracks and the mute range of the newest interpolation. Available while the interpolation is the newest step (extensions made after it are removed first, with Remove last extension).',
 });
 Object.assign(I18N.ko, {
   'mgr.output': '출력',
@@ -145,11 +186,42 @@ Object.assign(I18N.ko, {
   'mgrHelp.size.d': '창 = 떠 있는 창. 절반 = 오른쪽 절반에 고정되고 스튜디오는 옆으로 비켜 계속 사용 가능(모니터링용). 전체 = 화면 전체. 왼쪽 가장자리를 끌면 폭 조절, 더블클릭하면 기본 폭.',
   'mgrHelp.check.t': '트랙 체크박스 (선택)',
   'mgrHelp.check.d': '트랙을 체크합니다. 선택은 매니저 도구들이 함께 씁니다: 연장은 체크된 트랙에만 적용(체크 없음 = 전체). 체크된 곡률 트랙은 연장에서도 휨을 유지하고, 체크 안 된 곡률 트랙은 빠집니다. 곡률 트랙만 체크하면 소리 나는 트랙 전체가 그 곡률만으로 연장됩니다. 헤더의 상자 = 전체 선택/해제.',
+  'mgr.interp': '보간',
+  'mgr.ip.all': '전체',
+  'mgr.ipDef.all': '음고만이 아니라 모든 변수가 왼쪽 상태에서 오른쪽 상태로 옮겨 갑니다. 음고 선은 음고 글라이드처럼 매끄러운 곡선으로 잇고, 연결선마다 같은 곡선 위에 두 층을 둡니다 — 왼쪽 선의 모든 설정(음색·트레몰로·음량, 그리고 그 트랙의 페이더·트레몰로)을 가진 층과 오른쪽 선의 설정을 가진 층 — 을 직선으로 크로스페이드합니다. 두 층은 위상이 맞아 음량과 파형 혼합이 정확히 중간값들을 거쳐 가고, 보이스가 시간에 따라 바꿀 수 없는 설정은 소리로 넘어갑니다. 음고 선이 없는 트랙은 디졸브되므로 두 구간 안의 어떤 것도 빠지지 않습니다.',
+  'mgr.ip.glide': '음고 글라이드',
+  'mgr.ip.fade': '디졸브',
+  'mgr.ipDef.glide': '왼쪽 구간에서 울리는 음고 선마다 오른쪽 구간의 선과 매끄러운 곡선으로 잇습니다: 왼쪽의 음고·기울기로 출발해 오른쪽의 음고·기울기로 도착하므로 계단도 꺾임도 없습니다. 낮은 선끼리·높은 선끼리 짝짓고, 개수가 다르면 한 선이 갈라지거나 여러 선이 합쳐집니다. 연결선은 새 글리산도 트랙의 보이스입니다(글리산도 출처면 그 음색을 물려받음). 양쪽 모두 음고 선이 있는 트랙이 필요합니다.',
+  'mgr.ipDef.fade': '음고 선이 없는 트랙을 포함해 무엇이든 가능합니다. 왼쪽 구간의 소리(그 창을 반복)가 이어지다 간격 후반에 빠지고, 오른쪽 구간의 소리(구간으로 바로 이어지도록 반복)가 전반에 들어옵니다. 둘 다 클립이 “들리던 그대로”의 테이크입니다. 가운데 부근에서는 둘 다 최대 음량이라 최대 3 dB 커질 수 있습니다.',
+  'mgr.ipFrom': '시작',
+  'mgr.ipTo': '→ 끝',
+  'mgr.ipGap': (a, b, d) => `${a} → ${b} 초를 채움 (${d} 초)`,
+  'mgr.ipApply': '보간하기',
+  'mgr.ipRemove': '마지막 보간 제거',
+  'mgr.ipNeedRanges': '타임라인의 “구간 선택”으로 구간을 두 개 만드세요 — 채울 부분의 양옆에 하나씩. 서로 겹치면 안 됩니다.',
+  'mgr.ipNoGap': '두 구간이 맞닿거나 겹칩니다: 사이에 채울 부분이 없습니다.',
+  'mgr.ipDone': (name, from, to, n) => `${name}: ${from} → ${to} 초를 채움 (트랙 ${n}개 추가)`,
+  'mgr.ipRemoved': '마지막 보간을 제거했습니다',
+  'mgr.ipErrGap': '채울 부분이 없습니다: 사이가 0.1초 이상 떨어진 두 구간을 고르세요',
+  'mgr.ipErrEmpty': '보간할 것이 없습니다: 두 구간 안에서 울리는 트랙이 없습니다',
+  'mgr.ipErrLines': '음고 글라이드는 왼쪽 구간과 오른쪽 구간에 모두 음고 선이 있어야 합니다 — 음고 선이 없는 트랙은 디졸브를 쓰세요',
+  'mgr.ext.ip-glide': '보간: 음고 글라이드',
+  'mgr.ext.ip-fade': '보간: 디졸브',
+  'mgrHelp.interp.t': '보간',
+  'mgrHelp.interp.d': '양옆의 구간을 고르면 그 사이를 왼쪽 상태에서 오른쪽 상태로 매끄럽게 변형해 채웁니다. 트랙을 추가만 하고, 연결된 트랙이 사이에 갖고 있던 소리를 뮤트하는 구간 하나를 더합니다. 체크된 트랙에만 적용(체크 없음 = 전체). 실행 취소 1단계이며, 마지막 보간 제거로 다시 뺄 수 있습니다.',
+  'mgrHelp.ipMethod.t': '보간 방법',
+  'mgrHelp.ipMethod.d': '전체(기본값) = 모든 변수를 옮김: 음고는 매끄러운 곡선으로, 음량·음색·트레몰로·트랙 설정은 위상이 맞는 두 층의 크로스페이드로, 음고 선이 없는 트랙은 디졸브로. 음고 글라이드 = 양쪽의 음고 선을 매끄러운 곡선으로 연결(새 글리산도 트랙). 디졸브 = 왼쪽 구간의 소리를 이어 가고 오른쪽 구간의 소리를 미리 들여옴(테이크) — 어떤 트랙이든 가능. 버튼 아래 글이 고른 방법이 하는 일을 정확히 설명합니다.',
+  'mgrHelp.ipRange.t': '두 구간',
+  'mgrHelp.ipRange.d': '채울 부분의 왼쪽·오른쪽 구간(타임라인의 구간 선택으로 만듦). 순서는 상관없고 앞선 구간이 시작 상태입니다. 구간이 길수록 음고 기울기를 재는 길이(구간의 ¼, 0.05–0.5초)와 디졸브가 반복하는 창이 길어집니다.',
+  'mgrHelp.ipApply.t': '보간하기',
+  'mgrHelp.ipApply.d': '두 구간 사이를 채웁니다 (실행 취소 1단계). 지금 상태의 트랙에서 만들어지므로, 트랙을 고친 뒤에는 보간을 제거하고 다시 실행하세요.',
+  'mgrHelp.ipRemove.t': '마지막 보간 제거',
+  'mgrHelp.ipRemove.d': '가장 최근 보간이 만든 트랙과 뮤트 구간을 지웁니다. 보간이 가장 최근 단계일 때만 가능합니다(그 뒤에 만든 연장은 “마지막 연장 제거”로 먼저 지움).',
 });
 
 const MGR_HELP_KEYS = ['output', 'gainUnit', 'size', 'check', 'helpBtn', 'cycle', 'cycleLoop', 'stopAll', 'pos', 'serial', 'parallel', 'add', 'export', 'close', 'master', 'shapeTool',
   'spectrum', 'timeline', 'clip', 'rangeTool', 'rule', 'regions', 'regionRow', 'color', 'name', 'studio', 'edit', 'launch', 'mute', 'solo',
-  'gain', 'meter', 'inCycle', 'start', 'length', 'loop', 'fadeIn', 'fadeOut', 'order', 'dup', 'del', 'tempoMaster', 'tempo', 'tape', 'trem', 'tremRate', 'tremDepth', 'warp', 'warpGrid', 'lenMode', 'exportVideo', 'toStart', 'extend', 'extMethod', 'extAmount', 'extApply', 'extRemove', 'take'];
+  'gain', 'meter', 'inCycle', 'start', 'length', 'loop', 'fadeIn', 'fadeOut', 'order', 'dup', 'del', 'tempoMaster', 'tempo', 'tape', 'trem', 'tremRate', 'tremDepth', 'warp', 'warpGrid', 'lenMode', 'exportVideo', 'toStart', 'extend', 'extMethod', 'extAmount', 'extApply', 'extRemove', 'take', 'interp', 'ipMethod', 'ipRange', 'ipApply', 'ipRemove'];
 
 function registerManagerHelp() {
   const entry = (lang, k) => ({ title: I18N[lang][`mgrHelp.${k}.t`], summary: I18N[lang][`mgrHelp.${k}.d`], detail: '', formula: '' });
@@ -264,7 +336,7 @@ function renderPanel() {
   restoreOutputStrip(); // the Loudness Manager strip is moved back before innerHTML drops it / innerHTML 전에 출력 스트립 회수
   panel.innerHTML = `
     <div class="mgr-bar">
-      <span class="mgr-title">⧉ ${esc(t('mgr.title'))}</span>
+      <button type="button" class="mgr-title" data-act="close" data-help="mgr.close" title="${esc(t('mgr.titleClose'))}">⧉ ${esc(t('mgr.title'))}</button>
       <button class="mgr-btn play ${playing ? 'on' : ''}" data-act="cycle" data-help="mgr.cycle">${playing ? '■' : '▶'} ${esc(t(playing ? 'mgr.stopCycle' : 'mgr.playCycle'))}</button>
       <button class="mgr-btn" data-act="toStart" data-help="mgr.toStart" title="${esc(t('mgr.toStart'))}">⏮</button>
       <button class="mgr-btn ${m.cycleLoop ? 'on' : ''}" data-act="cycleLoop" data-help="mgr.cycleLoop">↻ ${esc(t('mgr.cycleLoop'))}</button>
@@ -292,6 +364,7 @@ function renderPanel() {
       ${masterMarkup()}
       ${timelineMarkup(C)}
       ${extendMarkup(C)}
+      ${interpMarkup()}
       ${regionsMarkup()}
       ${channelsMarkup()}
     </div>`;
@@ -336,15 +409,15 @@ function restoreOutputStrip() {
 // 창 크기: 기본 · 전체 화면 · 절반(오른쪽 도킹, 옆에서 스튜디오 계속 사용) + 왼쪽 가장자리 드래그. 보기 설정(localStorage).
 // --------------------------------------------------------------------------
 
-const SIZE_KEY = 'flexatone.mgrSize.v1';
+const SIZE_KEY = 'flexatone.mgrSize.v2'; // v2: full screen is the default (2026-11-23) / 기본 = 전체 화면
 const SIZES = ['float', 'half', 'full'];
 const SIZE_ICONS = { float: '▭', half: '◨', full: '⛶' };
 
 function loadSize() {
   try {
     const o = JSON.parse(globalThis.localStorage?.getItem(SIZE_KEY) || '{}');
-    return { mode: SIZES.includes(o.mode) ? o.mode : 'float', width: Number(o.width) >= 320 ? Number(o.width) : null };
-  } catch { return { mode: 'float', width: null }; }
+    return { mode: SIZES.includes(o.mode) ? o.mode : 'full', width: Number(o.width) >= 320 ? Number(o.width) : null, anchor: o.anchor === 'left' ? 'left' : null };
+  } catch { return { mode: 'full', width: null }; }
 }
 let size = loadSize();
 function saveSize() {
@@ -355,22 +428,33 @@ function sizeMarkup() {
   return `<span class="mgr-field" data-help="mgr.size">${SIZES.map((m) => `<button class="mgr-btn tiny ${size.mode === m ? 'on' : ''}" data-act="size" data-size="${m}" title="${esc(t(`mgr.size.${m}`))}">${SIZE_ICONS[m]} ${esc(t(`mgr.size.${m}`))}</button>`).join('')}</span>`;
 }
 
-/** Apply the size mode to the panel and (Half) make room for it beside the studio. / 크기 적용 */
+/**
+ * Apply the size mode to the panel and (Half) make room for it beside the studio. Both side edges
+ * resize it in every mode — in Full too (the panel then keeps the full height at the dragged width,
+ * against the opposite edge). Double-click an edge = back to the mode's own width.
+ * 크기 적용. 양쪽 가장자리로 모든 모드(전체 포함)에서 폭 조절 — 반대쪽에 붙은 채 전체 높이 유지. 더블클릭 = 원래 폭.
+ */
 function applySize() {
   if (!panel) return;
   const open = isManagerOpen();
   panel.dataset.size = size.mode;
-  const w = size.width ? Math.min(size.width, globalThis.innerWidth - 120) : null;
-  panel.style.width = w && size.mode !== 'full' ? `${w}px` : '';
+  const w = size.width ? Math.min(size.width, globalThis.innerWidth - 40) : null;
+  panel.style.width = w ? `${w}px` : '';
+  // anchored against the side opposite the dragged edge / 끈 가장자리 반대쪽에 고정
+  const anchorLeft = w && size.anchor === 'left' && size.mode !== 'half';
+  const gap = size.mode === 'full' ? '0px' : '12px';
+  panel.style.left = w ? (anchorLeft ? gap : 'auto') : '';
+  panel.style.right = w ? (anchorLeft ? 'auto' : gap) : '';
   const docked = open && size.mode === 'half';
   document.body.classList.toggle('mgr-docked', docked);
   document.body.style.setProperty('--mgr-dock-w', docked ? `${Math.round(panel.getBoundingClientRect().width + 12)}px` : '0px');
-  if (!panel.querySelector('.mgr-edge')) {
+  for (const side of ['l', 'r']) {
+    if (panel.querySelector(`.mgr-edge.${side}`)) continue;
     const edge = document.createElement('div');
-    edge.className = 'mgr-edge';
+    edge.className = `mgr-edge ${side}`;
     edge.title = t('mgr.size.drag');
-    edge.addEventListener('pointerdown', onEdgeDown);
-    edge.addEventListener('dblclick', () => { size.width = null; saveSize(); applySize(); globalThis.dispatchEvent(new Event('resize')); });
+    edge.addEventListener('pointerdown', (e) => onEdgeDown(e, side));
+    edge.addEventListener('dblclick', () => { size.width = null; size.anchor = null; saveSize(); applySize(); drawMaster(); globalThis.dispatchEvent(new Event('resize')); });
     panel.appendChild(edge);
   }
 }
@@ -378,23 +462,27 @@ function applySize() {
 function setSizeMode(mode) {
   if (!SIZES.includes(mode)) return;
   size.mode = mode;
+  size.width = null; // a size button gives the mode's own width / 크기 버튼 = 그 모드의 기본 폭
+  size.anchor = null;
   saveSize();
   renderPanel();
   globalThis.dispatchEvent(new Event('resize')); // studio canvases re-measure beside a docked Manager / 캔버스 재측정
 }
 
-function onEdgeDown(e) {
-  if (e.button !== 0 || size.mode === 'full') return;
+function onEdgeDown(e, side = 'l') {
+  if (e.button !== 0 || (size.mode === 'half' && side === 'r')) return;
   e.preventDefault();
-  const right = panel.getBoundingClientRect().right;
+  const r = panel.getBoundingClientRect();
+  size.anchor = side === 'l' ? 'right' : 'left';
   const move = (ev) => {
-    size.width = Math.round(clamp(right - ev.clientX, 360, globalThis.innerWidth - 120));
-    panel.style.width = `${size.width}px`;
-    if (size.mode === 'half') document.body.style.setProperty('--mgr-dock-w', `${size.width + 12}px`);
+    const raw = side === 'l' ? r.right - ev.clientX : ev.clientX - r.left;
+    size.width = Math.round(clamp(raw, 360, globalThis.innerWidth));
+    applySize();
   };
   const up = () => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
+    if (size.width >= globalThis.innerWidth - 4) { size.width = null; size.anchor = null; applySize(); } // dragged back to the edge / 끝까지 끌면 원래대로
     saveSize();
     drawMaster();
     globalThis.dispatchEvent(new Event('resize'));
@@ -471,7 +559,7 @@ function masterMarkup() {
     hint = !s.a ? t('mgr.shapeHintA') : !s.b ? t('mgr.shapeHintB') : t('mgr.shapeHintPick');
   }
   return `
-    <section class="mgr-card">
+    <section class="mgr-card" data-rack="mgr-master">
       <div class="mgr-card-head">
         <h3>◉ ${esc(t('mgr.masterView'))}</h3>
         ${lengthModeMarkup()}
@@ -519,7 +607,7 @@ function timelineMarkup(C) {
       </div>`;
   }).join('');
   return `
-    <section class="mgr-card">
+    <section class="mgr-card" data-rack="mgr-timeline">
       <div class="mgr-card-head">
         <h3>▤ ${esc(t('mgr.timeline'))}</h3>
         <button class="mgr-btn ${ui.tool === 'range' ? 'on' : ''}" data-act="rangeTool" data-help="mgr.rangeTool">⬚ ${esc(t('mgr.toolRange'))}</button>
@@ -534,7 +622,7 @@ function timelineMarkup(C) {
 }
 
 /** Icons of the Extend methods (labels and texts are i18n mgr.ext.<id> / mgr.extDef.<id> / mgr.extHow.<id>). */
-const EXT_ICONS = { retro: '◀', canon: '⏦', swap: '⇄', arc: '↗', rondo: '❖' };
+const EXT_ICONS = { retro: '◀', mirror: '◁', canon: '⏦', swap: '⇄', arc: '↗', rondo: '❖', 'ip-glide': '⇝', 'ip-fade': '⇝' };
 
 /** Seconds the Extend tool would add now: the typed value, or the chosen multiple of the cycle. / 지금 연장할 초 */
 function extendSeconds(C) {
@@ -558,7 +646,7 @@ function extendMarkup(C) {
   const ok = X >= EXTEND_MIN_SEC;
   const history = log.map((x, k) => `<span class="mgr-ext-step" title="${esc(t(`mgr.ext.${x.method}`))}">${k + 1}. ${EXT_ICONS[x.method] || '⤳'} ${fmt(x.from, 1)} → ${fmt(x.to, 1)} s</span>`).join('');
   return `
-    <section class="mgr-card mgr-extend" data-help="mgr.extend">
+    <section class="mgr-card mgr-extend" data-rack="mgr-extend" data-help="mgr.extend">
       <div class="mgr-card-head">
         <h3>⤳ ${esc(t('mgr.extend'))}</h3>
         ${methods}
@@ -573,6 +661,73 @@ function extendMarkup(C) {
         <p><b>${esc(t('mgr.extDefLabel'))}</b> ${esc(t(`mgr.extDef.${ui.ext.method}`))}</p>
         <p><b>${esc(t('mgr.extHowLabel'))}</b> ${esc(t(`mgr.extHow.${ui.ext.method}`))}</p>
         ${history ? `<p class="mgr-muted">${esc(t('mgr.extLog'))} ${history}</p>` : ''}
+      </div>
+    </section>`;
+}
+
+/**
+ * Envelope value (0…1, before baseGain) of the Glissando voice `key` of track `instId` at cycle time `sec`,
+ * or null when it cannot be read (another studio, a take, a Warp time drive). Interpolate starts and ends
+ * its level there. / 사이클 시각 sec에서 글리산도 보이스의 엔벨로프 값 (읽을 수 없으면 null)
+ */
+function lineEnvelopeAt(instId, key, sec) {
+  const inst = getInstance(instId);
+  if (!inst || inst.studio !== 'glissando' || inst.take?.on || mixer.getTrackTime(inst.id)) return null;
+  const v = (getInstanceDoc(inst)?.voices || []).find((x) => x.id === key);
+  if (!v || !(v.duration > 0)) return null;
+  let local = sec - (Number(inst.start) || 0);
+  const nat = mixer.naturalLength(inst);
+  if (inst.loop && nat > 0.02) local = ((local % nat) + nat) % nat;
+  return evaluateVoiceGainAtNormT(v, (local * contentRate(inst) - v.startTime) / v.duration);
+}
+
+/** The two ranges Interpolate would use now: the chosen ones, else the selected range and its nearest neighbour, else the first two that leave a gap. */
+function interpPick() {
+  const ranges = listRegions().filter((r) => r.kind === 'range').sort((x, y) => x.t0 - y.t0);
+  const byId = (id) => ranges.find((r) => r.id === id) || null;
+  let a = byId(ui.ip.a);
+  let b = byId(ui.ip.b);
+  if (!a && !b) {
+    const sel = byId(ui.selRegion);
+    const pairs = [];
+    for (let i = 0; i < ranges.length; i++) for (let j = i + 1; j < ranges.length; j++) { const g = interpGap(ranges[i], ranges[j]); if (g) pairs.push(g); }
+    // the selected range first, then the closest pair / 선택된 구간 우선, 그다음 가장 가까운 쌍
+    pairs.sort((x, y) => (Number(y.A === sel || y.B === sel) - Number(x.A === sel || x.B === sel)) || x.gap - y.gap);
+    if (pairs[0]) { a = pairs[0].A; b = pairs[0].B; }
+  } else if (!a || !b) {
+    const one = a || b;
+    const other = ranges.filter((r) => interpGap(one, r)).sort((x, y) => interpGap(one, x).gap - interpGap(one, y).gap)[0] || null;
+    if (a) b = other; else a = other;
+  }
+  return { ranges, a, b, gap: interpGap(a, b) };
+}
+
+/**
+ * Interpolate card: pick a method and the two ranges, Interpolate. The text under the buttons says what
+ * the method does. / 보간 카드: 방법과 두 구간을 고르고 보간. 버튼 아래 글 = 그 방법이 하는 일.
+ */
+function interpMarkup() {
+  if (!INTERP_METHODS.includes(ui.ip.method)) ui.ip.method = INTERP_METHODS[0];
+  const { ranges, a, b, gap } = interpPick();
+  const log = listExtensions();
+  const last = log[log.length - 1];
+  const methods = INTERP_METHODS.map((id, k) => `<button class="mgr-btn ext ${ui.ip.method === id ? 'on' : ''}" data-act="ipMethod" data-method="${id}" ${k === 0 ? 'data-help="mgr.ipMethod"' : ''} title="${esc(t(`mgr.ipDef.${id}`))}">${k + 1} ${esc(t(`mgr.ip.${id}`))}</button>`).join('');
+  const sel = (which, cur) => `<select data-ip-range="${which}" ${ranges.length ? '' : 'disabled'}>${ranges.map((r) => `<option value="${r.id}" ${cur?.id === r.id ? 'selected' : ''}>${esc(r.name)} · ${fmt(r.t0, 1)}–${fmt(r.t1, 1)}s</option>`).join('')}</select>`;
+  const ok = !!gap && gap.gap >= INTERP_MIN_GAP;
+  const status = ranges.length < 2 ? t('mgr.ipNeedRanges') : ok ? t('mgr.ipGap', fmt(gap.g0, 1), fmt(gap.g1, 1), fmt(gap.gap, 1)) : t('mgr.ipNoGap');
+  return `
+    <section class="mgr-card mgr-extend" data-rack="mgr-interp" data-help="mgr.interp">
+      <div class="mgr-card-head">
+        <h3>⇝ ${esc(t('mgr.interp'))}</h3>
+        ${methods}
+        <span class="mgr-sep"></span>
+        <span class="mgr-field" data-help="mgr.ipRange">${esc(t('mgr.ipFrom'))} ${sel('a', gap ? gap.A : a)} ${esc(t('mgr.ipTo'))} ${sel('b', gap ? gap.B : b)}</span>
+        <span class="mgr-mono mgr-muted">${esc(status)}</span>
+        <button class="mgr-btn play" data-act="ipApply" data-help="mgr.ipApply" ${ok ? '' : 'disabled'}>⇝ ${esc(t('mgr.ipApply'))}</button>
+        <button class="mgr-btn" data-act="ipRemove" data-help="mgr.ipRemove" ${isInterpLog(last) ? '' : 'disabled'}>↶ ${esc(t('mgr.ipRemove'))}</button>
+      </div>
+      <div class="mgr-ext-body">
+        <p><b>${esc(t('mgr.extHowLabel'))}</b> ${esc(t(`mgr.ipDef.${ui.ip.method}`))}</p>
       </div>
     </section>`;
 }
@@ -601,7 +756,7 @@ function regionsMarkup() {
       </div>`;
   }).join('');
   return `
-    <section class="mgr-card">
+    <section class="mgr-card" data-rack="mgr-regions">
       <div class="mgr-card-head" data-help="mgr.regions"><h3>◧ ${esc(t('mgr.regions'))}</h3><span class="mgr-hint">${esc(t('mgr.ruleTip'))}</span></div>
       ${rows || `<div class="mgr-region mgr-muted">${esc(t('mgr.noRegions'))}</div>`}
     </section>`;
@@ -706,7 +861,7 @@ function channelsMarkup() {
         <button class="mgr-btn tiny mute ${inst.mute ? 'on' : ''}" data-act="mute"${h('mute')} data-id="${inst.id}">M</button>
         <button class="mgr-btn tiny solo ${inst.solo ? 'on' : ''}" data-act="solo"${h('solo')} data-id="${inst.id}">S</button>
         ${warpButtonMarkup(inst, instances, h)}
-        ${inst.take?.on ? `<button class="mgr-btn tiny take ${inst.take.rev ? 'on' : ''}" data-act="takeRev" data-help="mgr.take" data-id="${inst.id}" title="${esc(t('mgr.takeTip', fmt(inst.take.at, 1), fmt(inst.take.at + inst.take.len, 1)))}">${inst.take.rev ? '◀' : '▶'} ${esc(t(inst.take.rev ? 'mgr.takeRev' : 'mgr.takeFwd'))}</button>` : ''}
+        ${inst.take?.on ? `<button class="mgr-btn tiny take ${inst.take.rev || inst.take.mirror ? 'on' : ''}" data-act="takeRev" data-help="mgr.take" data-id="${inst.id}" title="${esc(t('mgr.takeTip', fmt(inst.take.at, 1), fmt(inst.take.at + inst.take.len, 1)))}">${inst.take.mirror ? '◁' : inst.take.rev ? '◀' : '▶'} ${esc(t(inst.take.mirror ? 'mgr.takeMirror' : inst.take.rev ? 'mgr.takeRev' : 'mgr.takeFwd'))}</button>` : ''}
         <span class="mgr-field"${h('gain')}>${esc(t('mgr.gain'))} <input type="range" min="-60" max="12" step="0.5" value="${inst.gainDb}" data-default="0" data-field="gainDb" data-id="${inst.id}">${gainBox(inst)}</span>
         <span class="mgr-meter"${h('meter')}><i data-meter="${inst.id}"></i></span>
         <span class="mgr-sep"></span>
@@ -732,7 +887,7 @@ function channelsMarkup() {
   const selInfo = ui.sel.size
     ? `<span class="mgr-chip warp">${esc(t('mgr.selCount', ui.sel.size))}</span><button class="mgr-btn tiny" data-act="selClear">${esc(t('mgr.selClear'))}</button><span class="mgr-hint">${esc(t('mgr.selUsedBy'))}</span>`
     : `<span class="mgr-hint">${esc(t('mgr.selHint'))}</span>`;
-  return `<section class="mgr-card"><div class="mgr-card-head">${selAll}<h3>☰ ${esc(t('mgr.channels'))}</h3>${selInfo}</div>${strips}</section>`;
+  return `<section class="mgr-card" data-rack="mgr-channels"><div class="mgr-card-head">${selAll}<h3>☰ ${esc(t('mgr.channels'))}</h3>${selInfo}</div>${strips}</section>`;
 }
 
 /** Selected tracks (checkboxes) that still exist, in track order — shared by every tool that acts on "the selection". */
@@ -844,8 +999,26 @@ async function onClick(e) {
         else hooks.showToast(t(res.error === 'max' ? 'mgr.extErrMax' : 'mgr.extErrEmpty'), 'error');
         break;
       }
+      case 'ipMethod': ui.ip.method = el.dataset.method; renderPanel(); break;
+      case 'ipApply': {
+        const { gap } = interpPick();
+        if (!gap) { hooks.showToast(t('mgr.ipErrGap'), 'error'); break; }
+        mixer.stopCycle(); // the arrangement is about to change / 배치가 바뀌므로 사이클 정지
+        const measure = { clipLength: (i) => mixer.clipLength(i), only: selectedTrackIds() };
+        // heard pitch lines in cycle time, as the Master View draws them / 마스터 뷰가 그리는 "들리는" 음고 선
+        if (INTERP_NEEDS_LINES.includes(ui.ip.method)) {
+          measure.lines = geometry().lines.filter((l) => !l.warpSrc).map((l) => ({ instId: l.inst.id, key: l.key, name: l.name, pts: l.pts }));
+          measure.voiceGain = lineEnvelopeAt;
+        }
+        const res = interpolateRanges(ui.ip.method, gap.A, gap.B, measure);
+        if (res.ok) hooks.showToast(t('mgr.ipDone', t(`mgr.ip.${ui.ip.method}`), fmt(res.from, 1), fmt(res.to, 1), res.added));
+        else hooks.showToast(t(res.error === 'gap' ? 'mgr.ipErrGap' : res.error === 'lines' ? 'mgr.ipErrLines' : 'mgr.ipErrEmpty'), 'error');
+        break;
+      }
+      case 'ipRemove': if (isInterpLog(listExtensions().at(-1))) { mixer.stopCycle(); if (removeLastExtension()) hooks.showToast(t('mgr.ipRemoved')); } break;
       case 'extRemove': mixer.stopCycle(); if (removeLastExtension()) hooks.showToast(t('mgr.extRemoved')); break;
-      case 'takeRev': if (inst?.take?.on) setInstanceTake(id, { rev: !inst.take.rev }); break;
+      // cycle: forward → tape retro → settings retro → forward / 순행 → 테이프 역행 → 설정 역행 → 순행
+      case 'takeRev': if (inst?.take?.on) setInstanceTake(id, inst.take.mirror ? { rev: false, mirror: false } : inst.take.rev ? { rev: false, mirror: true } : { rev: true, mirror: false }); break;
       case 'up': moveInstance(id, -1); break;
       case 'down': moveInstance(id, 1); break;
       case 'dup': if (inst) { const n = addInstance(inst.studio, { from: id }); if (n) hooks.showToast(t('mgr.added', n.name)); } break;
@@ -920,6 +1093,15 @@ function onChange(e) {
       const db = clamp(ui.gainUnit === 'sone' ? soneRatioToDb(v) : v, -60, 12);
       setInstance(el.dataset.gainBox, { gainDb: Math.round(db * 10) / 10 });
     }
+    el.blur();
+    hooks.requestRender(['manager']);
+    return;
+  }
+  if (el.dataset.ipRange) {
+    // choosing one side keeps the other only while the two still leave a gap / 한쪽을 고르면 다른 쪽은 간격이 남을 때만 유지
+    const cur = interpPick();
+    ui.ip.a = el.dataset.ipRange === 'a' ? el.value : cur.a?.id ?? null;
+    ui.ip.b = el.dataset.ipRange === 'b' ? el.value : cur.b?.id ?? null;
     el.blur();
     hooks.requestRender(['manager']);
     return;
@@ -1138,17 +1320,21 @@ function clipGeometry(inst, L, depth = 0) {
     // the take's own tape ratio: time ÷ rate, pitch + 12·log2(rate) / 테이크 테이프 배율: 시간 ÷ rate, 음고 이동
     const rate = Number(tk.rate) > 0 ? Number(tk.rate) : 1;
     const semis = tapeSemitones(rate);
-    const nat = tk.len / rate;
+    const off = takeOffset(tk); // the take begins `off` seconds into what is played / 재생분의 off초 지점에서 시작
+    const nat = (tk.len - off) / rate;
     out.band = sub.band ? { lo: sub.band.lo + semis, hi: sub.band.hi + semis } : null;
     out.block = sub.block;
     out.nat = nat;
     const reps = inst.loop ? Math.min(40, Math.ceil(L / nat)) : 1;
     for (let r = 0; r < reps; r++) {
       for (const ln of sub.lines) {
-        const src = tk.rev ? [...ln.pts].reverse() : ln.pts;
+        const back = tk.rev || tk.mirror; // both read the clip backwards / 둘 다 거꾸로
+        const src = back ? [...ln.pts].reverse() : ln.pts;
         const pts = [];
         for (const p of src) {
-          const tt = (tk.rev ? tk.len - p.t : p.t) / rate + r * nat;
+          const tl = (back ? tk.len - p.t : p.t) - off;
+          if (tl < -1e-6) continue;
+          const tt = tl / rate + r * nat;
           if (tt > L + 1e-6) break;
           pts.push({ t: tt, m: p.m + semis });
         }

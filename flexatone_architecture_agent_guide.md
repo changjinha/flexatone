@@ -173,6 +173,13 @@ is its placement `[start, start + length)` on the cycle timeline. UI text and do
 not renamed; new code should say `track`. Not to be confused with audio channels (L/R, `numberOfChannels`, `mc~` signal channels),
 which keep the word "channel".
 
+### Interpolate (fill between two ranges)
+
+`core/manager-interpolate.js`: two time ranges → the gap between them is filled (`all`, the default = pitch joins in two crossfaded layers carrying each side's voice and track settings, plus a
+dissolve for tracks without pitch lines; `glide` = Hermite pitch joins only, as new Glissando tracks; `fade` = looped takes of both
+windows, using `take.off`). Adds tracks + one mute range, logged in `manager.extensions`
+(`method: 'ip-…'`) next to the Extend steps. Log: `docs/STUDIO_INTEGRATION_LOG.md`.
+
 ### Warp (pitch-space curvature)
 
 A Manager track with **Warp** on (`instance.warp`, `core/warp-config.js`) is silent; its lines bend the pitch space of other
@@ -229,7 +236,7 @@ Whenever Claude modifies or adds modules in `~/Documents/flexatone/`:
 2. Open `http://localhost:8000` with DevTools Console open and verify **zero** `SyntaxError`, `ReferenceError`, or `404` module errors.
 3. Run `window.runSelfCheck()` in the browser console to validate core math, unit conversions (`MIDI↔Hz`, `Amp↔dB↔Sone`), all 11 curve boundary conditions, and `GeneratorRegistry` integrity.
 4. Record the update in `CHANGELOG.md` (see §7).
-5. Commit and push to GitHub (see §8).
+5. Commit locally (see §8). **Push to GitHub only when the user explicitly asks.**
 
 ---
 
@@ -255,22 +262,23 @@ Whenever Claude modifies or adds modules in `~/Documents/flexatone/`:
 
 ---
 
-## 8. GitHub Sync (Mandatory) / GitHub 동기화 (필수)
+## 8. GitHub Sync (On Request Only) / GitHub 동기화 (지시가 있을 때만)
 
-**After the `CHANGELOG.md` entry (§7) is written, commit and push the change to GitHub. An update is not finished until it is pushed.**
-`CHANGELOG.md` 항목(§7)을 쓴 뒤에는 변경사항을 커밋하고 GitHub로 push 해야 업데이트가 끝난 것으로 본다.
+**Commit locally after the `CHANGELOG.md` entry (§7). Do NOT push to GitHub unless the user explicitly tells you to ("push", "푸시해줘", etc.). A finished update does not imply a push.**
+`CHANGELOG.md` 항목(§7)을 쓴 뒤에는 로컬 커밋까지만 한다. **사용자가 명시적으로 지시할 때만 GitHub로 push 한다.** 업데이트 완료가 push를 뜻하지 않는다.
 
 - **Remote:** `origin` → `https://github.com/changjinha/flexatone.git`, branch `main`.
-- **Order:** code change → check (§6) → `CHANGELOG.md` entry (§7) → commit + push (§8) → report to the user.
+- **Order:** code change → check (§6) → `CHANGELOG.md` entry (§7) → local commit (§8) → report to the user. Push happens later, only on the user's instruction.
+- **Approval is per request:** a past "push" instruction does not authorize later pushes. Ask again or wait to be told.
 
 1. **Stage only your own files.** `git add <the files you changed, plus CHANGELOG.md>` — never `git add .` or `-A`,
    because parallel sessions may have uncommitted work in the same folder. Check `git status --short` first.
 2. **Commit message:** `v0.MINOR.PATCH: <one-line summary>` using the version number you just logged.
    (Commit message trailers required by the environment are added as usual.)
-3. **Push:** `git push origin main`.
+3. **Push (only when instructed):** `git push origin main`. When reporting, state that the change is committed locally and not yet pushed, if so.
 4. **Never:** `git push --force`, `--no-verify`, history rewrites, or committing secrets (`.env`, keys, tokens,
    `.claude/settings.local.json`). Respect `.gitignore` (`.DS_Store`, `.claude/settings.local.json`, `.backup/`).
-5. **If push fails** (auth, network, rejected because the remote moved): do **not** force. Try `git pull --rebase origin main`
+5. **If a requested push fails** (auth, network, rejected because the remote moved): do **not** force. Try `git pull --rebase origin main`
    once; if that conflicts or still fails, stop and tell the user the exact error. The change stays committed locally.
-6. **Honesty:** say in the report whether the push succeeded; never claim a sync that did not happen.
+6. **Honesty:** say in the report whether the push happened and succeeded; never claim a sync that did not happen.
 7. **Docs-only or no-op sessions:** if nothing changed (`git status` clean for your files), skip the commit and say so.

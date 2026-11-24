@@ -45,11 +45,12 @@ import { createPitchWarp, createWarpMod, createWarpRate } from '../modules/pitch
 import { buildTimeMap, resampleTape, wsolaStretch } from '../modules/time-warp.js';
 import { getWarpSourceTable, trackRefPitch, voiceSolos } from './warp-sources.js';
 import { tapeSemitones } from '../core/tempo.js';
-import { takeLength } from '../core/take-config.js';
+import { takeLength, takeOffset } from '../core/take-config.js';
 import { applyTempoToVoices, applyTempoToFieldParams } from '../modules/tempo-manager.js';
 import { StudioRegistry } from '../studios/registry.js';
 import { ensureAudioCtx, getAudioCtx, getPlayableTimeline, renderOfflineBuffer, encodeWav, triggerDownload, EXPORT_SAMPLE_RATE } from './audio-engine.js';
 import { getOutputBus, createOfflineOutput } from './output-bus.js';
+import { renderMirrored } from './time-mirror.js';
 import { createTremoloEvaluator } from '../modules/tremolo.js';
 import { renderFieldBuffer, getFieldTimeline } from '../studios/field/field-audio.js';
 import { createRissetEngine, resolveRissetDoc, renderRissetBuffer } from '../studios/risset/risset-audio.js';
@@ -180,7 +181,7 @@ function docKey(inst, doc = getInstanceDoc(inst)) {
     // a take depends on the forward clip it was taken from (rendered as the track `as` at `at`) / 테이크는 원래 클립에 의존
     const fwd = takeContext(inst);
     const r = channelRates(fwd);
-    return JSON.stringify(['take', inst.take.rev, inst.take.len, inst.take.loop, r.rate, r.tape, fwd.start, fwd.noRanges ? 'raw' : silencedSpans(fwd.id, listRegions()), docKey(fwd, doc)]);
+    return JSON.stringify(['take', inst.take.rev, !!inst.take.mirror, inst.take.len, takeOffset(inst.take), inst.take.loop, r.rate, r.tape, fwd.start, fwd.noRanges ? 'raw' : silencedSpans(fwd.id, listRegions()), docKey(fwd, doc)]);
   }
   const shapes = shapeMaskKey(inst.id, listRegions());
   // mask is in cycle time; varispeed clips convert it with their rate / 사이클 시간 기준, varispeed 클립은 배속으로 변환
@@ -657,11 +658,80 @@ async function renderHeard(inst, doc, sampleRate, L) {
   return ctx.startRendering();
 }
 
-/** Buffer of a take track: the forward clip as it sounded, reversed when take.rev. / 테이크 버퍼 (rev면 역행) */
+/**
+ * Buffer of a take track: the forward clip as it sounded, reversed when take.rev, or rendered with its
+ * score mirrored when take.mirror (settings retrograde). / 테이크 버퍼 (rev면 역행, mirror면 설정 역행)
+ */
 async function renderTake(inst, doc, sampleRate) {
   const tk = inst.take;
-  const buf = await renderHeard(takeContext(inst), doc, sampleRate, tk.len);
-  return buf && tk.rev ? reverseBuffer(buf) : buf;
+  let buf;
+  if (tk.mirror) buf = await renderHeardMirrored(takeContext(inst), doc, sampleRate, tk.len);
+  else {
+    buf = await renderHeard(takeContext(inst), doc, sampleRate, tk.len);
+    if (buf && tk.rev) buf = reverseBuffer(buf);
+  }
+  return trimBufferStart(buf, takeOffset(tk));
+}
+
+/** `buf` without its first `sec` seconds (take.off: a take that begins inside the clip). / 앞 sec초를 잘라낸 버퍼 */
+function trimBufferStart(buf, sec) {
+  const skip = buf ? Math.min(buf.length - 1, Math.round(sec * buf.sampleRate)) : 0;
+  if (!(skip > 0)) return buf;
+  const out = new AudioBuffer({ length: buf.length - skip, numberOfChannels: buf.numberOfChannels, sampleRate: buf.sampleRate });
+  for (let c = 0; c < buf.numberOfChannels; c++) out.getChannelData(c).set(buf.getChannelData(c).subarray(skip));
+  return out;
+}
+
+/**
+ * Settings retrograde of the clip `inst` over its first L real seconds (audio/time-mirror.js): the
+ * render's score is mirrored about the end of that window, so the clip runs backwards as music while
+ * every sound in it plays forwards; range solo / mute come back mirrored too. A looping clip mirrors
+ * one pass and loops it from the phase the reflection lands on. Falls back to a tape reversal where
+ * the score cannot be mirrored: a take of a take, a Warp time drive, a looping clip a Warp unrolls.
+ * 클립의 처음 L초를 설정 역행으로: 렌더의 악보를 창 끝을 축으로 뒤집음 (소리는 순방향). 구간 솔로·뮤트도 뒤집힘.
+ * 반복 클립은 1회분을 뒤집어 반사 위상부터 반복. 뒤집을 수 없는 경우(테이크의 테이크, 곡률 시간 구동, 곡률로
+ * 펼친 반복)는 테이프 역행으로 대체.
+ */
+async function renderHeardMirrored(inst, doc, sampleRate, L) {
+  const tape = async () => { const b = await renderHeard(inst, doc, sampleRate, L); return b ? reverseBuffer(b) : b; };
+  const wo = inst.take?.on || inst.studio === 'risset' ? null : warpOf(inst);
+  if (inst.take?.on || timeOf(inst) || inst.loop && wo && (wo.fn || wo.mod)) return tape();
+  let base;
+  let rate = 1;
+  let loop = false;
+  let res;
+  if (inst.studio === 'risset') {
+    const r = channelRates(inst);
+    const sec = Math.min(180, Math.max(1, Math.ceil(L)));
+    res = await renderMirrored(L, () => renderRissetBuffer({ seconds: sec, params: shiftRissetPitch(resolveParams(inst, doc), r.tape), sampleRate, outputStage: false, ampMask: renderGain(inst), pitchWarp: renderWarp(inst), timeScale: r.rate, extraTremolo: inst.tremolo?.on ? inst.tremolo : null }));
+  } else {
+    rate = varispeed(inst);
+    loop = !!inst.loop;
+    // one pass mirrored about its own length when looping; else about the window the clip plays / 반복이면 1회분 길이, 아니면 재생 창
+    res = await renderMirrored(loop ? null : L * rate, () => renderPass(inst, doc, sampleRate, Number(inst.start) || 0));
+  }
+  if (!res.mirrored) return tape();
+  base = res.buffer;
+  if (!base) return null;
+  const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+  const ctx = new Offline(2, Math.max(1, Math.ceil(L * sampleRate)), sampleRate);
+  const src = ctx.createBufferSource();
+  src.buffer = base;
+  src.playbackRate.value = rate;
+  src.loop = loop;
+  // forward real time u played buffer (u·rate) mod B; mirrored τ reads B − ((L − τ)·rate mod B) / 반사 위상
+  const B = base.duration;
+  const offset = loop && B > 0 ? ((((-L * rate) % B) + B) % B) : 0;
+  const gate = ctx.createGain();
+  gate.gain.value = 1;
+  if (!inst.noRanges) {
+    const a0 = Number(inst.start) || 0;
+    const spans = silencedSpans(inst.id, listRegions()).map(([s0, s1]) => [L - (s1 - a0), L - (s0 - a0)]).filter(([s0, s1]) => s1 > 0 && s0 < L).sort((x, y) => x[0] - y[0]);
+    scheduleRegionMask(gate.gain, 0, spans, 0);
+  }
+  src.connect(gate).connect(ctx.destination);
+  src.start(0, offset);
+  return ctx.startRendering();
 }
 
 // Takes made from the same clip (several entries of one track in an extension) share one rendered

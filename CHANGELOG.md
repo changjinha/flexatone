@@ -30,6 +30,127 @@ Leave out the lines that do not apply. Write what is true now, including failing
 
 ---
 
+## [0.18.1] — 2026-11-23 — Split layout: window : toolboxes ≈ 2 : 1 / 분할 레이아웃 비율 2:1
+- **Changed / 변경:** The default width of the window column is now ⅔ of the workspace (was 58 %), so window : toolboxes ≈ 2 : 1. A width you set by dragging the column line is kept; double-click the line to go back to the new default.
+- **Files / 파일:** `js/ui/rack-layout.js`
+- **Data / 데이터:** none
+- **Checks / 점검:** 1440×900: window 929 px, toolbox column 465 px (Risset, Glissando).
+
+## [0.19.1] — 2026-11-23 — Interpolate: "Everything" is the default / 보간 기본값 = 전체 변수
+- **Added / 추가:** Interpolate method **Everything** (first button, the default): every variable moves from the left state to the right state, not only the pitch.
+  - Pitch lines are joined by the same Hermite curves as Pitch glide.
+  - Each join is two voices on that curve: layer A with all settings of the left line (a Glissando voice is cloned whole; a Field particle lends level, gain unit, timbre and tremolo), layer B with those of the right line. A fades in a straight line from the left line's envelope value to 0, B from 0 to the right line's. Both start in step on the same curve, so level and wave mix pass through the values in between.
+  - Layer A sits on a new Glissando track with the left source track's fader, tremolo, mute / solo; layer B on one with the right source's — track settings cross over too.
+  - Tracks without pitch lines (Risset, block studios), and every track when one side has no line, are dissolved with takes, so the method never fails for lack of lines.
+  - 음고뿐 아니라 음량·음색·트레몰로·트랙 설정까지 모두 옮기는 **전체** 방법을 기본값으로 추가. 음고 선이 없는 트랙은 디졸브.
+- **Changed / 변경:** Pitch glide and Dissolve remain as buttons 2 and 3. Join tracks now copy the source track's tremolo.
+- **Files / 파일:** `js/core/manager-interpolate.js`, `js/ui/manager-panel.js`
+- **Data / 데이터:** none (log method `ip-all`).
+- **Checks / 점검:** `runSelfCheck()` 161 / 161 (1 new). Clicked through on port 8011: Glissando → Field with a Risset track in the left range gave 2 join tracks (layers A: sine timbre fading 0.9 → 0, layers B: Field timbre 0 → 0.9) + 1 Risset take; cycle WAV export renders; all three non-silent. **Not verified:** by ear; that the two layers really stay phase-locked in the renderer (assumed from equal start time and curve); clip-studio line sources.
+- **Known limits / 한계:** only settings a Glissando voice has are carried numerically or by layer; parameters of other engines (Risset field, Field physics, clip studios) cross over as sound (dissolve), not as parameter values. Envelope values are read for plain Glissando voices only; other sources start / end at 0.9.
+
+## [0.19.0] — 2026-11-23 — Manager Interpolate tool / 매니저 보간 도구
+- **Added / 추가:**
+  - **Interpolate (Manager card under Extend):** pick a range on each side (made with Select range); the part between them is filled with a smooth transformation from the left state to the right state. Two methods:
+    - **Pitch glide** — every pitch line sounding in the left range is joined to a line in the right range by a cubic Hermite curve in semitones (pitch and slope match at both edges; low pairs with low, unequal counts split / merge; at most 24 joins). The joins are voices of new Glissando tracks, one per source track on the left side; a Glissando source lends its voice's timbre.
+    - **Dissolve** — for any track: a looped take of the left window carries on and leaves in the second half of the gap; a looped take of the right window, ending exactly on the right range, enters in the first half.
+    - Uses the checked tracks (none checked = all). Adds tracks and one range `⇝ n` that mutes what the joined tracks had inside the gap. One undo step; **Remove last** takes it out (same log as Extend).
+  - 양옆 구간을 고르면 그 사이를 매끄럽게 변형해 채우는 **보간** 카드 (음고 글라이드 / 디졸브).
+  - `take.off`: a take can begin inside its clip (seconds trimmed from the start of the played take).
+- **Files / 파일:** `js/core/manager-interpolate.js` (new), `js/core/take-config.js`, `js/audio/manager-mixer.js`, `js/ui/manager-panel.js`, `flexatone_architecture_agent_guide.md`, `docs/STUDIO_INTEGRATION_LOG.md`
+- **Data / 데이터:** `take.off` (default 0; older projects load unchanged). Interpolations are logged in `manager.extensions` with `method: 'ip-glide' | 'ip-fade'`, `prev` = the cycle settings at that moment, `froze: []`.
+- **Checks / 점검:** `runSelfCheck()` 160 / 160 (2 new: Hermite glide + pairing, dissolve placement). Clicked through on port 8011 with Glissando → Field: glide (1 track, 2 joins, lines meet in the Master View), dissolve on top (2 takes), Remove last, cycle WAV export renders, take levels non-silent. **Not verified:** listening by ear; Risset / clip-studio sources; project save / load round trip with `take.off`; behaviour with a Warp track over the gap.
+- **Known limits / 한계:** glide reads the *heard* (already warped) pitch, and the new Glissando track is bent again by any Warp track that covers the gap. Dissolve has both sounds at full level around the middle (track fades are capped at half the clip and 10 s), up to +3 dB. Glide tracks play at one flat level (0.9 × the voice gain), not the level of the lines they join.
+- **Details / 상세:** `docs/STUDIO_INTEGRATION_LOG.md` → "Manager Interpolate tool"
+
+## [0.18.0] — 2026-11-23 — Split layout, resizable blocks, Manager UX, shortcut list, Risset voice modulation · regions / 분할 레이아웃·크기 조절·매니저·단축키·리세 보이스 변조·영역
+- **Added / 추가:**
+  - **Split layout (every studio):**
+    - The window (the studio's main canvas, plus the Glissando gain envelope) stays on the left and follows the page.
+    - Every toolbox is in the right column. A jump bar on top scrolls to a toolbox and opens it if folded.
+    - Above the window only the header (transport / file) and the output line remain.
+    - Drag the line between the columns to change the window width.
+    - Portrait mode or a window narrower than 900 px keeps the old one-column flow.
+    - Nothing moves in the DOM: wrappers become `display: contents`, windows `position: fixed`, toolboxes get a CSS `order`.
+  - **Resize handle ◢ on every block:**
+    - A toolbox gets a width and height and scrolls inside. A window changes its canvas height and the column width.
+    - Works for Manager cards too. Double-click = natural size. "Default layout" resets.
+  - **Manager cards** (master view, timeline, extend, ranges, channels) can be floated, folded, pinned and resized like studio toolboxes. Remembered under the scope `manager`.
+  - **Keyboard shortcut list:** the ⌨ button next to Help, or the `?` key (`ui/shortcut-help.js`).
+  - **Output line folds** with a double-click (title + meter stay).
+  - **Advanced randomizer** for the per-voice tremolo / vibrato (shared block, every studio, Risset included):
+    - A checkbox, folded by default.
+    - Separate rate / depth / phase spreads.
+    - Distribution: even, centred (u³) or two groups.
+    - Slow rate drift.
+    - Band follow as an editable envelope over the frequency band.
+    - Off = exactly the previous model (renders match sample for sample).
+  - **Risset window:** each dot's brightness shows its voice tremolo and its position shows its vibrato (shown at least ±5 px at full depth).
+  - **Risset regions:**
+    - S / M per region module.
+    - Range sliders appear only while the region is on; rotation sliders only while spatial rotation is on.
+    - The harmonic offset grid can be set per region.
+- **Changed / 변경:**
+  - Manager opens full screen by default (size key `flexatone.mgrSize.v2`).
+  - Clicking its name "⧉ Manager" closes it.
+  - A click on the studio behind it (or a studio tab) closes it too. Not in Half mode, where the studio is meant to be used beside it.
+  - The fold caret sits in the block's left padding again, so titles stay on the left as before.
+  - Risset uses the shared voice tremolo · vibrato block.
+  - Risset default order: harmonic offset grid above interaction dynamics.
+  - In region scope the toolboxes that act on the one voice bank are marked 🌐 shared.
+- **Fixed / 수정:** In Risset region scope an in-place grid edit could change the shared grid; it is now copied into the region first.
+- **Files / 파일:**
+  - New: `js/ui/shortcut-help.js`.
+  - Changed: `js/ui/rack-layout.js`, `js/ui/voice-mod-rack.js`, `js/core/voice-mod.js`, `js/studios/risset/risset-voicebank.js`, `js/studios/wave/wave-bank.js`, `js/studios/risset/risset-core.js`, `js/studios/risset/space-regions.js`, `js/studios/risset/risset-panels.js`, `js/ui/manager-panel.js`, `js/ui/output-panel.js`, `js/main.js`, `js/core/i18n.js`, `index.html`, `styles.css`.
+- **Data / 데이터:**
+  - `voiceMod.adv`, plus per lane `rateSpread`, `depthSpread`, `phaseSpread`, `dist`, `drift`, `env`.
+  - Risset `region.solo` / `region.mute`, and region `own` grid keys.
+  - All optional; older projects load unchanged.
+  - View preferences: `flexatone.winCol.v1`, `flexatone.outFolded.v1`, rack view `size` / `ch`.
+- **Checks / 점검:**
+  - `runSelfCheck()` 158/158.
+  - Advanced off ≡ previous render (max diff 0).
+  - Region solo = only that region; mute all = silence.
+  - An own grid changes only its region.
+  - Split layout checked in all 10 studios at 1440×900.
+  - Manager float / dock / close-on-click checked; toolbox and window resize checked; jump bar, output fold and `?` list checked.
+  - Not listened to by ear.
+  - The vibrato / tremolo dots follow the bank's formulas but not its exact phase.
+- **Backup / 백업:** `.backup/2026-11-23-layout-split`
+
+## [0.17.1] — 2026-11-23 — Ask to save before loading a project / 불러오기 전 저장 여부 확인
+- **Changed / 변경:** 📂 Load now first asks "Save the current project first?" — Save, then load · Load without saving ·
+  Cancel (Esc / click outside = Cancel) — when the current work has changes that are not in a saved project file; with no
+  such changes the file picker opens at once, as before. If a slow save uses up the browser's click permission (a file
+  picker may only open right after a click), the dialog turns into "Saved. Now choose the project or preset to load" with
+  a Choose file… button instead of failing silently. The Cmd/Ctrl+R · F5 reload dialog now uses the same code
+  (`openSaveFirstDialog`), unchanged for the user.
+  / 📂 불러오기가 먼저 "현재 프로젝트를 먼저 저장할까요?"(저장 후 불러오기 · 저장하지 않고 불러오기 · 취소)를 띄움 — 저장된
+  파일에 없는 변경이 있을 때만. 저장이 오래 걸려 클릭 권한이 끝나면 "파일 선택…" 버튼 단계로 바뀜. 새로고침 확인 창도 같은 코드 사용.
+- **Files / 파일:** `js/ui/project-file.js` (`openSaveFirstDialog`, `askSaveBeforeLoad`), `js/main.js`, `js/core/i18n.js` (`loadAsk.*`)
+- **Data / 데이터:** none
+- **Checks / 점검:** `runSelfCheck()` 157 / 157 PASS. In the browser (port 8000, shared; the native file window replaced by a
+  click counter, `showSaveFilePicker` by a stand-in): no changes → picker opens directly; after an edit, a real click on
+  Load shows the dialog; Cancel and Esc close it without the picker; Load without saving opens the picker; Save, then load
+  saves (unsaved flag cleared) and opens the picker; a 6 s save expires the click permission and shows the Choose file…
+  step, whose button opens the picker; Cmd+R still shows "Reload Flexatone?" with its three buttons; no console errors.
+  **Not verified:** the real OS save / open windows; Safari / Firefox (they download on save and lack
+  `navigator.userActivation` in some versions — then the picker is tried directly).
+- **Backup / 백업:** `.backup/2026-11-23-load-save-first`
+
+## [0.17.0] — 2026-11-23 — Extend: settings retrograde / 연장: 설정 역행
+- **Added / 추가:** Extend method **Retrograde (settings) / 역행 (설정)** ◁. It is placed like the retrograde (mirrored about the cycle end, fades swapped, reflecting again past ×1). Each reflected clip is rendered again with its *score* mirrored in time instead of its audio reversed. Pitch curves, gain envelopes, entries and exits, automation, shape masks, range solo / mute and Warps run backwards. Oscillators, samples, grains, filters and reverb still play forwards, so an attack stays an attack. Risset plays its control frames last-first with the glide velocity negated. Wave's spectral bank reads its amplitude matrix backwards. Every other studio's offline render is recorded and its Web Audio automation / start / stop rescheduled reflected (`audio/time-mirror.js`).
+- **Changed / 변경:** The old method is now labelled **Retrograde (tape) / 역행 (테이프)**. A take's button cycles forwards → tape → settings → forwards (◀ / ◁). Takes have a new `mirror` flag.
+- **Limits / 한계:** A take of a take, a clip with a Warp time drive, or a looping clip unrolled by a Warp falls back to the tape reversal. Oscillator phases are not reversed, so voices that converge in phase (Chaos at its start) are less coherent mirrored than forwards.
+- **Files / 파일:** `js/audio/time-mirror.js` (new), `js/audio/manager-mixer.js`, `js/core/manager-extend.js`, `js/core/take-config.js`, `js/studios/risset/risset-audio.js`, `js/studios/wave/wave-audio.js`, `js/ui/manager-panel.js`, `js/core/i18n.js`
+- **Data / 데이터:** `take.mirror` (boolean, default false). Older projects load unchanged.
+- **Checks / 점검:**
+  - `runSelfCheck()` 157/157, including the new time-mirror check.
+  - Offline renders of all 10 studios went through the mirror. The envelope follows the reversed forward render in all of them.
+  - A Glissando glide 48→72 with a fade-in comes back as 72→48 with a fade-out.
+  - A mirror Extend on the open project rendered a symmetric cycle WAV and was removed again.
+  - Not listened to by ear.
+
 ## [0.16.0] — 2026-11-23 — Voice tremolo · vibrato in every studio / 모든 스튜디오에 보이스 트레몰로·비브라토
 - **Added / 추가:** the per-voice "Voice tremolo · vibrato" block (same model as Risset 0.15.0: own rate / depth / phase per voice from a seeded randomizer, Band follow ± octaves) in Glissando, Field, Draw, Cloud, Space, Tempo, Chaos, Fractal and Wave. It sits above each studio's output tremolo (shared rack `ui/voice-mod-rack.js`, added through `ui/studio-tremolo.js`; Glissando under its voice tremolo). Stored as `voiceMod` in each studio's document (Glissando: studio params).
   / 글리산도·필드·드로잉·클라우드·스페이스·템포·카오스·프랙탈·웨이브에 보이스별 트레몰로·비브라토 블록 추가 (리세와 같은 모델).
