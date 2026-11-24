@@ -45,7 +45,7 @@ export const FIELD_STEPS = 220;
 export const GUIDING_ENGINES = Object.freeze(['harmonic', 'damped', 'anticipation', 'ratchet', 'chirp', 'bounce', 'bezier', 'plateau', 'polynomial']);
 export const WELL_GRIDS = Object.freeze(['none', '12tet', '24tet', 'pentatonic', 'overtone']);
 export const BOUNDARY_MODES = Object.freeze(['bounce', 'clamp', 'wrap']);
-export const RETRO_MODES = Object.freeze(['unfold', 'monotonic']);
+export const RETRO_MODES = Object.freeze(['unfold', 'mirror', 'monotonic']);
 
 /** Guiding curve y(t) through the shared curve engine. / 공용 곡선 엔진으로 가이드 곡선 평가 */
 export function evalGuidingCurve(t, guiding) {
@@ -418,6 +418,9 @@ export function getBakeCount() {
 /**
  * Read a baked trajectory at fraction `frac` of the voice's duration.
  *  unfold   : parametric — the s-axis is time, so retrograde loops are heard in order.
+ *  mirror   : retrograde about the reversal start — wherever time runs backwards the path is reflected
+ *             (t' = 2·T₀ − t, T₀ = time where the reversal began), so the whole path is heard forwards on the
+ *             time axis; the output time is the cumulative Σ|Δt|, clipped at the voice's end.
  *  monotonic: first sample whose field time t ≥ frac (loops are skipped).
  * Pure array lookup (no field math). / 베이킹 배열 조회 (벡터장 연산 없음)
  * @returns {{ y: number, gainMod: number, curv: number }}
@@ -425,6 +428,27 @@ export function getBakeCount() {
 export function lookupBakedSample(v, pts, frac) {
   if (!pts || pts.length === 0) return { y: frac, gainMod: 1, curv: 0 };
   const s2g = v.speedToGain ?? 0;
+  if (v.retroMode === 'mirror') {
+    // Output time τ_i = t₀ + Σ|Δt|: a backwards stretch is reflected about the point where it began.
+    // 출력 시간 τ = t₀ + Σ|Δt| — 역행이 시작된 점을 기준으로 뒤로 가는 구간을 반사
+    let tau = pts[0].t;
+    let i1 = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const nt = tau + Math.abs(pts[i].t - pts[i - 1].t);
+      if (nt >= frac) {
+        const span = nt - tau;
+        const a = span > 1e-9 ? (frac - tau) / span : 0;
+        const p0 = pts[i - 1];
+        const p1 = pts[i];
+        const spd = p0.normSpeed + a * (p1.normSpeed - p0.normSpeed);
+        return { y: p0.y + a * (p1.y - p0.y), gainMod: clamp(1 - s2g * 0.65 + s2g * spd, 0.05, 1.4), curv: p0.normCurv + a * (p1.normCurv - p0.normCurv) };
+      }
+      tau = nt;
+      i1 = i;
+    }
+    const last = pts[i1];
+    return { y: last.y, gainMod: clamp(1 - s2g * 0.65 + s2g * last.normSpeed, 0.05, 1.4), curv: last.normCurv };
+  }
   if (v.retroMode !== 'monotonic') {
     const idxFloat = clamp(frac, 0, 1) * (pts.length - 1);
     const i0 = Math.floor(idxFloat);

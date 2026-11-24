@@ -26,6 +26,7 @@ import { normalizeTremolo } from '../../core/tremolo-config.js';
 import { GUIDING_ENGINES, NODE_TYPES, WELL_GRIDS, BOUNDARY_MODES, RETRO_MODES, createParticleVoice, createForceNode, createFieldLayer, FIELD_STEPS, getBakeCount } from './vector-field-engine.js';
 import { LAYER_MODES, LAYER_SHAPES } from './field-layers.js';
 import { FIELD_ID, getFieldParams, editField, getActiveParticle } from '../field-studio.js';
+import { voiceGainControl } from '../../ui/voice-gain.js';
 import { createFieldCanvases } from './field-canvases.js';
 import { createLocateButtons } from '../../ui/locate-tool.js';
 import { REGION_SHAPES, REGION_TARGETS, REGION_GAIN_MAX, createFieldRegion } from './field-regions.js';
@@ -88,6 +89,7 @@ export function mountFieldWorkspace(root, hooks) {
           el('div', { class: 'flex gap-1' }, [flag('solo', 'S', 'bg-amber-500 text-slate-950 border-amber-400'), flag('muted', 'M', 'bg-rose-600 text-white border-rose-500')]),
         ]),
         info,
+        el('div', { class: 'flex justify-end' }, [voiceGainControl({ get: () => getFieldParams().voices.find((y) => y.id === v.id)?.baseGain ?? 0.85, set: (val, ck) => editField((dd) => { const x = dd.voices.find((y) => y.id === v.id); if (x) x.baseGain = val; }, { coalesceKey: `field-gain-${v.id}` }), commit, push: (fn) => syncers.push(fn), def: 0.85 })]),
       ]);
     });
     const badge = el('span', { class: 'px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono', dataset: { help: 'field.bake' } });
@@ -96,7 +98,7 @@ export function mountFieldWorkspace(root, hooks) {
       StudioRegistry.bakeVoices(FIELD_ID, { mode });
       hooks.showToast(t('field.bakedToGliss', getFieldParams().voices.length));
     };
-    return el('section', { class: SECTION }, [
+    return el('section', { class: SECTION, dataset: { window: 'list', rack: 'field-voices' } }, [
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
         el('div', { class: 'flex items-center gap-2' }, [
           el('h2', { class: 'text-xs font-bold uppercase tracking-wider text-violet-300', text: t('field.grapher') }),
@@ -129,7 +131,12 @@ export function mountFieldWorkspace(root, hooks) {
       note: el('span', { class: 'text-emerald-300', text: '—' }),
       hz: el('span', { class: 'text-amber-300', text: '—' }),
       vec: el('span', { class: 'text-violet-300', text: '—' }),
-      retro: el('span', { class: 'hidden px-1.5 py-0.5 rounded bg-fuchsia-600/30 text-fuchsia-200 border border-fuchsia-500/40', text: t('field.retroBadge'), dataset: { help: 'field.retro' } }),
+      retro: el('span', { class: 'hidden inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-fuchsia-600/30 text-fuchsia-200 border border-fuchsia-500/40', dataset: { help: 'field.retro' } }, [
+        el('span', { text: t('field.retroBadge'), dataset: { help: 'field.retro' } }),
+        // Retrograde handling chosen right where the notice appears (as-is / retrograde about the reversal start / skip loops)
+        // 알림에서 바로 고르는 역행 처리: 그대로 / 역행 시점 기준 retrograde / 루프 건너뜀
+        select('field.retroMode', RETRO_MODES.map((m) => [m, `field.retroShort.${m}`]), () => getActiveParticle()?.retroMode || 'unfold', (val) => editActiveParticle((v) => { v.retroMode = val; })),
+      ]),
     };
     const main = el('canvas', { class: 'w-full h-[440px] rounded-lg bg-slate-950 block', dataset: { help: 'field.canvas' } });
     const monitor = el('canvas', { class: 'w-full h-[120px] rounded-lg bg-slate-950 block', dataset: { help: 'field.monitor' } });

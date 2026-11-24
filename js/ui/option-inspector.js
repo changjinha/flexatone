@@ -104,12 +104,12 @@ export const HELP_DB = {
     ko: E('2D 흐름 (역행)', 't와 y 모두 장을 따릅니다: 시간이 거꾸로 돌 수 있음.', '입자가 (t, y) 평면에서 움직입니다. F_t < 0인 곳에서는 시간 역행 — 자홍색으로 표시됩니다.', 'dt/ds = F_t(t, y) ∈ [−1.6, 2.4],  dy/ds = F_y(t, y)'),
   },
   'field.retroMode': {
-    en: E('Retrograde Mode', 'How a looping (time-reversing) trajectory is heard.', 'Parametric Unfold plays the path in integration order s, so loops become audible pitch gestures. Monotonic Time reads y at the first point whose t ≥ playback time, skipping loops.', 'unfold: y(τ) = y(s = τ)   ·   monotonic: y(τ) = y(min{s : t(s) ≥ τ})'),
-    ko: E('역행 처리 모드', '시간이 거꾸로 도는 궤적을 어떻게 들려줄지.', '파라메트릭 펼침은 적분 순서 s대로 재생해 루프를 음고 제스처로 들려줍니다. 단조 시간은 t ≥ 재생 시각인 첫 점의 y를 읽어 루프를 건너뜁니다.', 'unfold: y(τ) = y(s = τ)   ·   monotonic: y(τ) = y(min{s : t(s) ≥ τ})'),
+    en: E('Retrograde Mode', 'How a looping (time-reversing) trajectory is heard.', 'Parametric Unfold (as is) plays the path in integration order s, so loops become audible pitch gestures. Retrograde from Reversal Point reflects every backwards stretch about the time where it began, so the loop is heard forwards along the time axis. Monotonic Time reads y at the first point whose t ≥ playback time, skipping loops.', 'unfold: y(τ) = y(s = τ)   ·   mirror: τ = t₀ + Σ|Δt|,  t′ = 2T₀ − t   ·   monotonic: y(τ) = y(min{s : t(s) ≥ τ})'),
+    ko: E('역행 처리 모드', '시간이 거꾸로 도는 궤적을 어떻게 들려줄지.', '파라메트릭 펼침(그대로)은 적분 순서 s대로 재생해 루프를 음고 제스처로 들려줍니다. 역행 시점 기준 retrograde는 시간이 뒤로 가기 시작한 시점을 축으로 뒤로 가는 구간을 반사해, 루프를 시간축을 따라 앞으로 재생합니다. 단조 시간은 t ≥ 재생 시각인 첫 점의 y를 읽어 루프를 건너뜁니다.', 'unfold: y(τ) = y(s = τ)   ·   mirror: τ = t₀ + Σ|Δt|,  t′ = 2T₀ − t   ·   monotonic: y(τ) = y(min{s : t(s) ≥ τ})'),
   },
   'field.retro': {
-    en: E('Retrograde loop', 'Part of the active trajectory moves backwards in time.', 'Shown in magenta on the canvas. Choose Retrograde Mode to decide how it sounds.'),
-    ko: E('역행 루프', '활성 궤적의 일부가 시간을 거슬러 움직입니다.', '캔버스에 자홍색으로 표시됩니다. 역행 처리 모드로 소리를 결정하세요.'),
+    en: E('Retrograde loop', 'Part of the active trajectory moves backwards in time.', 'Shown in magenta on the canvas. Pick how it sounds right here: As is plays the path in integration order; Retrograde reflects each backwards stretch about the time where the reversal began, so it plays forwards along the time axis (the output is cut at the voice end); Skip loops ignores them.', 'mirror: τ = t₀ + Σ|Δt|  (t′ = 2T₀ − t on a backwards stretch)'),
+    ko: E('시간 역행 루프', '활성 궤적의 일부가 시간을 거슬러 움직입니다.', '캔버스에 자홍색으로 표시됩니다. 여기서 바로 소리를 고르세요: 그대로 재생은 적분 순서대로, 역행 시점 기준 retrograde는 시간이 뒤로 가기 시작한 시점을 축으로 뒤로 가는 구간을 반사해 시간축을 따라 앞으로 재생합니다(보이스 끝에서 잘림). 루프 건너뜀은 루프를 무시합니다.', 'mirror: τ = t₀ + Σ|Δt|  (뒤로 가는 구간에서 t′ = 2T₀ − t)'),
   },
   'field.speedToGain': {
     en: E('Speed → Gain', 'Louder where the particle moves fast, softer where it is slow.', 'The baked speed |v| is normalised to [0, 1] per voice and blended into the amplitude.', 'g = baseGain · clamp(1 − 0.65·k + k·|v|/|v|ₘₐₓ, 0.05, 1.4)'),
@@ -193,8 +193,8 @@ export const HELP_DB = {
     ko: E('루핑 오토메이션', '노브 값 주위로 파라미터를 변조하는 스플라인 레인, Loop 초마다 반복.', 'y = ½이면 변화 없음, 레인은 값을 범위의 ±¼만큼 흔듭니다. 여러 레인을 동시에 쓸 수 있습니다.', 'eff = clamp(base + (y(u) − ½)·(max − min)·½),  u = (τ mod L)/L'),
   },
   'risset.canvas': {
-    en: E('Phase trails', 'Past (left) and future (right of the green line) voice paths; drag to scrub φ.', 'Line width and opacity follow A_global·A_local; the right strip shows the envelope over the span.'),
-    ko: E('위상 궤적', '과거(왼쪽)와 미래(초록 선 오른쪽) 보이스 경로; 드래그로 φ 스크럽.', '선 굵기·투명도는 A_global·A_local을 따르며, 오른쪽 띠는 스팬 위의 포락선입니다.'),
+    en: E('Phase trails', 'Past (left) and future (right of the green line) voice paths. Drag sideways to move along the time axis: left = later, right = earlier (phase, trajectory shape, automation and every region move together; the readout shows the offset). The pointer stays where it is while you drag, so the motion has no screen edge. Let go while moving and the field glides on with that speed, which fades to the normal Glissando speed (inertia). With the field frozen (rate 0) the drag scrubs φ.', 'Line width and opacity follow A_global·A_local; the right strip shows the envelope over the span. 📍 Locate turns the drag into moving region edges; Shift-drag draws a range.'),
+    ko: E('위상 궤적', '과거(왼쪽)와 미래(초록 선 오른쪽) 보이스 경로. 좌우로 드래그하면 시간축을 따라 이동: 왼쪽 = 나중, 오른쪽 = 이전 (위상·궤적 셰이프·오토메이션·모든 영역이 함께, 표시줄에 이동량). 드래그 중에는 커서가 제자리에 고정되어 화면 끝 제한 없이 계속 이동합니다. 움직이는 채로 놓으면 그 속도로 더 미끄러지다가 원래 글리산도 속도로 점점 돌아갑니다(관성). 음장이 정지(속도 0)면 φ 스크럽.', '선 굵기·투명도는 A_global·A_local을 따르며, 오른쪽 띠는 스팬 위의 포락선입니다. 📍 Locate를 켜면 드래그가 영역 끝단 이동, Shift-드래그는 범위 그리기.'),
   },
   'risset.ratio': {
     en: E('Ratio grid & stretched span', 'Stacks just ratios (3:2, 4:3, 5:4, 9:8 or any p:q) instead of tempered semitones; the cycle itself may be non-octave.', 'Each step adds 12·log₂(p/q) semitones (shown in cents) and wraps into the span. Cycle ratio R sets the span to 12·log₂(R): R = 2 is the octave, 2.1 a stretched octave, 3 a tritave.', 'off_{i+1} = (off_i + 12·log₂(p/q)) mod span,   3:2 = 701.955¢,   span = 12·log₂ R'),
