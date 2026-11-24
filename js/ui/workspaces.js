@@ -26,6 +26,8 @@ import { mountFractalWorkspace } from '../studios/fractal/fractal-panels.js';
 import { startFractalAudio, isFractalPlaying, toggleFractalPlay, toggleFractalPause, stopFractalAudio, exportFractalWav } from '../studios/fractal/fractal-audio.js';
 import { mountWaveWorkspace } from '../studios/wave/wave-panels.js';
 import { startWaveAudio, isWavePlaying, toggleWavePlay, toggleWavePause, stopWaveAudio, exportWaveWav } from '../studios/wave/wave-audio.js';
+import { mountGridWorkspace } from '../studios/grid/grid-panels.js';
+import { startGridAudio, isGridPlaying, toggleGridPlay, toggleGridPause, stopGridAudio, exportGridWav } from '../studios/grid/grid-audio.js';
 
 registerWorkspace('field', {
   mount: mountFieldWorkspace,
@@ -139,5 +141,18 @@ registerWorkspace('wave', {
     togglePause: toggleWavePause,
     stop: stopWaveAudio,
     exportWav: () => exportWaveWav(),
+  },
+});
+
+// Grid: painted raster + image effects, baked at edit time — cue/playhead transport like Field. / 그리드: 필드와 같은 큐·재생 헤드
+registerWorkspace('grid', {
+  mount: mountGridWorkspace,
+  transport: {
+    isPlaying: isGridPlaying,
+    playFrom: (sec) => startGridAudio(sec), // play from sec, cue untouched / 큐 고정 재생
+    togglePlay: toggleGridPlay,
+    togglePause: toggleGridPause,
+    stop: stopGridAudio,
+    exportWav: () => exportGridWav(),
   },
 });

@@ -45,6 +45,8 @@ import { renderFractalBuffer } from '../studios/fractal/fractal-audio.js';
 import { getWaveParams, waveMasterLines } from '../studios/wave-studio.js';
 import { waveTimelineEnd } from '../studios/wave/wave-engine.js';
 import { renderWaveBuffer, waveRenderKey } from '../studios/wave/wave-audio.js';
+import { getGridParams, gridMasterLines, gridTimelineEnd } from '../studios/grid-studio.js';
+import { renderGridBuffer, gridRenderKey } from '../studios/grid/grid-audio.js';
 
 const num = (x) => (Number.isFinite(Number(x)) ? Math.max(0, Number(x)) : 0);
 
@@ -178,6 +180,17 @@ const ADAPTERS = {
     render: (p, sampleRate, o = {}) => renderWaveBuffer({ params: p, sampleRate, outputStage: false, timeScale: o.rate || 1, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
     key: (p) => waveRenderKey(p),
     lines: (p) => waveMasterLines(p),
+  },
+  // Grid: the baked matrices are read at any speed without changing pitch (the bins keep their
+  // frequencies), masked and warped per frame × bin, and drawn as the ridge lines of the Result.
+  // 그리드: 베이킹된 행렬을 음고 변화 없이 임의 속도로 읽고, 프레임 × 빈 단위로 마스크·곡률을 적용, Result의 리지 선으로 표시.
+  grid: {
+    get: getGridParams,
+    length: (p) => gridTimelineEnd(p), // no bake needed / 베이킹 불필요
+    scalesTime: true,
+    render: (p, sampleRate, o = {}) => renderGridBuffer({ params: p, sampleRate, outputStage: false, timeScale: o.rate || 1, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
+    key: (p) => gridRenderKey(p),
+    lines: (p) => gridMasterLines(p),
   },
 };
 

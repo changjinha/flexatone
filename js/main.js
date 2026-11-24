@@ -18,6 +18,7 @@ import './studios/tempo-studio.js'; // registers the Tempo Studio plugin (tempo 
 import './studios/chaos-studio.js'; // registers the Chaos Studio plugin / 카오스 스튜디오 등록
 import './studios/fractal-studio.js'; // registers the Fractal Studio plugin / 프랙탈 스튜디오 등록
 import './studios/wave-studio.js'; // registers the Wave Studio plugin (PDE on the pitch axis) / 웨이브 스튜디오 등록
+import './studios/grid-studio.js'; // registers the Grid Studio plugin (painted raster + image effects) / 그리드 스튜디오 등록
 import './ui/workspaces.js'; // studio workspaces (UI + audio tier) / 스튜디오 작업 공간
 import { t, LANG_TEXT_MAP, LANGUAGES, nextLang, getLang } from './core/i18n.js';
 import {

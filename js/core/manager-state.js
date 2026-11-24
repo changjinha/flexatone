@@ -28,7 +28,7 @@ import { patchWarp } from './warp-config.js';
 import { normalizeTake, scaleTake } from './take-config.js';
 
 /** Studios that can be instantiated, in Manager order. / 인스턴스화 가능한 스튜디오 */
-export const MANAGER_STUDIOS = Object.freeze(['glissando', 'risset', 'field', 'draw', 'chaos', 'cloud', 'tempo', 'space', 'fractal', 'wave']);
+export const MANAGER_STUDIOS = Object.freeze(['glissando', 'risset', 'field', 'draw', 'chaos', 'cloud', 'tempo', 'space', 'fractal', 'wave', 'grid']);
 /**
  * Studios that always have an instance (created by ensureManager). The others get one only when
  * added from the Manager; their first instance takes over the editor's current document.
@@ -38,6 +38,7 @@ export const BASE_MANAGER_STUDIOS = Object.freeze(['glissando', 'risset', 'field
 const STUDIO_COLORS = {
   glissando: '#38bdf8', risset: '#a78bfa', field: '#34d399', draw: '#f472b6', chaos: '#fb923c',
   cloud: '#94a3b8', tempo: '#facc15', space: '#22d3ee', fractal: '#c084fc', wave: '#2dd4bf',
+  grid: '#e879f9',
 };
 
 function mgr() {

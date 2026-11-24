@@ -30,6 +30,25 @@ Leave out the lines that do not apply. Write what is true now, including failing
 
 ---
 
+## [0.33.0] — 2026-11-24 — Grid Studio (prototype): painted raster + image effects as sound / 그리드 스튜디오
+- **Added / 추가:**
+  - **Grid Studio** (`grid`, order 110): a painted time × pitch raster (≤ 4 layers, ≤ 200 000 cells) whose image effects are the matching sound operations.
+    - Two windows, always together and the same size: **Editor** (the painted grid, every tool) and **Result** (after the effect stack = what you hear; read-only). One view, shared zoom / pan / playhead / cue / cross-hair; stacked or side by side (`\`); resize lock 🔒 / 🔓.
+    - Tools: brush, eraser, line, rectangle, ellipse, fill bucket, gradient, eyedropper, select (rectangle / ellipse / lasso, feather), mask paint, liquify; symmetry, snap, `[` `]` size; PNG / JPG import.
+    - Effect registry (`GridEffectRegistry`, a new effect = one object, cards generated from its schema). Tier 1: Blur (Gaussian / motion / perspective = chorus → cloud), Noise (level, colour in dB / oct, follow, grain), Glitch (granular pitch / time jumps), Halftone (random tremolo), Chromatic Aberration (exact just-ratio copies, R / G / B), Liquify (stored strokes → curvature). Tier 2: Pixelate, Posterize, Sharpen, Bloom, Levels, Threshold, Mirror, Edge.
+    - Stage-cached pipeline: only the stages after an edit are recomputed; timbre / gain / pan / output-stage edits recompute nothing. Preview resolution while dragging, full resolution 150 ms after the last change.
+    - Audio Engine: `GridBank` AudioWorklet (one voice per layer × chromatic channel on the same matrix, sparse, partial budget, coloured noise bus, mip-mapped wave tables from the shared timbre editor), in-place update while playing, oscillator fallback, offline render = live, automatic headroom.
+    - Bake to Glissando Voices (ridge tracking of the Result, ≤ 64, the loss is listed), JSON / WAV export, 10 presets.
+    - Manager: Grid tracks (pitch-preserving tempo, shape masks, Warp pitch / bright, Master View lines), trajectory Send source.
+  - `js/modules/ridge-tracker.js` — shared ridge tracker for any time × pitch matrix.
+- **Changed / 변경:** `MANAGER_STUDIOS` gains `'grid'`; the shortcut list gains the Grid keys.
+- **Files / 파일:** new `js/studios/grid-studio.js`, `js/studios/grid/` (`grid-engine`, `grid-effects`, `grid-tools`, `grid-layout`, `grid-bank`, `grid-audio`, `grid-canvases`, `grid-panels`, `grid-i18n`, `grid-checks`), `js/modules/ridge-tracker.js`; lines added in `js/main.js`, `js/ui/workspaces.js`, `index.html`, `js/audio/studio-clips.js`, `js/core/manager-state.js`, `js/ui/shortcut-help.js`, `.claude/launch.json`, `docs/STUDIO_INTEGRATION_LOG.md`.
+- **Data / 데이터:** new `appState.studioParams.grid` (rasters as `{ enc: 'rle8', rows, cols, data }`); nothing existing changes. Window lock / sizes are in `localStorage` (`flexatone.grid.dual.v1`), not in the project.
+- **Checks / 점검:** `runSelfCheck()` 163 at the start → **192 / 192** (173 others, 10 of them added by other sessions meanwhile, + 19 Grid). Clicked through on port 8028 with no console error: tab switching, transport keys, edit while playing (0 bakes while only playing), undo (slider drag and stroke = 1 step each), project save / load, bake, WAV (peak −2.7 dBFS, fader −6.02 dB), EN ⇄ KO + help for every control, lock / unlock / re-lock, 1100 px, Manager add / launch / tempo ×2.
+  - Over target: Focus Pull (perspective blur) edit → sound ≈ 480 ms (target 400); slider drag on the 6-effect preset ≈ 27 fps (target 30).
+  - **Not verified:** by ear, pen pressure, the oscillator fallback in a browser without AudioWorklet, a real drag of the shared ◢ handle.
+- **Details / 상세:** `docs/STUDIO_INTEGRATION_LOG.md` → "Grid Studio (prototype)".
+
 ## [0.31.0] — 2026-11-24 — Studio tempo, MIDI files (MPE) and MIDI Learn, cross-studio parity, Manager Scenes / 스튜디오 템포·MIDI 파일(MPE)·MIDI Learn·스튜디오 통일·매니저 씬
 - **Added / 추가:**
   - **B1 Studio tempo (⏱ chip next to the cue in the header):** the Tempo Manager on each studio's own transport.

@@ -99,6 +99,15 @@
         "8027"
       ],
       "port": 8027
+    },
+    {
+      "name": "flexatone-grid",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/devserver.py",
+        "8028"
+      ],
+      "port": 8028
     }
   ]
 }

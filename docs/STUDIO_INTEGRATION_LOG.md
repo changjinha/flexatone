@@ -1424,3 +1424,145 @@ Decisions:
 - Length mode for Manager tracks.
 - MIDI output (live) and MIDI notes as a voice source.
 - Per-line S / M for Wave spectral mode (no lines) and for Cloud grains (Cloud has module S / M).
+
+---
+
+## Grid Studio (prototype)
+
+Studio id `grid`, order 110, dev port 8028 (`flexatone-grid`). A painted time × pitch **raster** goes through a stack of
+Procreate-style image effects; each effect is the matching sound operation ("image operation = the same operation on the
+spectrogram"). / 칠하는 시간 × 음고 격자(래스터)에 이미지 효과를 걸고, 각 효과가 대응하는 소리 연산으로 번역되는 스튜디오.
+
+### Files / 파일
+
+| File | Tier | Role |
+|---|---|---|
+| `js/studios/grid-studio.js` | studios (pure) | `GridStudio` plugin, `getGridParams` (memoised, read-only) / `editGrid` / `editGridShape`, full / preview bakes + the 150 ms bake scheduler, ridge lines → Voices, Master View lines, trajectory **send** source |
+| `js/studios/grid/grid-engine.js` | studios (pure) | **Studio Engine**: document + `sanitizeGridParams`, RLE8 raster codec, `regridRaster`, `rasterToMatrix`, stage-cached pipeline (`bakeGrid` / `bakeGridAsync`), `planVoices`, `estimatePeak`, presets |
+| `js/studios/grid/grid-effects.js` | studios (pure) | `GridEffectRegistry` + the effects: Blur, Glitch, Halftone, Liquify (Tier 1 matrix), Noise, Chromatic Aberration (Tier 1 bank), Pixelate, Posterize, Sharpen, Bloom, Levels, Threshold, Mirror, Edge (Tier 2) |
+| `js/studios/grid/grid-tools.js` | studios (pure) | raster painting: brush stamps, strokes, symmetry, rectangle / ellipse / lasso coverage, feather, flood fill, gradient |
+| `js/studios/grid/grid-layout.js` | studios (pure) | geometry of the two windows + the resize lock (state, sizes, metrics) |
+| `js/studios/grid/grid-bank.js` | studios (pure DSP) | `GridBank` (self-contained additive bank, shipped with `toString()`) + `buildGridWorkletSource()` |
+| `js/studios/grid/grid-audio.js` | audio tier | **Audio Engine**: plan, wave tables, worklet + chunk stream, oscillator fallback, transport, in-place live update, offline render, WAV / JSON, Manager render, 6 self-checks |
+| `js/studios/grid/grid-canvases.js` | UI tier | Editor + Result windows, tools, image import, PNG |
+| `js/studios/grid/grid-panels.js` | UI tier | `mountGridWorkspace`, racks (effect cards generated from the registry schema), window lock DOM, keys, registers `GRID_HELP` |
+| `js/studios/grid/grid-i18n.js` | studios (pure data) | EN / KO strings merged into `I18N`, help texts |
+| `js/studios/grid/grid-checks.js` | studios (pure) | 13 self-checks of the engine, effects, bake and layout |
+| `js/modules/ridge-tracker.js` | modules (pure, **new shared module**) | `trackRidges(M, N, F, opts)` — ridge tracking on any time × pitch matrix |
+
+Shared files (lines added only, except one array literal): `js/main.js` (1 import), `js/ui/workspaces.js` (2 imports + 1
+`registerWorkspace` block), `index.html` (1 tab button), `.claude/launch.json` (1 entry), `js/audio/studio-clips.js` (2 imports +
+1 adapter block), `js/core/manager-state.js` (`'grid'` appended to `MANAGER_STUDIOS`, 1 colour line), `js/ui/shortcut-help.js`
+(4 rows). Nothing else in `core/*`, `modules/*`, `audio/*` or other studios was changed.
+
+### Decisions / 결정
+
+1. **"Grid" = a pixel raster** (not a control-point mesh): column = time, row = log pitch, value = amplitude 0…1. A mesh exists
+   only inside Liquify (2 nodes per cell). Row r sits exactly on pitch `pLo + r / rowsPerSemi`, so the row count is
+   `(pHi − pLo)·rowsPerSemi + 1` and a painted row is **one bin = a pure tone**; a thick stroke is a cluster of rows. The brief's
+   "linear interpolation in pitch" was not used: it would turn every painted line into a 7-bin cluster (a built-in chorus).
+2. **Fine matrix** `M[frame][bin]`, bin = 1 / binsPerSemi semitone (fixed frequency), frame = 1 / frameRate s. Time: a column is
+   held and cross-faded into its neighbours over `edgeMs` (linear, so a held line stays constant).
+3. **Two domains.** `matrix` effects run in stack order on M; `bank` effects (Noise, Chromatic Aberration) exist once per layer
+   at the end of the stack (`sanitizeStack` enforces it) and are shown in their own "Output-stage effects" rack.
+4. **Stage cache.** `planStages` chains `key_i = hash(key_{i−1}, type, mix, mask key, seed, params)`; `bakeSteps` (a generator)
+   recomputes from the first stale stage. Effects that are off or mixed to 0 are not stages at all (exact identity). Timbre,
+   gain, pan, mute / solo, budget, output gain and the bank parameters are not in any key → 0 stages. Stage results are fresh
+   arrays (never recycled: a render in progress may still read them); only an effect's temporaries come from a pool.
+5. **Preview / full.** `getGridResult` returns the cached full bake or bakes a preview at once (frame rate ÷ 4, bins ÷ 2,
+   ≤ 0.25 M cells) and schedules the full bake 150 ms after the last change, in slices (one stage per slice, the event loop runs
+   between them). No Blob Worker.
+6. **Blur.** Separable; exact truncated Gaussian up to σ = 4 samples, three box passes above (O(1) per sample). The pitch kernel is
+   normalised as asked (`power` Σk² = 1 by default), the time kernel always to sum 1 (a sustained tone must keep its level).
+   Motion: taps along (lengthMs, lengthSemi) — the brief's separate "angle" is the ratio of the two lengths; normalisation on the
+   pitch projection of the taps. Perspective: 5 uniform levels, linearly blended.
+7. **Noise.** Floor = seeded xorshift → 11 first-order pole / zero sections (one pole per octave, the zero γ/2 octaves above it,
+   γ = −slope / 3.01) → any slope, unit RMS by numerical integration. Follow part: **not** FM jitter — each partial is multiplied
+   by low-passed noise (DSB, carrier √(1 − n), sidebands √n). Reason: one oscillator instead of two, exact bandwidth and power
+   split. Mapping: a = 10^(level / 20), floor RMS = a·(1 − follow), n = follow·a.
+8. **Chromatic.** One bank voice per channel: the same matrix read with `f_bin · (p / q) · 2^(cents / 1200)` (never a bin shift).
+   Positive `timeMs` = later.
+9. **Level.** One full-amplitude line = 0.2 (−14 dBFS) × output gain. **Automatic headroom** (not in the brief): when
+   `estimatePeak` (per frame min(Σ a·g, 3·√Σ(a·g)²)) exceeds 0.89, the whole piece is scaled by one static factor — the default
+   presets reached the soft clip without it. The soft clip (tanh knee, ≤ 0.98) stays as the safety net.
+10. **Budget.** Per block: amplitude histogram (64 log buckets) → threshold → partials below it fade out inside the block.
+11. **Two windows.** Editor + Result in one `<section>` (the window rack). One view (`doc.view`) and one `gridMetrics(w, h, view)`
+    for both. The lock state / sizes are a view preference (`localStorage flexatone.grid.dual.v1`). The window hosts take their
+    height from a CSS variable; an inline height written by the shared corner handle (`ui/rack-layout.js`) is only read as a
+    resize request (MutationObserver), so the shared handle and the lock work together without editing rack-layout.
+    DOM order is Result first (CSS `order` shows the Editor first), so the header **Screenshot** (largest canvas, first on a tie)
+    saves the Result; the toolbar's 📷 saves Result / Editor / both.
+12. **Keys.** L (loop), M (Manager), F (fit), H (help) are app-wide, so Line = **U**, Mask = **Q**, bucket = **K**, Liquify = **W**.
+13. **Double-click cue**: anywhere in the Result; in the Editor only on the time ruler (a double-click on the picture paints).
+14. **Painting** commits the raster every ~70 ms with one coalesce key: the Result (and a playing pass) follow the stroke, and a
+    stroke is one undo step.
+15. **Per-voice tremolo / vibrato rack**: kept in place, switched off with the reason (no voices: every bin is a partial).
+    **Locate**: off with the reason. **Receive trajectory**: off with the reason. **Send**: on (ridge lines).
+
+### Manager integration (Phase B) / 매니저 통합
+
+- `MANAGER_STUDIOS` + colour `#e879f9`, `mgr.short.grid`, adapter in `audio/studio-clips.js`: `scalesTime: true`,
+  `render(params, sr, { rate, ampMask, pitchWarp, brightWarp })`, `key` = `gridRenderKey` (matrix signature + sound parameters;
+  view / tool edits keep it), `lines` = ridge lines of the Result.
+- Tempo: pitch-preserving — the matrices are read at `rate × timeScale` (frame-rate relabelling, the Wave way).
+- `ampMask` multiplies the matrix per frame × bin; `pitchWarp` resamples every frame along pitch (quantised to the bin spacing,
+  evaluated at the base bin frequency — also for the chromatic channels); `brightWarp` is a spectral tilt around the range centre.
+- As a Warp **source** a Grid track uses its ridge lines (the default branch of `buildWarpSourceTable`).
+- Documents that are not on screen bake in the `detached` cache (one document at a time: several Grid instances re-bake when
+  the Manager alternates between them).
+
+### Measured (default document 16 s, 61 st, 3200 × 481 matrix; Chrome, this machine) / 실측
+
+| What | Value |
+|---|---|
+| Default raster (121 × 128 = 15 488 cells, 4 lines) | 188 characters; whole Grid document 2.1 kB |
+| 12 soft brush strokes | 1.8 kB |
+| Worst case, every cell different | 20.8 kB (default grid), 269 kB per layer at 200 000 cells |
+| One undo step | = the whole document snapshot of the app (11.9 kB with the default project) — ×100 history depth |
+| Full bake | Pure Lines 6 ms · Chorus Cloud 38 ms · Everything (6 effects) 90–130 ms · Focus Pull 320–340 ms |
+| Preview bake | 0.4–15 ms (Focus Pull 31–38 ms) |
+| Edit → sound (150 ms idle + bake) | paint 157 ms · last effect 188 ms · first effect of Everything 247–286 ms · Focus Pull ≈ 480 ms (**over the 400 ms target**) |
+| Slider drag, whole workspace render | Chorus Cloud 15.5 ms (≈ 64 fps) · Everything 37.5 ms (≈ 27 fps, **under the 30 fps target**) |
+| Bank, per 128-sample block at 48 kHz | default 4 partials 0.004 ms · Everything 240 partials 0.09 ms · worst (4 layers × 3 channels × σ 300 ¢: 2140 wanted, budget 600) 0.43 ms · same without budget (2097) 1.15 ms |
+| Matrix stream at play | 6.2 MB in 13 chunks, 3–7 ms on the main thread |
+| Spectrogram ↔ Result correlation | Chorus Cloud 0.987 · Wavy 0.979 · Fifth Shimmer 0.978 (semitone bands, 4096-point STFT, C5–C7) |
+
+If rasters get large, a diff-tile undo (store only changed 32 × 32 tiles per step) would cut the snapshot cost; not built.
+
+### Limits / 한계
+
+- Halftone "round dots" are gates with raised-cosine edges, not circles; `dutyFrom: amplitude` keeps the amplitude and only
+  shortens the dots. The Result draws the gated matrix, no separate dot-screen preview.
+- Glitch fades are quantised to the frame (5 ms at 200 Hz); the bank interpolates linearly between frames, so there is no step.
+- Halftone and Glitch are not in the spectrogram check (an STFT window is longer than a grain).
+- Oscillator fallback: 96 partials, no noise. Not run in a browser without AudioWorklet.
+- The resampling check uses "ink" (Σ value × cell area): area averaging cannot keep Σ value² when it lowers the resolution.
+- A Voice stores Hz with 2 decimals: a baked chromatic copy is exact at line level (< 1e-9 st) and within ≈ 0.03 st as a Voice.
+- Ridge tracking of a blurred cluster is an approximation (search on a pitch-smoothed copy; ≤ 64 voices, strongest first).
+- Split compare slider, Blob Worker, diff-tile undo, wavetable synth waves beyond 8 harmonics: not built.
+- `ui/shortcut-help.js` and `audio/time-mirror.js` were untracked files of another session when this was written:
+  `grid-audio.js` loads `time-mirror.js` with a dynamic import (works without it).
+
+### Checks / 점검
+
+`runSelfCheck()`: 163 at the start → **192 / 192** at the end (173 others — 10 were added by other sessions meanwhile — + 19
+Grid). Browser (port 8028, no console errors): tab switching Glissando → Grid → Risset → Field → Grid stops the audio each time;
+Space / Esc / loop / cue / pause; edit while playing (blur added: 1 bake, in-place update, playhead continuous; gain: 0 bakes;
+3 s of playing: 0 bakes); slider drag = 1 undo step; a stroke = 1 undo step; painting in the Result is ignored; project save →
+change → load restores the signature; Bake → 12 voices for Fifth Shimmer (4 ridges × 3 channels); WAV peak −2.7 dBFS and
+exactly −6.02 dB with the fader at 0.5; EN ⇄ KO with no missing key and a help entry for every `data-help`; lock / unlock /
+re-lock on the real DOM; 1100 px wide without overflow; Manager: add from the menu, launch, Master View lines, tempo ×2.
+**Not verified:** by ear (no listening was possible in this session — "chorus → cloud" is supported only by the spectrum checks),
+a pen's pressure, the oscillator fallback in a browser without AudioWorklet, a real drag of the shared ◢ corner handle (its
+inline-height path was simulated).
+
+### Next / 다음
+
+- Wave Studio could use `modules/ridge-tracker.js` too (not changed here).
+- Small export worth adding: `MANAGER_STUDIOS` built from a registration call instead of a literal.
+- Manager `params()` / `signals()` candidates: `layers[i].gain`, `layers[i].pan`, `render.gainDb`, `render.maxActive`,
+  per effect `mix` and its flat numeric parameters (`blur.sigmaCents`, `blur.sigmaMs`, `glitch.rate`, `glitch.rangeSemi`,
+  `halftone.periodMs`, `halftone.duty`, `noise.levelDb`, `noise.slope`, `noise.follow`, `chroma.{r,g,b}Gain / Pan / TimeMs /
+  Cents`, `liquify.amount`); signals: per-layer level profile (`layerLevelProfile`), active partial count, ridge pitch of the
+  strongest line.
+- Later effects: clone, smudge, gradient map (colour → timbre), ripple / distort, emboss; layer blend modes; side-chain between layers.
