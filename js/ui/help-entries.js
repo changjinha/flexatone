@@ -86,6 +86,10 @@ export const HELP_EXTRA = {
     ['Save / Load project', 'Save or open the whole project as a .json file.', 'Includes every studio document, voices, output settings and versions. In Chrome / Edge, Save opens a window to choose the folder and file name; other browsers download the file. Pressing Cmd/Ctrl+R or F5 with changes that are not in a saved file asks first, with a Save and reload option.'],
     ['프로젝트 저장 / 불러오기', '전체 프로젝트를 .json 파일로 저장하거나 엽니다.', '모든 스튜디오 문서, 보이스, 출력 설정, 버전이 포함됩니다. Chrome/Edge에서는 저장 시 폴더와 파일 이름을 고르는 창이 뜨고, 다른 브라우저는 다운로드됩니다. 파일에 저장하지 않은 변경이 있을 때 Cmd/Ctrl+R 또는 F5를 누르면 \'저장 후 새로고침\' 선택지가 있는 확인 창이 먼저 뜹니다.'],
   ),
+  'app.loadMode': H(
+    ['Load: Add or Replace', 'Add (default) puts the ticked studios of the file next to the current work as new tracks; Replace opens the file instead of the current work.', 'Add keeps every current track, the Manager tempo and cycle, the output settings and the file name; the new tracks keep their own Space Master places, and a file loaded twice gets new track ids. Either way the "Previous" button takes the work before the load back.'],
+    ['불러오기: 추가 또는 교체', '추가(기본)는 파일에서 체크한 스튜디오를 현재 작업 옆에 새 트랙으로 넣고, 교체는 현재 작업 대신 파일을 엽니다.', '추가는 현재 트랙·매니저 템포·사이클·출력 설정·파일 이름을 모두 그대로 두며, 새 트랙은 자기 스페이스 마스터 위치를 유지하고, 같은 파일을 두 번 불러오면 새 트랙 id를 받습니다. 어느 쪽이든 \'이전 작업\' 버튼으로 불러오기 전 상태로 돌아갈 수 있습니다.'],
+  ),
   'app.newProject': H(
     ['New project', 'Start over from the default document.', 'Asks first. The current work is replaced, including the autosaved copy, so use Save before it if you want to keep it.'],
     ['새 프로젝트', '기본 문서로 새로 시작합니다.', '먼저 확인을 묻습니다. 자동 저장본을 포함해 지금 작업이 대체되므로, 남기려면 먼저 저장하세요.'],

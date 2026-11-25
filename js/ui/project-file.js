@@ -186,11 +186,13 @@ export function askSaveBeforeLoad({ showToast, pickFile }) {
  * ticked studio ids, or null on Cancel / Esc / click outside.
  * 어느 스튜디오를 불러올지 체크박스로 선택. 취소하면 null.
  * @param {string[]} studios
- * @param {{ titleKey?: string, bodyKey?: string, okKey?: string, summary?: (id: string) => string }} [opts]
- * @returns {Promise<string[]|null>}
+ * With `modes: true` it also asks Add (to the current work, default) or Replace, and resolves to
+ * `{ studios, mode: 'add' | 'replace' }`. / modes: 추가(기본)·교체 선택도 함께
+ * @param {{ titleKey?: string, bodyKey?: string, okKey?: string, summary?: (id: string) => string, modes?: boolean }} [opts]
+ * @returns {Promise<string[]|{ studios: string[], mode: string }|null>}
  */
 export function askLoadStudios(studios, opts = {}) {
-  const { titleKey = 'loadStudios.title', bodyKey = 'loadStudios.body', okKey = 'loadStudios.load', summary = null } = opts;
+  const { titleKey = 'loadStudios.title', bodyKey = 'loadStudios.body', okKey = 'loadStudios.load', summary = null, modes = false } = opts;
   closeDialog();
   return new Promise((resolve) => {
     const box = document.createElement('div');
@@ -233,6 +235,35 @@ export function askLoadStudios(studios, opts = {}) {
       checks.push(cb);
     }
 
+    // Add to the current work (default) or replace it / 현재 작업에 추가(기본) 또는 교체
+    let mode = 'add';
+    const modeBox = document.createElement('div');
+    if (modes) {
+      modeBox.className = 'flex flex-col gap-1 rounded-lg border border-slate-700 p-2';
+      modeBox.dataset.help = 'app.loadMode';
+      for (const m of ['add', 'replace']) {
+        const label = document.createElement('label');
+        label.className = 'flex items-start gap-2 px-2 py-1 rounded hover:bg-slate-800 cursor-pointer text-sm text-slate-200';
+        const rb = document.createElement('input');
+        rb.type = 'radio';
+        rb.name = 'loadStudiosMode';
+        rb.value = m;
+        rb.checked = m === mode;
+        rb.className = 'accent-sky-500 mt-1';
+        rb.addEventListener('change', () => { if (rb.checked) mode = m; });
+        const txt = document.createElement('span');
+        txt.className = 'flex flex-col';
+        const head = document.createElement('span');
+        head.textContent = t(`loadStudios.mode.${m}`);
+        const sub = document.createElement('span');
+        sub.className = 'text-[11px] text-slate-400';
+        sub.textContent = t(`loadStudios.mode.${m}Hint`);
+        txt.append(head, sub);
+        label.append(rb, txt);
+        modeBox.append(label);
+      }
+    }
+
     const tools = document.createElement('div');
     tools.className = 'flex gap-2';
     const setAll = (on) => { for (const c of checks) c.checked = on; sync(); };
@@ -242,13 +273,16 @@ export function askLoadStudios(studios, opts = {}) {
     row.className = 'flex flex-wrap justify-end gap-2 pt-1';
     const done = (v) => { closeDialog(); document.removeEventListener('keydown', onKey, true); resolve(v); };
     const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(null); } };
-    const ok = button(t(okKey), BTN_PRIMARY, () => done(checks.filter((c) => c.checked).map((c) => c.value)));
+    const ok = button(t(okKey), BTN_PRIMARY, () => {
+      const picked = checks.filter((c) => c.checked).map((c) => c.value);
+      done(modes ? { studios: picked, mode } : picked);
+    });
     const sync = () => { ok.disabled = !checks.some((c) => c.checked); ok.classList.toggle('opacity-50', ok.disabled); };
     for (const c of checks) c.addEventListener('change', sync);
     row.append(button(t('reload.cancel'), BTN_PLAIN, () => done(null)), ok);
     document.addEventListener('keydown', onKey, true);
     box.addEventListener('mousedown', (e) => { if (e.target === box) done(null); });
-    card.append(title, body, tools, list, row);
+    card.append(title, body, ...(modes ? [modeBox] : []), tools, list, row);
     box.append(card);
     document.body.append(box);
     ok.focus();

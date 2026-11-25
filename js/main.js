@@ -41,6 +41,7 @@ import {
   listProjectStudios,
   filterProjectStudios,
   mergeProjectStudios,
+  appendProjectStudios,
   summarizeProjectStudio,
   serializeProject,
 } from './core/state.js';
@@ -73,7 +74,7 @@ import { initOutputPanel, renderOutputPanel } from './ui/output-panel.js';
 import { initSliderReset } from './ui/slider-reset.js';
 import { initManagerPanel, renderManagerPanel, toggleManagerPanel, isManagerOpen, toggleManagerCycle } from './ui/manager-panel.js';
 import { stopAllManager } from './audio/manager-mixer.js';
-import { ensureManager } from './core/manager-state.js';
+import { ensureManager, distinctTrackColor } from './core/manager-state.js';
 import { initAutosave, markFileSaved, hasUnsavedFileChanges } from './core/autosave.js';
 import { initFileNameChip, setProjectFileName } from './ui/file-name-chip.js';
 import { openStudioVideoDialog } from './ui/studio-video.js';
@@ -270,24 +271,36 @@ async function onLoadFile(evt) {
   stopAllManager();
   try {
     let data = parseProjectData(await file.text());
-    // A file with several studios: choose which ones to load / 스튜디오가 여러 개면 불러올 것 선택
+    if (!data) { showToast(t('toast.loadError'), 'error'); return; }
+    // Choose the studios, and Add (default) to the current work or Replace it
+    // 불러올 스튜디오와 추가(기본)·교체 선택
     const studios = listProjectStudios(data);
-    if (studios.length > 1) {
-      const keep = await askLoadStudios(studios);
-      if (!keep) return; // cancelled — nothing changes / 취소
-      if (keep.length < studios.length) data = filterProjectStudios(data, keep);
-    }
+    const pick = await askLoadStudios(studios, { modes: true });
+    if (!pick) return; // cancelled — nothing changes / 취소
+    const keep = pick.studios;
+    const adding = pick.mode !== 'replace';
     const before = serializeProject({ samples: false }); // to come back to / 되돌아가기용
+    let added = 0;
+    if (adding) {
+      const n0 = before.manager?.instances?.length || 0;
+      data = appendProjectStudios(before, data, keep, { recolor: distinctTrackColor });
+      added = (data.manager?.instances?.length || 0) - n0;
+    } else if (keep.length < studios.length) data = filterProjectStudios(data, keep);
     const res = loadProjectData(data);
     if (!res.ok) {
       showToast(t('toast.loadError'), 'error');
       return;
     }
     setPreviousWork(before);
-    setProjectFileName(file.name);
     ensureManager();
     StudioRegistry.activate(StudioRegistry.resolveStudioId());
     fitAllViewport();
+    if (adding) {
+      // still the current project (with changes not in its file) / 여전히 현재 프로젝트 (파일에 없는 변경)
+      showToast(t('toast.added', added));
+      return;
+    }
+    setProjectFileName(file.name);
     markFileSaved();
     showToast(t('toast.loaded'));
   } catch (err) {

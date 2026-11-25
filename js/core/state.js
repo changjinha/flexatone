@@ -1415,7 +1415,8 @@ export function filterProjectStudios(obj, keep) {
     delete out.snapshots;
   }
   if (obj.studioParams && typeof obj.studioParams === 'object' && !Array.isArray(obj.studioParams)) {
-    out.studioParams = Object.fromEntries(Object.entries(obj.studioParams).filter(([k]) => keepSet.has(k)));
+    // "_" keys are project-wide (Space Master, sends, tempo, automation…), never a studio / "_" 키는 프로젝트 전체 설정
+    out.studioParams = Object.fromEntries(Object.entries(obj.studioParams).filter(([k]) => keepSet.has(k) || k.startsWith('_')));
   }
   if (obj.manager && typeof obj.manager === 'object') {
     const m = { ...obj.manager };
@@ -1473,7 +1474,162 @@ export function mergeProjectStudios(cur, prev, keep) {
   const focus = { ...(cm.focus || {}) };
   for (const k of keepSet) { if (pm.focus && pm.focus[k]) focus[k] = pm.focus[k]; else delete focus[k]; }
   out.manager = { ...cm, instances: [...rest, ...prevInst], focus };
+  // Space Master: sources follow the tracks (removed tracks lose theirs, restored tracks get their old place back)
+  // 스페이스 마스터: 음원이 트랙을 따름 (없어진 트랙의 음원 제거, 되돌린 트랙은 예전 위치)
+  const cmst = cur.studioParams?._spaceMaster;
+  if (cmst?.doc && Array.isArray(cmst.doc.sources)) {
+    const ids = new Set(out.manager.instances.map((i) => i.id));
+    const kept = cmst.doc.sources.filter((s) => s?.input?.kind !== 'track' || ids.has(s.input.target));
+    const have = new Set(kept.map((s) => s.input?.target).filter(Boolean));
+    const back = (prev.studioParams?._spaceMaster?.doc?.sources || []).filter((s) => s?.input?.kind === 'track' && prevIds.has(s.input.target) && !have.has(s.input.target));
+    sp._spaceMaster = { ...cmst, doc: { ...cmst.doc, sources: [...kept, ...back] } };
+  }
   return out;
+}
+
+/**
+ * Current project with the chosen studios of another project **added** as new tracks (nothing of the
+ * current work is removed). Used by Load in its default "Add" mode.
+ *   - The incoming focused instance of a studio the current work already has keeps its live document as
+ *     a stored instance document; a studio the current work does not have takes it into the editor.
+ *   - Incoming ids that already exist here (the same file loaded twice) get new ids everywhere they are
+ *     referenced (warp targets, mods, scenes, regions, sends, Space Master sources `trk_<id>`).
+ *   - Project-wide settings (output, Manager tempo and cycle, the current studio, viewport, Versions)
+ *     stay as they are now. Space Master: the current scene + the incoming sources; on if either was on.
+ * 선택한 스튜디오를 새 트랙으로 현재 작업에 **추가**한 프로젝트 (현재 작업은 지우지 않음)
+ * @param {object} cur      serializeProject() of the current work
+ * @param {object} incoming parsed project file
+ * @param {string[]} keep   studio ids taken from the file
+ * @param {{ recolor?: (studio: string, used: Set<string>) => string }} [opts] colour for a track whose
+ *   colour is already in use
+ */
+export function appendProjectStudios(cur, incoming, keep, { recolor = null } = {}) {
+  const keepSet = new Set(keep);
+  const inc = filterProjectStudios(incoming || {}, keep);
+  const cm = cur.manager || {};
+  const curInst = (Array.isArray(cm.instances) ? cm.instances : []).filter((i) => i && isValidStudioId(i.studio));
+  const curSp = cur.studioParams && typeof cur.studioParams === 'object' ? cur.studioParams : {};
+  const incSp0 = inc.studioParams && typeof inc.studioParams === 'object' ? inc.studioParams : {};
+  const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
+
+  // Incoming tracks with the live documents moved into the focused ones / 포커스 트랙의 에디터 문서를 트랙 문서로
+  let insts = deepClone((Array.isArray(inc.manager?.instances) ? inc.manager.instances : []).filter((i) => i && keepSet.has(i.studio) && isValidStudioId(i.studio) && typeof i.id === 'string'));
+  const focus = { ...(isObj(inc.manager?.focus) ? inc.manager.focus : {}) };
+  const liveDoc = (studio) => (studio === 'glissando'
+    ? (Array.isArray(inc.voices) && inc.voices.length && Object.keys(inc.voices[0] || {}).length ? deepClone({ voices: inc.voices, activeVoiceId: inc.activeVoiceId ?? null, params: incSp0.glissando ?? null }) : null)
+    : (isObj(incSp0[studio]) ? deepClone(incSp0[studio]) : null));
+  for (const studio of keep) {
+    if (!isValidStudioId(studio)) continue;
+    const mine = insts.filter((i) => i.studio === studio);
+    if (!mine.length) {
+      // a file without tracks for this studio (older format): its content becomes one track / 트랙 없는 구형 파일
+      if (!liveDoc(studio)) continue;
+      const id = uid('in_', 6);
+      insts.push({ id, studio, name: String(inc.title || studio).slice(0, 40), doc: null });
+      focus[studio] = id;
+    } else if (!mine.some((i) => i.id === focus[studio])) focus[studio] = mine[0].id;
+    const f = insts.find((i) => i.id === focus[studio]);
+    if (f) f.doc = liveDoc(studio);
+  }
+  const incIds = new Set(insts.map((i) => i.id));
+
+  // Payload that may refer to incoming ids / 들어오는 id를 참조할 수 있는 부분
+  const im = inc.manager || {};
+  const ofKeep = (studio) => keepSet.has(studio);
+  let payload = {
+    insts,
+    focus,
+    regions: (Array.isArray(im.regions) ? im.regions : []).filter(Boolean).map((r) => { const c = { ...r }; delete c.ext; return c; }),
+    mods: (Array.isArray(im.mods) ? im.mods : []).filter((m) => m && incIds.has(m.src?.inst) && incIds.has(m.dst?.inst)),
+    scenes: Array.isArray(im.scenes) ? im.scenes : [],
+    spaceMaster: incSp0._spaceMaster ?? null,
+    sends: (Array.isArray(incSp0._sends?.list) ? incSp0._sends.list : []).filter((x) => x && ofKeep(x.from?.studio)),
+    automation: Object.fromEntries(Object.entries(isObj(incSp0._automation) ? incSp0._automation : {}).filter(([k]) => ofKeep(k))),
+    tempo: Object.fromEntries(Object.entries(isObj(incSp0._tempo) ? incSp0._tempo : {}).filter(([k]) => ofKeep(k))),
+    toSpace: Object.fromEntries(Object.entries(isObj(incSp0._toSpace) ? incSp0._toSpace : {}).filter(([k]) => ofKeep(k))),
+  };
+
+  // Ids already used here → new ids for the incoming copies / 이미 있는 id는 새 id로
+  const used = new Set();
+  const addIds = (list) => { for (const x of Array.isArray(list) ? list : []) if (x && typeof x.id === 'string') used.add(x.id); };
+  addIds(curInst); addIds(cm.regions); addIds(cm.mods); addIds(cm.scenes); addIds(curSp._sends?.list);
+  for (const v of Object.values(isObj(curSp._automation) ? curSp._automation : {})) addIds(v?.lanes);
+  const rename = new Map();
+  const claim = (id, prefix) => {
+    if (typeof id !== 'string' || !id) return;
+    if (used.has(id) || rename.has(id)) { if (!rename.has(id)) { let n; do n = uid(prefix, 6); while (used.has(n)); rename.set(id, n); used.add(n); } } else used.add(id);
+  };
+  for (const i of payload.insts) claim(i.id, 'in_');
+  for (const r of payload.regions) claim(r.id, 'rg_');
+  for (const m of payload.mods) claim(m.id, 'md_');
+  for (const s of payload.scenes) claim(s?.id, 'sc_');
+  for (const s of payload.sends) claim(s.id, 'sd_');
+  for (const v of Object.values(payload.automation)) for (const l of Array.isArray(v?.lanes) ? v.lanes : []) claim(l?.id, 'al_');
+  if (rename.size) {
+    const map = new Map();
+    for (const [a, b] of rename) {
+      map.set(JSON.stringify(a), JSON.stringify(b));
+      if (incIds.has(a)) map.set(JSON.stringify(`trk_${a}`), JSON.stringify(`trk_${b}`)); // Space Master source ids
+    }
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp([...map.keys()].map(esc).join('|'), 'g');
+    payload = JSON.parse(JSON.stringify(payload).replace(re, (m) => map.get(m)));
+  }
+
+  // Colours that do not repeat / 겹치지 않는 색
+  const colours = new Set(curInst.map((i) => String(i.color || '').toLowerCase()));
+  for (const i of payload.insts) {
+    const c = String(i.color || '').toLowerCase();
+    if (recolor && (!c || colours.has(c))) i.color = recolor(i.studio, colours);
+    colours.add(String(i.color || '').toLowerCase());
+  }
+
+  // Studio documents / 스튜디오 문서
+  const has = (studio) => studio === 'glissando' || curInst.some((i) => i.studio === studio) || isObj(curSp[studio]);
+  const sp = { ...curSp };
+  const outFocus = { ...(isObj(cm.focus) ? cm.focus : {}) };
+  for (const studio of keep) {
+    if (has(studio) || !payload.focus[studio]) continue;
+    const f = payload.insts.find((i) => i.id === payload.focus[studio]);
+    if (!f) continue;
+    outFocus[studio] = f.id;
+    if (f.doc) sp[studio] = f.doc;
+    f.doc = null; // focused: its document is the editor's / 포커스 트랙은 에디터 문서 사용
+  }
+  for (const [k, v] of Object.entries(incSp0)) if (k.startsWith('_') && !(k in sp) && !['_spaceMaster', '_sends', '_automation', '_tempo', '_toSpace'].includes(k)) sp[k] = deepClone(v);
+  const fill = (key, add) => { if (Object.keys(add).length) sp[key] = { ...add, ...(isObj(curSp[key]) ? curSp[key] : {}) }; };
+  fill('_tempo', payload.tempo);
+  fill('_toSpace', payload.toSpace);
+  if (payload.sends.length) sp._sends = { ...(isObj(curSp._sends) ? curSp._sends : {}), list: [...(Array.isArray(curSp._sends?.list) ? curSp._sends.list : []), ...payload.sends] };
+  if (Object.keys(payload.automation).length) {
+    const au = { ...(isObj(curSp._automation) ? curSp._automation : {}) };
+    for (const [k, v] of Object.entries(payload.automation)) au[k] = { ...(au[k] || {}), ...v, lanes: [...(Array.isArray(au[k]?.lanes) ? au[k].lanes : []), ...(Array.isArray(v?.lanes) ? v.lanes : [])] };
+    sp._automation = au;
+  }
+  const im2 = payload.spaceMaster;
+  if (isObj(im2)) {
+    const cmst = curSp._spaceMaster;
+    if (!isObj(cmst) || !isObj(cmst.doc)) sp._spaceMaster = im2;
+    else {
+      const have = new Set((Array.isArray(cmst.doc.sources) ? cmst.doc.sources : []).map((s) => s?.id));
+      const extra = (Array.isArray(im2.doc?.sources) ? im2.doc.sources : []).filter((s) => s && !have.has(s.id) && (s.input?.kind !== 'track' || payload.insts.some((i) => i.id === s.input.target)));
+      sp._spaceMaster = { ...cmst, on: !!(cmst.on || im2.on), doc: { ...cmst.doc, sources: [...(cmst.doc.sources || []), ...extra] } };
+    }
+  }
+
+  return {
+    ...cur,
+    studioParams: sp,
+    manager: {
+      ...cm,
+      instances: [...curInst, ...payload.insts],
+      focus: outFocus,
+      regions: [...(Array.isArray(cm.regions) ? cm.regions : []), ...payload.regions],
+      mods: [...(Array.isArray(cm.mods) ? cm.mods : []), ...payload.mods],
+      scenes: [...(Array.isArray(cm.scenes) ? cm.scenes : []), ...payload.scenes],
+    },
+    ...(Array.isArray(incoming?.samples) ? { samples: incoming.samples } : {}),
+  };
 }
 
 /** Saved instance document; Glissando voices are normalized like top-level voices. / 인스턴스 문서 정규화 */
@@ -2012,6 +2168,54 @@ registerSelfCheck('Project save → load round-trip & legacy migration', (a) => 
     a.equal(v.customPoints[0].handles.length, 1, 'legacy curve → handle');
     a.equal(loadProjectData('{bad json').ok, false);
     a.equal(loadProjectData({ format: 'other', voices: [{}] }).ok, false);
+  });
+}, { group: 'state' });
+
+registerSelfCheck('Load → Add: incoming studios appended, ids kept unique', (a) => {
+  const file = {
+    format: PROJECT_FORMAT, version: PROJECT_VERSION,
+    voices: [{ id: 'v_a', name: 'A' }], activeVoiceId: 'v_a',
+    studioParams: {
+      draw: { strokes: [] },
+      _spaceMaster: { on: true, wet: 1, doc: { sources: [{ id: 'trk_t1', input: { kind: 'track', target: 't1' } }, { id: 'trk_t2', input: { kind: 'track', target: 't2' } }] } },
+    },
+    manager: {
+      instances: [
+        { id: 't1', studio: 'glissando', name: 'G1', color: '#111111', doc: null },
+        { id: 't2', studio: 'draw', name: 'D1', color: '#222222', doc: null, warp: { targets: ['t1'] } },
+      ],
+      focus: { glissando: 't1', draw: 't2' },
+      scenes: [{ id: 'sc1', tracks: ['t1', 't2'] }],
+    },
+  };
+  const cur = { format: PROJECT_FORMAT, version: PROJECT_VERSION, voices: [{ id: 'v_c' }], activeVoiceId: 'v_c', studioParams: {}, manager: { instances: [{ id: 'c1', studio: 'glissando', color: '#333333' }], focus: { glissando: 'c1' } } };
+  const once = appendProjectStudios(cur, file, ['glissando', 'draw']);
+  a.equal(once.manager.instances.map((i) => i.id).join(), 'c1,t1,t2', 'appended');
+  a.equal(once.manager.focus.glissando, 'c1', 'current Glissando stays in the editor');
+  a.equal(once.manager.focus.draw, 't2', 'new studio goes into the editor');
+  a.equal(once.voices[0].id, 'v_c', 'current voices kept');
+  a.equal(once.manager.instances[1].doc.voices[0].id, 'v_a', 'incoming live voices stored on its track');
+  a.ok(once.studioParams.draw && once.manager.instances[2].doc === null, 'draw document live');
+  a.equal(once.studioParams._spaceMaster.doc.sources.length, 2, 'master sources');
+  const twice = appendProjectStudios(once, file, ['glissando', 'draw']);
+  const ids = twice.manager.instances.map((i) => i.id);
+  a.equal(ids.length, 5, 'five tracks');
+  a.equal(new Set(ids).size, 5, 'unique track ids');
+  const [n1, n2] = ids.slice(3);
+  a.ok(n1 !== 't1' && n2 !== 't2', 'renamed');
+  a.equal(twice.manager.instances[4].warp.targets[0], n1, 'warp target follows the rename');
+  a.equal(twice.manager.scenes[1].tracks.join(), `${n1},${n2}`, 'scene follows the rename');
+  a.equal(new Set(twice.manager.scenes.map((s) => s.id)).size, 2, 'unique scene ids');
+  const src = twice.studioParams._spaceMaster.doc.sources;
+  a.equal(src.length, 4, 'master sources added');
+  a.ok(src.some((s) => s.id === `trk_${n1}` && s.input.target === n1), 'master source renamed');
+  a.equal(twice.manager.focus.draw, 't2', 'draw editor unchanged on second add');
+  const rec = appendProjectStudios(cur, { ...file, manager: { ...file.manager, instances: file.manager.instances.map((i) => ({ ...i, color: '#333333' })) } }, ['glissando'], { recolor: () => '#abcdef' });
+  a.equal(rec.manager.instances[1].color, '#abcdef', 'repeated colour replaced');
+  withIsolatedState(() => {
+    Object.assign(appState, createInitialState());
+    a.ok(loadProjectData(twice).ok, 'result loads');
+    a.equal(appState.manager.instances.length, 5);
   });
 }, { group: 'state' });
 
