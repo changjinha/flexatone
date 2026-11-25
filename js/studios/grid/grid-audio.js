@@ -15,6 +15,8 @@
  * 포락선도 공간과 함께 휨). 그 외에는 스튜디오 자체 음색과 일정한 레벨.
  */
 
+import { applyAdsrToCurve } from '../../core/adsr.js';
+import { timbreSpecAdsr } from '../../modules/timbre-spec.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -26,6 +28,7 @@ import { createLiveTransport } from '../../audio/live-transport.js';
 import { sanitizeWarpStack } from '../../modules/space-warp.js';
 import { runAt, sanitizeGridParams, createDefaultGridParams, getGridBakeCount, GRID_OWN } from './grid-engine.js';
 import { getGridParams, getGridBake, resolveGridDoc, runSourceVoice, runAmpAt, gridResultKey, buildGridExport } from '../grid-studio.js';
+import { createToneSource } from '../../audio/sample-voice.js'; // the shared voice-source seam (D-1) / 공용 음원 이식점
 
 /** Same master gain live and offline → Export WAV = what you hear. / 실시간·오프라인 동일 */
 export const GRID_MASTER = 0.32;
@@ -109,11 +112,11 @@ export function scheduleRun(ctx, dest, params, item, nowTime, cueSec, nodeList, 
     if (q.pan !== 0) pan = true;
   }
   const t0 = nowTime + Math.max(0, start - cueSec) / k;
-  const osc = ctx.createOscillator();
-  osc.setPeriodicWave(wave);
+  const osc = createToneSource(ctx, { wave });
   const gain = ctx.createGain();
   osc.frequency.setValueCurveAtTime(fc, t0, realDur);
   gain.gain.setValueAtTime(0, nowTime);
+  applyAdsrToCurve(keep ? (voice.adsr?.on ? voice.adsr : null) : timbreSpecAdsr(params.timbre), gc, from - start, playDur, end - start); // timbre ADSR over the run / 음색 ADSR
   gain.gain.setValueCurveAtTime(gc, t0, realDur);
   let last = gain;
   if (pan && typeof ctx.createStereoPanner === 'function') {

@@ -20,6 +20,8 @@
  * 재생 중 PDE 연산 없음: 모든 곡선·행렬은 wave-engine.js의 캐시에서 가져옴.
  */
 
+import { applyAdsrToCurve } from '../../core/adsr.js';
+import { timbreSpecAdsr } from '../../modules/timbre-spec.js';
 import { lineMixGain } from '../../core/line-mix.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
@@ -31,9 +33,11 @@ import { createVoiceModEvaluator, voiceModCentsCurve, voiceModFreqCurve, voiceMo
 import { getOutputBus, createOfflineOutput } from '../../audio/output-bus.js';
 import { getAudioCtx, encodeWav, triggerDownload, measurePeak, EXPORT_SAMPLE_RATE, TRANSPORT_FADE_SEC } from '../../audio/audio-engine.js';
 import { createLiveTransport } from '../../audio/live-transport.js';
+import { claimMirror } from '../../audio/time-mirror.js';
 import { buildAmplitude, extractRidges, sampleTrack, sanitizeWaveParams, createDefaultWaveParams, createWavePreset, simulateWave, getWaveBakeCount, retimeWaveBake, waveSignature } from './wave-engine.js';
 import { WaveSpectralBank, WAVE_PROCESSOR, buildWaveWorkletSource } from './wave-bank.js';
 import { getWaveParams, getWaveBake, resolveWaveDoc, waveBinFrequencies, waveBinPhases, buildWaveExport } from '../wave-studio.js';
+import { createToneSource } from '../../audio/sample-voice.js'; // the shared voice-source seam (D-1) / 공용 음원 이식점
 
 const START_LEAD_SEC = 0.04;
 const END_FADE_SEC = 0.03;
@@ -285,6 +289,8 @@ export function scheduleSpectralOsc(ctx, dest, plan, nowTime, cueSec, nodeList) 
     if (peak <= 0) continue;
     const hz = hzG;
     if (hz >= 0.45 * ctx.sampleRate) continue; // Nyquist guard / 나이퀴스트 보호
+    // A spectral bin is one phase-set sine, not a voice timbre: it stays a plain oscillator (ROADMAP D-5).
+    // 스펙트럼 빈은 음색이 아닌 위상 지정 사인 하나 → 일반 오실레이터 유지.
     const osc = ctx.createOscillator();
     const ph = 2 * Math.PI * phases[g];
     osc.setPeriodicWave(ctx.createPeriodicWave(new Float32Array([0, Math.sin(ph)]), new Float32Array([0, Math.cos(ph)]), { disableNormalization: true }));
@@ -348,13 +354,13 @@ export function scheduleRidges(ctx, dest, plan, nowTime, cueSec, nodeList) {
       gainCurve[j] = g;
       panCurve[j] = clamp(so.stereo * ((2 * (s.pitch - bake.pLo)) / span - 1), -1, 1);
     }
-    const osc = ctx.createOscillator();
-    osc.setPeriodicWave(wave);
+    const osc = createToneSource(ctx, { wave });
     const gain = ctx.createGain();
     // Per-voice (per-ridge) tremolo / vibrato (core/voice-mod.js), on track time / 리지별 트레몰로·비브라토
     const vm = createVoiceModEvaluator(params.voiceMod, tracks.indexOf(tr), tr.pitch[0]);
     osc.frequency.setValueCurveAtTime(voiceModFreqCurve(vm, freqCurve, from - tStart, playDur), t0, playDur);
     gain.gain.value = 0;
+    applyAdsrToCurve(timbreSpecAdsr(params.timbre), gainCurve, from - tStart, playDur, tEnd - tStart); // timbre ADSR over the ridge / 리지별 음색 ADSR
     gain.gain.setValueCurveAtTime(voiceModGainCurve(vm, gainCurve, from - tStart, playDur), t0, playDur);
     const panner = makePanner(ctx, master);
     if (panner) panner.pan.setValueCurveAtTime(panCurve, t0, playDur);
@@ -478,10 +484,12 @@ subscribe(() => { if (transport.isPlaying()) refreshWaveLive(); }, { scopes: ['s
 // --------------------------------------------------------------------------
 
 /** Render the bank on the main thread in 128-sample blocks (same class as the worklet). */
-async function renderBank(plan, fs, len, { yieldEvery = 400 } = {}) {
+async function renderBank(plan, fs, len, { yieldEvery = 400, mirrorH = null } = {}) {
   const o = makeBankOptions(plan);
+  let M = planMatrix(plan);
+  if (mirrorH) ({ A: M, frames: o.frames } = mirrorMatrix(M, plan.bake.N, plan.bake.frames, plan.bake.rate, mirrorH));
   const bank = new WaveSpectralBank(fs, o.bins, o.frames, o);
-  bank.setChunk(0, planMatrix(plan));
+  bank.setChunk(0, M);
   const L = new Float32Array(len);
   const R = new Float32Array(len);
   const bl = new Float32Array(128);
@@ -495,6 +503,27 @@ async function renderBank(plan, fs, len, { yieldEvery = 400 } = {}) {
     if (yieldEvery && blk % yieldEvery === yieldEvery - 1) await new Promise((r) => setTimeout(r)); // keep the UI alive
   }
   return { L, R };
+}
+
+/**
+ * Settings retrograde (audio/time-mirror.js) of an amplitude matrix: frame j of the result is the
+ * forward frame at H − j / rate (linear between frames; silent outside). The bank still synthesizes
+ * forwards, so each partial keeps its own phase run. / 진폭 행렬의 설정 역행 (프레임 순서만 뒤집힘)
+ */
+function mirrorMatrix(A, N, frames, rate, H) {
+  const F = Math.max(2, Math.ceil(H * rate) + 1);
+  const out = new Float32Array(F * N);
+  for (let j = 0; j < F; j++) {
+    const f = H * rate - j;
+    if (f < 0 || f > frames - 1) continue;
+    const k = Math.min(frames - 2, Math.floor(f));
+    const x = f - k;
+    const r0 = k * N;
+    const r1 = Math.min(frames - 1, k + 1) * N;
+    const row = j * N;
+    for (let i = 0; i < N; i++) out[row + i] = A[r0 + i] + (A[r1 + i] - A[r0 + i]) * x;
+  }
+  return { A: out, frames: F };
 }
 
 function applyEdgeFades(chans, fs, playDur) {
@@ -518,13 +547,18 @@ export async function renderWaveBuffer({ params = getWaveParams(), bake = null, 
   const b = bake || getWaveBake(params);
   const plan = buildWavePlan(params, { bake: b, engine: engine || offlineEngine(params, getAudioCtx()), timeScale, ampMask, pitchWarp });
   if (plan.length <= 0.02) return null;
+  // settings retrograde: the bank mirrors its own frames (Web Audio automation is mirrored for the other engines)
+  // 설정 역행: 뱅크는 프레임을 직접 뒤집음 (다른 엔진은 Web Audio 자동화가 뒤집힘)
+  const mir = plan.kind === 'worklet' ? claimMirror() : null;
+  const mirrorH = mir ? (mir.H ?? plan.length) : null;
+  const playLen = mirrorH ?? plan.length;
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
-  const len = Math.ceil((plan.length + 0.05) * sampleRate);
+  const len = Math.ceil((playLen + 0.05) * sampleRate);
   const ctx = new Offline(2, len, sampleRate);
   const dest = outputStage ? createOfflineOutput(ctx) : ctx.destination;
   if (plan.kind === 'worklet') {
-    const { L, R } = await renderBank(plan, sampleRate, len);
-    applyEdgeFades([L, R], sampleRate, plan.length);
+    const { L, R } = await renderBank(plan, sampleRate, len, { mirrorH });
+    applyEdgeFades([L, R], sampleRate, playLen);
     applyTremoloToSamples([L, R], sampleRate, params.tremolo); // studio output tremolo (bank renders in JS) / 스튜디오 출력 트레몰로
     const buf = ctx.createBuffer(2, len, sampleRate);
     buf.getChannelData(0).set(L);

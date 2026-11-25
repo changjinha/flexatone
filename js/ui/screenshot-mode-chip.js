@@ -15,7 +15,7 @@ Object.assign(I18N.en, {
   'shotchip.full': 'Full',
   'shotchip.clean': 'Axes+lines',
   'shotchip.svg': 'Axes+lines SVG',
-  'shotchip.tip': 'Screenshot mode (click to change): Full = the window as shown · Axes + lines = the pitch lines on white axes · SVG = the same as a vector file',
+  'shotchip.tip': 'Screenshot mode (click to change): Full = the monitor as shown · Axes + lines = the pitch lines on white axes · SVG = the same as a vector file',
 });
 Object.assign(I18N.ko, {
   'shotchip.full': '전체',

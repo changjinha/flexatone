@@ -7,7 +7,8 @@
  *
  *   spec = { sine, tri, saw, sqr, rich,            5-wave weights (as before)
  *            mode?: 'mix' | 'func',                 missing = 'mix' (old documents load unchanged)
- *            func?: { source: 'formula' | 'voice', expr, voiceId } }
+ *            func?: { source: 'formula' | 'voice', expr, voiceId },
+ *            pulse?: { morph, duty } }            'pulse' mode: modules/sources/pulse-kernel.js (ROADMAP D-2)
  * The extra fields live *inside* the studio's existing `timbre` object on purpose: every studio
  * already keeps `timbre` out of its bake signature and inside its audio key, so a mode / formula
  * edit never re-bakes and is picked up by live playback without new plumbing.
@@ -18,17 +19,23 @@
  */
 
 import { TIMBRE_WAVES, registerSelfCheck } from '../core/state.js';
-import { readTimbreWeights, getTimbreCoefficientsCached, previewTimbreCycle } from './timbre-synth.js';
+import { readTimbreWeights, getTimbreCoefficientsCached, previewTimbreCycle, synthesizeCycle } from './timbre-synth.js';
+import { normalizePulseSpec, pulseCoefficients } from './sources/pulse-kernel.js';
 import { normalizeSampleSpec, sampleSpecKey } from './sample-source.js';
+import { normalizeAdsr, adsrKey } from '../core/adsr.js';
 
-/** 'sample' = per-voice Sampler (modules/sample-source.js); synthesis reads it as the Mix. / 보이스별 샘플러 */
-export const TIMBRE_MODES = Object.freeze(['mix', 'func', 'sample']);
+/** 'sample' = per-voice Sampler (modules/sample-source.js); synthesis reads it as the Mix. / 보이스별 샘플러
+ *  'pulse'  = sine → band-limited pulse source (the Risset waveform), same spectrum on every host. / 펄스 음원 */
+export const TIMBRE_MODES = Object.freeze(['mix', 'func', 'sample', 'pulse']);
 export const TIMBRE_FUNC_SOURCES = Object.freeze(['formula', 'voice']);
 export const DEFAULT_TIMBRE_FUNC = Object.freeze({ source: 'formula', expr: 'sin(2*pi*x) + 0.35*sin(6*pi*x)', voiceId: '' });
 /** Harmonics the studios have always used for their PeriodicWave (Glissando uses 64). */
 export const STUDIO_TIMBRE_HARMONICS = 32;
 
-export const timbreSpecMode = (spec) => (spec && (spec.mode === 'func' || spec.mode === 'sample') ? spec.mode : 'mix');
+export const timbreSpecMode = (spec) => (spec && (spec.mode === 'func' || spec.mode === 'sample' || spec.mode === 'pulse') ? spec.mode : 'mix');
+
+/** The pulse block of a spec with defaults filled in. / 기본값을 채운 펄스 블록 */
+export const timbreSpecPulse = (spec) => normalizePulseSpec(spec?.pulse);
 
 /** The ƒ(x) block of a spec with defaults filled in. / 기본값을 채운 ƒ(x) 블록 */
 export function timbreSpecFunc(spec) {
@@ -47,7 +54,15 @@ export function timbreSpecFunc(spec) {
 export function timbreSpecExtras(spec) {
   const out = { mode: timbreSpecMode(spec), func: timbreSpecFunc(spec) };
   if (spec && spec.sample) out.sample = normalizeSampleSpec(spec.sample); // kept even when switched back to Mix / 믹스로 바꿔도 유지
+  if (spec && spec.pulse) out.pulse = normalizePulseSpec(spec.pulse); // kept the same way / 같은 방식으로 유지
+  if (spec && spec.adsr) out.adsr = normalizeAdsr(spec.adsr); // ADSR envelope (core/adsr.js) / ADSR 엔벨로프
   return out;
+}
+
+/** The ADSR of a spec (null when it has none or it is off). / 스펙의 ADSR (없거나 꺼지면 null) */
+export function timbreSpecAdsr(spec) {
+  const a = spec && spec.adsr ? normalizeAdsr(spec.adsr) : null;
+  return a && a.on ? a : null;
 }
 
 /** View a spec as the voice-shaped object the voice-level timbre API expects. / 보이스 형태로 보기 */
@@ -57,8 +72,12 @@ export function timbreSpecAsVoice(spec) {
 
 /** Voice fields for "Bake to Glissando Voices": the baked voice keeps the same timbre synthesis. */
 export function timbreSpecToVoiceFields(spec) {
-  const out = { timbre: readTimbreWeights(spec), timbreMode: timbreSpecMode(spec), timbreFunc: timbreSpecFunc(spec) };
+  // Glissando voices have no Pulse mode yet (core/state.js normalizeVoice): a pulse spec bakes as its Mix (ROADMAP D-3).
+  // 글리산도 보이스에는 아직 펄스 모드가 없음 → 믹스로 베이킹.
+  const mode = timbreSpecMode(spec);
+  const out = { timbre: readTimbreWeights(spec), timbreMode: mode === 'pulse' ? 'mix' : mode, timbreFunc: timbreSpecFunc(spec) };
   if (spec && spec.sample) out.timbreSample = normalizeSampleSpec(spec.sample); // the baked voice keeps its sample / 샘플 유지
+  if (spec && spec.adsr) out.adsr = normalizeAdsr(spec.adsr); // and its ADSR / ADSR 유지
   return out;
 }
 
@@ -67,11 +86,34 @@ export function timbreSpecToVoiceFields(spec) {
  * 'voice' source may read. A failing ƒ(x) falls back to the mix and reports `error`.
  */
 export function timbreSpecCoefficients(spec, { voices = [], harmonics = STUDIO_TIMBRE_HARMONICS } = {}) {
+  if (timbreSpecMode(spec) === 'pulse') return pulseCoefficientsCached(timbreSpecPulse(spec), harmonics);
   return getTimbreCoefficientsCached(timbreSpecAsVoice(spec), { voices, harmonics });
+}
+
+// Memoised so the same pulse returns the same arrays (audio/studio-fx.js caches PeriodicWaves by them).
+// 같은 펄스는 같은 배열 → studio-fx.js의 PeriodicWave 캐시가 그대로 동작.
+const pulseCache = new Map();
+function pulseCoefficientsCached(p, harmonics) {
+  const key = `${p.morph}|${p.duty}|${harmonics}`;
+  let hit = pulseCache.get(key);
+  if (!hit) {
+    hit = { ...pulseCoefficients(p, harmonics), mode: 'pulse', error: null };
+    if (pulseCache.size >= 48) pulseCache.delete(pulseCache.keys().next().value);
+    pulseCache.set(key, hit);
+  }
+  return hit;
 }
 
 /** One normalised cycle for the editor preview. / 편집기 미리보기용 한 주기 */
 export function timbreSpecPreview(spec, { voices = [], points = 256 } = {}) {
+  if (timbreSpecMode(spec) === 'pulse') {
+    const c = timbreSpecCoefficients(spec);
+    const wave = synthesizeCycle(c.real, c.imag, points);
+    let pk = 0;
+    for (const v of wave) pk = Math.max(pk, Math.abs(v));
+    if (pk > 0) for (let i = 0; i < wave.length; i++) wave[i] /= pk;
+    return { wave, error: null, mode: 'pulse' };
+  }
   return previewTimbreCycle(timbreSpecAsVoice(spec), { voices, points, harmonics: STUDIO_TIMBRE_HARMONICS });
 }
 
@@ -81,7 +123,8 @@ export function timbreSpecKey(spec) {
   const f = timbreSpecFunc(spec);
   const mode = timbreSpecMode(spec);
   const smp = mode === 'sample' ? `|${sampleSpecKey(spec.sample)}` : '';
-  return `${mode}|${TIMBRE_WAVES.map((k) => w[k]).join(',')}|${f.source}|${f.source === 'voice' ? f.voiceId : f.expr}${smp}`;
+  const pls = mode === 'pulse' ? (({ morph, duty }) => `|${morph},${duty}`)(timbreSpecPulse(spec)) : '';
+  return `${mode}|${TIMBRE_WAVES.map((k) => w[k]).join(',')}|${f.source}|${f.source === 'voice' ? f.voiceId : f.expr}${smp}${pls}|${adsrKey(spec?.adsr)}${spec?.adsr?.retrig ? 'r' : ''}`;
 }
 
 registerSelfCheck('Timbre spec: Mix = old 5-wave result, ƒ(x) changes the wave, bad formula falls back', (a) => {
@@ -106,4 +149,25 @@ registerSelfCheck('Timbre spec: Mix = old 5-wave result, ƒ(x) changes the wave,
   const vs = timbreSpecToVoiceFields(smp);
   a.ok(vs.timbreMode === 'sample' && vs.timbreSample.id === 'smp_x' && vs.timbreSample.root === 57, 'baked voice keeps its sample');
   a.ok(timbreSpecKey(smp) !== timbreSpecKey({ ...smp, sample: { id: 'smp_x', root: 58 } }), 'key follows the sample');
+}, { group: 'timbre' });
+
+registerSelfCheck('Timbre spec: Pulse mode (D-2) = the Risset pulse kernel spectrum, keyed, kept, bakes as Mix', (a) => {
+  const base = { sine: 0.7, tri: 0, saw: 0, sqr: 0, rich: 0 };
+  const pl = { ...base, mode: 'pulse', pulse: { morph: 0.6, duty: 0.25 } };
+  a.equal(timbreSpecMode(pl), 'pulse', 'mode recognised');
+  const c = timbreSpecCoefficients(pl);
+  const ref = pulseCoefficients({ morph: 0.6, duty: 0.25 }, STUDIO_TIMBRE_HARMONICS);
+  a.ok(c.mode === 'pulse' && !c.error, 'pulse coefficients');
+  let d = 0;
+  for (let k = 0; k < ref.real.length; k++) d += Math.abs(c.real[k] - ref.real[k]) + Math.abs(c.imag[k] - ref.imag[k]);
+  a.ok(d < 1e-6, 'same spectrum as the kernel');
+  a.ok(timbreSpecCoefficients({ ...pl }) === c, 'memoised (same arrays → PeriodicWave cache hit)');
+  a.ok(timbreSpecKey(pl) !== timbreSpecKey({ ...pl, pulse: { morph: 0.6, duty: 0.3 } }), 'key follows the duty');
+  a.ok(timbreSpecKey(pl) !== timbreSpecKey(base), 'key differs from the Mix');
+  a.equal(timbreSpecExtras(pl).pulse.duty, 0.25, 'normaliser keeps the pulse block');
+  a.equal(timbreSpecToVoiceFields(pl).timbreMode, 'mix', 'Glissando bake falls back to the Mix');
+  const pv = timbreSpecPreview(pl, { points: 128 });
+  a.ok(pv.mode === 'pulse' && pv.wave.length === 128 && Math.max(...pv.wave.map(Math.abs)) > 0.99, 'preview cycle');
+  const s0 = timbreSpecCoefficients({ ...base, mode: 'pulse', pulse: { morph: 0 } });
+  a.near(s0.imag[1], 1, 1e-7, 'morph 0 = sine');
 }, { group: 'timbre' });

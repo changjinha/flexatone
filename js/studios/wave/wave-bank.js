@@ -40,22 +40,31 @@ export class WaveSpectralBank {
     // 4096-point sine table, linear interpolation (|error| < 3e-7) / 사인 테이블
     this.tab = new Float64Array(4097);
     for (let i = 0; i <= 4096; i++) this.tab[i] = Math.sin((2 * Math.PI * i) / 4096);
-    // Per-voice (per-bin) tremolo / vibrato: o.mod = { seed, t: [on, rate, depth, spread, track], v: [on, rate, cents, spread, track] }
+    // Per-voice (per-bin) tremolo / vibrato: o.mod = { seed, t / v: [on, rate, depth|cents, rateSpread, depthK, phaseSpread, dist, drift, —], tE / vE }
     // (core/voice-mod.js voiceModFrame; the hash is repeated here — this class must stay self-contained)
     // 빈별 트레몰로·비브라토 (core/voice-mod.js와 같은 해시 — 자기완결 유지)
     this.mod = o.mod || null;
     if (this.mod) {
-      this.mT = new Float32Array(bins * 3);
-      this.mV = new Float32Array(bins * 3);
+      this.mT = new Float64Array(bins * 6); // [rate, depth, phase, drift, drift Hz, drift phase] per bin / 빈별 값
+      this.mV = new Float64Array(bins * 6);
     }
     for (let i = 0; i < bins; i++) {
       if (this.mod) {
         const m = this.mod;
         const f = o.freqs[i] > 0 ? o.freqs[i] : 440;
-        const b = 2 * Math.min(1, Math.max(0, (69 + 12 * Math.log2(f / 440) - 24) / 84)) - 1;
+        const b01 = Math.min(1, Math.max(0, (69 + 12 * Math.log2(f / 440) - 24) / 84));
         const u = (k) => WaveSpectralBank.voiceRand(m.seed, i, k);
-        if (m.t[0]) { this.mT[i * 3] = m.t[1] * Math.pow(2, m.t[3] * u(0) + m.t[4] * b); this.mT[i * 3 + 1] = m.t[2] * (1 - 0.25 * m.t[3] * (u(1) + 1)); this.mT[i * 3 + 2] = m.t[3] * 0.5 * (u(2) + 1); }
-        if (m.v[0]) { this.mV[i * 3] = m.v[1] * Math.pow(2, m.v[3] * u(3) + m.v[4] * b); this.mV[i * 3 + 1] = (m.v[2] / 1200) * (1 - 0.25 * m.v[3] * (u(4) + 1)); this.mV[i * 3 + 2] = m.v[3] * 0.5 * (u(5) + 1); }
+        const put = (dst, q, tab, k0, depthScale) => {
+          const d = q[6] === 1 ? u(k0) ** 3 : q[6] === 2 ? (u(k0) < 0 ? -1 : 1) : u(k0);
+          dst[i * 6] = q[1] * Math.pow(2, q[3] * d + WaveSpectralBank.env01(tab, b01));
+          dst[i * 6 + 1] = q[2] * depthScale * (1 - q[4] * (u(k0 + 1) + 1));
+          dst[i * 6 + 2] = q[5] * 0.5 * (u(k0 + 2) + 1);
+          dst[i * 6 + 3] = 0.5 * (q[7] || 0);
+          dst[i * 6 + 4] = 0.1 * (1 + 0.5 * u(k0 + 7));
+          dst[i * 6 + 5] = 0.5 * (u(k0 + 8) + 1);
+        };
+        if (m.t[0]) put(this.mT, m.t, m.tE, 0, 1);
+        if (m.v[0]) put(this.mV, m.v, m.vE, 3, 1 / 1200);
       }
       // Nyquist guard: a bin above 0.45·fs never sounds / 나이퀴스트 보호
       const f = o.freqs[i];
@@ -64,6 +73,24 @@ export class WaveSpectralBank {
       this.ph[i] = p - Math.floor(p);
     }
     this.configure(o);
+  }
+
+  /** Band-follow table at b ∈ [0, 1] (core/voice-mod.js envAt01). / 대역 추종 표 */
+  static env01(tab, b) {
+    if (!tab) return 0;
+    const n = tab.length;
+    const x = b * (n - 1);
+    const k = Math.min(n - 2, Math.floor(x));
+    return tab[k] + (tab[k + 1] - tab[k]) * (x - k);
+  }
+
+  /** LFO phase with slow drift (core/voice-mod.js lanePhase); m = table, j = bin·6. / 표류 포함 위상 */
+  static lanePhase(m, j, t) {
+    const a = m[j + 3];
+    if (!a) return m[j] * t;
+    const w = 2 * Math.PI * m[j + 4];
+    const p0 = 2 * Math.PI * m[j + 5];
+    return m[j] * (t - (a / w) * (Math.cos(w * t + p0) - Math.cos(p0)));
   }
 
   /** u ∈ [−1, 1] for (seed, bin, lane) — identical to voiceRand() in core/voice-mod.js. / 결정적 난수 */
@@ -140,10 +167,10 @@ export class WaveSpectralBank {
       let inc = this.inc[i];
       if (mod) {
         // held for this block (≤ 128 samples) / 블록 동안 유지
-        const rT = this.mT[i * 3];
-        if (rT) { const gm = 1 - this.mT[i * 3 + 1] * (0.5 - 0.5 * Math.cos(2 * Math.PI * (rT * tSec + this.mT[i * 3 + 2]))); ga *= gm; gb *= gm; }
-        const rV = this.mV[i * 3];
-        if (rV) inc *= Math.pow(2, this.mV[i * 3 + 1] * Math.sin(2 * Math.PI * (rV * tSec + this.mV[i * 3 + 2])));
+        const rT = this.mT[i * 6];
+        if (rT) { const gm = 1 - this.mT[i * 6 + 1] * (0.5 - 0.5 * Math.cos(2 * Math.PI * (WaveSpectralBank.lanePhase(this.mT, i * 6, tSec) + this.mT[i * 6 + 2]))); ga *= gm; gb *= gm; }
+        const rV = this.mV[i * 6];
+        if (rV) inc *= Math.pow(2, this.mV[i * 6 + 1] * Math.sin(2 * Math.PI * (WaveSpectralBank.lanePhase(this.mV, i * 6, tSec) + this.mV[i * 6 + 2])));
       }
       let ph = this.ph[i];
       if ((ga === 0 && gb === 0) || inc === 0) {

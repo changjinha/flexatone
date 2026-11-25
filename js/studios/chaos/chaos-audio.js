@@ -16,6 +16,8 @@
  * Live and offline share scheduleChaos(), so Export WAV = what you hear (incl. output fader).
  */
 
+import { applyAdsrToCurve } from '../../core/adsr.js';
+import { timbreSpecAdsr } from '../../modules/timbre-spec.js';
 import { lineMixGain } from '../../core/line-mix.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
@@ -28,6 +30,7 @@ import { encodeWav, triggerDownload, EXPORT_SAMPLE_RATE, createBrightShelf } fro
 import { createLiveTransport } from '../../audio/live-transport.js';
 import { BAKE_RATE, getChaosSystem } from './chaos-engine.js';
 import { getChaosParams, getChaosBake } from '../chaos-studio.js';
+import { createToneSource } from '../../audio/sample-voice.js'; // the shared voice-source seam (D-1) / 공용 음원 이식점
 
 const MASTER = 0.5;
 const START_LEAD_SEC = 0.03;
@@ -46,12 +49,16 @@ function buildWave(ctx, timbre) {
  * 앙상블 전체를 cueSec부터 nowTime에 스케줄.
  * @returns {number} scheduled voice count
  */
-export function scheduleChaos(ctx, dest, { doc = getChaosParams(), B = getChaosBake(doc), nowTime, cueSec = 0, nodeList = null, ampMask = null, pitchWarp = null, brightWarp = null }) {
+export function scheduleChaos(ctx, dest, { doc = getChaosParams(), B = getChaosBake(doc), nowTime, cueSec = 0, nodeList = null, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 }) {
   const A = B.A;
   const endSec = A.duration;
   if (cueSec >= endSec - 0.02) return 0;
+  // Tempo Manager (pitch kept): document second s sounds at s / ts; masks / warps read real time
+  // 템포 배속 (음고 유지): 문서 s초 → 실제 s/ts초, 마스크·곡률은 실제 시간
+  const ts = Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1;
   const k0 = clamp(Math.floor(cueSec * BAKE_RATE), 0, B.M - 2);
-  const playDur = (B.M - 1 - k0) / BAKE_RATE;
+  const docDur = (B.M - 1 - k0) / BAKE_RATE;
+  const playDur = docDur / ts;
   if (playDur <= 0.02) return 0;
   const tm = doc.timbre;
   const wave = buildWave(ctx, tm);
@@ -64,8 +71,7 @@ export function scheduleChaos(ctx, dest, { doc = getChaosParams(), B = getChaosB
   B.voices.forEach((v, i) => {
     const mix = lineMixGain(doc, `c${i}`); // S / M / gain of this line (core/line-mix.js) / 선별 S·M·게인
     if (!(mix > 0)) return;
-    const osc = ctx.createOscillator();
-    osc.setPeriodicWave(wave);
+    const osc = createToneSource(ctx, { wave });
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.Q.value = 0.7;
@@ -76,17 +82,17 @@ export function scheduleChaos(ctx, dest, { doc = getChaosParams(), B = getChaosB
     const cut = new Float32Array(n);
     for (let j = 0; j < n; j++) {
       const hz0 = midiToFreq(v.pitch[k0 + j]);
-      const hz = clamp(pitchWarp ? pitchWarp((k0 + j) / BAKE_RATE, hz0) : hz0, 20, 18000); // Manager Warp / 매니저 곡률
+      const hz = clamp(pitchWarp ? pitchWarp((k0 + j) / BAKE_RATE / ts, hz0) : hz0, 20, 18000); // Manager Warp / 매니저 곡률
       freq[j] = hz;
       let a = scale * mix * v.gain[k0 + j];
-      const loc = j / BAKE_RATE;
+      const loc = j / BAKE_RATE / ts;
       if (loc < fade) a *= loc / fade;
       if (playDur - loc < fade) a *= Math.max(0, (playDur - loc) / fade);
       if (ampMask) {
         // Manager shape mask at the sounding pitch (map mode: the held note) / 매니저 모양 마스크 (맵 모드는 현재 음)
         const sec = (k0 + j) / BAKE_RATE;
         const mHz = isMap && !pitchWarp ? midiToFreq(v.notes.pitch[clamp(Math.floor(sec * A.rate + 1e-9), 0, v.notes.pitch.length - 1)]) : hz;
-        a *= ampMask(sec, mHz);
+        a *= ampMask(sec / ts, mHz);
       }
       gain[j] = Math.max(0, a);
       cut[j] = clamp(hz * (1.5 + 10 * brightAmt * v.bright[k0 + j]), 120, 18000);
@@ -96,11 +102,11 @@ export function scheduleChaos(ctx, dest, { doc = getChaosParams(), B = getChaosB
       // Per-note frequency events (hold = step + 5 ms slew, glide = linear ramp) / 음 단위 이벤트
       const notes = v.notes.pitch;
       const hold = B.mapping.discrete.mode === 'hold';
-      const ramp = hold ? HOLD_SLEW_SEC : B.ramp;
+      const ramp = hold ? HOLD_SLEW_SEC : B.ramp / ts; // a glide is part of the rhythm / 글라이드는 리듬의 일부
       const n0 = clamp(Math.floor(cueSec * A.rate + 1e-9), 0, notes.length - 1);
       osc.frequency.setValueAtTime(freq[0], t0);
       for (let k = n0 + 1; k < notes.length; k++) {
-        const at = t0 + k / A.rate - cueSec;
+        const at = t0 + (k / A.rate - cueSec) / ts;
         if (at <= t0) continue;
         const hz = clamp(midiToFreq(notes[k]), 20, 18000);
         const prev = clamp(midiToFreq(notes[k - 1]), 20, 18000);
@@ -113,14 +119,15 @@ export function scheduleChaos(ctx, dest, { doc = getChaosParams(), B = getChaosB
     // Per-voice tremolo / vibrato (core/voice-mod.js): vibrato on detune, so map-mode note events stay as they are
     // 보이스별 트레몰로·비브라토: 비브라토는 detune으로 (맵 모드 음 이벤트 유지)
     const vm = createVoiceModEvaluator(doc.voiceMod, i, v.pitch[k0] ?? 60);
-    const vib = voiceModCentsCurve(vm, new Float32Array(2), k0 / BAKE_RATE, playDur);
+    const vib = voiceModCentsCurve(vm, new Float32Array(2), k0 / BAKE_RATE, docDur); // document time, like Fractal / 문서 시간
     if (vib.length > 2) osc.detune.setValueCurveAtTime(vib, t0, playDur);
     filter.frequency.setValueCurveAtTime(cut, t0, playDur);
     g.gain.setValueAtTime(0, Math.max(0, nowTime - 0.001));
-    g.gain.setValueCurveAtTime(voiceModGainCurve(vm, gain, k0 / BAKE_RATE, playDur), t0, playDur);
+    applyAdsrToCurve(timbreSpecAdsr(tm), gain, k0 / BAKE_RATE, docDur, (B.M - 1) / BAKE_RATE); // timbre ADSR over the line / 음색 ADSR
+    g.gain.setValueCurveAtTime(voiceModGainCurve(vm, gain, k0 / BAKE_RATE, docDur), t0, playDur);
     if (pan) pan.pan.value = voicePan(i, A.N, Number(tm.width) || 0);
     if (brightWarp) { // Manager Warp brightness / 매니저 곡률 밝기
-      const sh = createBrightShelf(ctx, freq, (j) => (k0 + j) / BAKE_RATE, brightWarp, t0, playDur);
+      const sh = createBrightShelf(ctx, freq, (j) => (k0 + j) / BAKE_RATE / ts, brightWarp, t0, playDur);
       osc.connect(filter).connect(sh).connect(g);
       if (nodeList) nodeList.push(sh);
     } else osc.connect(filter).connect(g);
@@ -197,15 +204,17 @@ export function refreshChaosLive(B) {
 // Offline render, WAV and baked JSON / 오프라인 렌더링, WAV, 베이킹 JSON
 // --------------------------------------------------------------------------
 
-export async function renderChaosBuffer({ doc = getChaosParams(), sampleRate = EXPORT_SAMPLE_RATE, channels = 2, outputStage = true, ampMask = null, pitchWarp = null, brightWarp = null } = {}) {
+/** Offline render. timeScale = Tempo Manager rate (pitch kept; masks / warps in real time). / 오프라인 렌더 (timeScale = 음고 유지 배속) */
+export async function renderChaosBuffer({ doc = getChaosParams(), sampleRate = EXPORT_SAMPLE_RATE, channels = 2, outputStage = true, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 } = {}) {
   const B = getChaosBake(doc);
-  const endSec = B.A.duration;
+  const ts = Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1;
+  const endSec = B.A.duration / ts;
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
   const ctx = new Offline(channels, Math.ceil((endSec + 0.05) * sampleRate), sampleRate);
   const master = ctx.createGain();
   master.gain.value = MASTER;
   connectStudioOutput(ctx, master, outputStage ? createOfflineOutput(ctx) : ctx.destination, doc.tremolo); // same tremolo as live / 실시간과 같은 트레몰로
-  scheduleChaos(ctx, master, { doc, B, nowTime: 0, cueSec: 0, ampMask, pitchWarp, brightWarp });
+  scheduleChaos(ctx, master, { doc, B, nowTime: 0, cueSec: 0, ampMask, pitchWarp, brightWarp, timeScale: ts });
   return ctx.startRendering();
 }
 

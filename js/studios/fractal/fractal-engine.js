@@ -905,6 +905,25 @@ function computeBake(p, sig) {
   return Object.freeze({ sig, mode: p.mode, voices, endSec, info, analysis, branchPoints, maxConcurrent, gainMax });
 }
 
+/**
+ * Tempo Manager (pitch-preserving): the same bake read `rate`× faster. Every voice's start,
+ * length and sample spacing are divided by the rate; the Hz / gain arrays are shared, not copied,
+ * so pitch and shape stay exactly the same. `timeScale` lets the player keep per-voice vibrato /
+ * tremolo on document time. Rate 1 returns the bake itself.
+ * 템포 매니저 (음고 유지): 같은 베이크를 rate배 빠르게 읽기 — 시간만 1/rate, Hz·게인 배열은 공유.
+ */
+export function retimeFractalBake(bake, rate) {
+  const r = Number.isFinite(rate) && rate > 0 ? rate : 1;
+  if (Math.abs(r - 1) < 1e-9) return bake;
+  return Object.freeze({
+    ...bake,
+    sig: `${bake.sig}@x${Math.round(r * 1e6) / 1e6}`,
+    endSec: bake.endSec / r,
+    timeScale: r,
+    voices: bake.voices.map((v) => ({ ...v, startSec: v.startSec / r, durSec: v.durSec / r, rate: v.rate * r, timeScale: r })),
+  });
+}
+
 function modeShort(mode) {
   return { fif: 'FIF', fbm: 'fBm', weierstrass: 'Weierstrass', cantor: 'Cantor' }[mode] || mode;
 }

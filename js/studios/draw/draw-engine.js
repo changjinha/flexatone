@@ -307,6 +307,7 @@ const lerpW = (pts, t) => {
 
 /** Pitch of a piece at absolute time (from its fitted customPoints). / 조각의 음고 */
 export function piecePitchAt(piece, t) {
+  // x is the played time; a clipped piece's curve maps it onto its part of the curve (core/line-clip.js)
   const x = clamp((t - piece.t0) / Math.max(1e-9, piece.dur), 0, 1);
   return piece.pA + evaluateCurveObjectY(piece.curve, x) * (piece.pB - piece.pA);
 }
@@ -419,7 +420,7 @@ export function fitPiece(pts, { smooth = 0.35, direct = false } = {}) {
 // Whole stroke + signature cache / 획 전체 + 서명 캐시
 // --------------------------------------------------------------------------
 
-const GEOMETRY_KEYS = ['raw', 'reversal', 'arcSpeed', 'smooth', 'pitchSnap', 'scaleId', 'scaleRoot', 'snapStrength', 'transform', 'direct', 'fx'];
+export const GEOMETRY_KEYS = ['raw', 'reversal', 'arcSpeed', 'smooth', 'pitchSnap', 'scaleId', 'scaleRoot', 'snapStrength', 'transform', 'direct', 'fx'];
 
 /** Signature of every geometry input (sound params excluded). / 형상 입력 서명 */
 export function strokeSignature(s) {
@@ -484,11 +485,52 @@ export function processStroke(s) {
   return res;
 }
 
-/** id → result for every stroke. / 모든 획의 결과 */
+/** id → result for every stroke (its play range applied). / 모든 획의 결과 (재생 구간 적용) */
 export function processDoc(doc) {
   const m = new Map();
-  for (const s of doc?.strokes || []) m.set(s.id, processStroke(s));
+  for (const s of doc?.strokes || []) m.set(s.id, s.clip ? clipStrokeResult(processStroke(s), s.clip) : processStroke(s));
   return m;
+}
+
+/** Time span of a processed stroke (first piece start → last piece end). / 처리된 획의 시간 구간 */
+export function strokeSpan(res) {
+  const ps = res?.pieces || [];
+  if (!ps.length) return null;
+  let S0 = Infinity;
+  let S1 = -Infinity;
+  for (const pc of ps) { S0 = Math.min(S0, pc.t0); S1 = Math.max(S1, pc.t0 + pc.dur); }
+  return { S0, S1, D: Math.max(1e-6, S1 - S0) };
+}
+
+/**
+ * Apply a stroke's play range (core/line-clip.js, u over the processed span) to its pieces: the played
+ * parts become pieces whose curve carries a clip (extensions past the first / last piece follow its end
+ * tangent), the cut-off parts are kept in `ghost` for the faint drawing. / 획의 재생 구간을 조각에 적용
+ */
+export function clipStrokeResult(res, clip) {
+  const sp = strokeSpan(res);
+  if (!sp) return res;
+  const u0 = Number.isFinite(clip?.u0) ? clip.u0 : 0;
+  const u1 = Number.isFinite(clip?.u1) ? clip.u1 : 1;
+  const W0 = sp.S0 + u0 * sp.D;
+  const W1 = sp.S0 + u1 * sp.D;
+  const pieces = [];
+  const ghost = [];
+  for (const pc of res.pieces) {
+    const a = pc.t0;
+    const b = pc.t0 + pc.dur;
+    let lo = Math.max(a, W0);
+    let hi = Math.min(b, W1);
+    if (Math.abs(a - sp.S0) < 1e-9 && W0 < a) lo = W0; // extended before the first piece / 첫 조각 앞으로 연장
+    if (Math.abs(b - sp.S1) < 1e-9 && W1 > b) hi = W1; // extended past the last piece / 마지막 조각 뒤로 연장
+    if (hi - lo > 1e-3) {
+      const D = Math.max(1e-9, pc.dur);
+      pieces.push({ ...pc, t0: lo, dur: hi - lo, full: { t0: a, dur: pc.dur }, curve: { ...pc.curve, clip: { u0: (lo - a) / D, u1: (hi - a) / D, ext: 'tangent' } } });
+    }
+    if (W0 > a + 1e-6) ghost.push({ piece: pc, a, b: Math.min(b, W0) });
+    if (W1 < b - 1e-6) ghost.push({ piece: pc, a: Math.max(a, W1), b });
+  }
+  return { ...res, pieces, ghost };
 }
 
 /** Voices the document would bake (pieces over all strokes). / 베이킹될 보이스 수 */

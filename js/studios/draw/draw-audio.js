@@ -14,6 +14,8 @@
  * 주파수 곡선은 베이킹과 같은 customPoints에서 샘플링 — 재생 시 캐시 조회만.
  */
 
+import { applyAdsrToCurve } from '../../core/adsr.js';
+import { timbreSpecAdsr } from '../../modules/timbre-spec.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -34,8 +36,13 @@ const START_LEAD_SEC = 0.03;
 const F_MIN = 20;
 const F_MAX = 20000;
 
-/** Schedule one piece from `cueSec` at context time `nowTime`. / 조각 하나 스케줄 */
-export function schedulePiece(ctx, dest, stroke, piece, nowTime, cueSec, nodeList, waveCache, ampMask = null, pitchWarp = null, brightWarp = null, voiceMod = null) {
+/**
+ * Schedule one piece from `cueSec` at context time `nowTime`. `timeScale` = Tempo Manager rate
+ * (pitch kept): document second s sounds at s / timeScale; masks and warps are read in that real time.
+ * 조각 하나 스케줄. timeScale = 템포 배속 (음고 유지): 문서 s초 → 실제 s/timeScale초, 마스크·곡률은 실제 시간.
+ */
+export function schedulePiece(ctx, dest, stroke, piece, nowTime, cueSec, nodeList, waveCache, ampMask = null, pitchWarp = null, brightWarp = null, voiceMod = null, timeScale = 1) {
+  const k = Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1;
   const end = piece.t0 + piece.dur;
   if (end <= cueSec + 1e-4) return false;
   const from = Math.max(piece.t0, cueSec);
@@ -51,36 +58,40 @@ export function schedulePiece(ctx, dest, stroke, piece, nowTime, cueSec, nodeLis
   // Per-stroke Sampler: the stroke plays its sound-file region along its line (tape)
   // 획별 샘플러: 획이 선을 따라 사운드 파일 구간을 재생 (테이프)
   const osc = createToneSource(ctx, { sample: timbreSampleSpec(stroke.timbre), wave });
-  skipSampleRead(osc, (sec) => midiToFreq(piecePitchAt(piece, sec)), piece.t0, from);
+  skipSampleRead(osc, (sec) => midiToFreq(piecePitchAt(piece, sec * k)), piece.t0 / k, from / k); // real time / 실제 시간
   const g = ctx.createGain();
   const n = Math.max(24, Math.min(4096, Math.ceil(playDur * 200)));
   const fc = new Float32Array(n);
   const gc = new Float32Array(n);
-  const fade = Math.min(0.008, playDur * 0.1);
+  const realDur = playDur / k;
+  const fade = Math.min(0.008, realDur * 0.1);
   for (let i = 0; i < n; i++) {
     const loc = (i / (n - 1)) * playDur;
     const sec = from + loc;
+    const real = sec / k;
+    const rloc = loc / k;
     const hz = midiToFreq(piecePitchAt(piece, sec));
-    fc[i] = clamp(pitchWarp ? pitchWarp(sec, hz) : hz, F_MIN, F_MAX); // Manager Warp / 매니저 곡률
+    fc[i] = clamp(pitchWarp ? pitchWarp(real, hz) : hz, F_MIN, F_MAX); // Manager Warp / 매니저 곡률
     let gain = stroke.baseGain * pieceGainAt(piece, stroke, sec);
-    if (loc < fade) gain *= loc / fade;
-    if (playDur - loc < fade) gain *= (playDur - loc) / fade;
-    if (ampMask) gain *= ampMask(sec, fc[i]); // Manager shape mask (document sec, Hz) / 매니저 모양 마스크
+    if (rloc < fade) gain *= rloc / fade;
+    if (realDur - rloc < fade) gain *= (realDur - rloc) / fade;
+    if (ampMask) gain *= ampMask(real, fc[i]); // Manager shape mask (real sec, Hz) / 매니저 모양 마스크
     gc[i] = Math.max(0, gain);
   }
-  const t0 = nowTime + delay;
+  const t0 = nowTime + delay / k;
   // Per-voice tremolo / vibrato on document time, so the pieces of one stroke stay continuous / 보이스별 변조 (문서 시간)
   const vm = createVoiceModEvaluator(voiceMod, voiceModIndex(stroke.id), piecePitchAt(piece, piece.t0));
-  osc.frequency.setValueCurveAtTime(voiceModFreqCurve(vm, fc, from, playDur), t0, playDur);
+  osc.frequency.setValueCurveAtTime(voiceModFreqCurve(vm, fc, from, playDur), t0, realDur);
   g.gain.setValueAtTime(0, nowTime);
-  g.gain.setValueCurveAtTime(voiceModGainCurve(vm, gc, from, playDur), t0, playDur);
+  applyAdsrToCurve(timbreSpecAdsr(stroke.timbre), gc, from - piece.t0, playDur, piece.dur); // timbre ADSR over the piece / 음색 ADSR
+  g.gain.setValueCurveAtTime(voiceModGainCurve(vm, gc, from, playDur), t0, realDur);
   if (brightWarp) { // Manager Warp brightness / 매니저 곡률 밝기
-    const sh = createBrightShelf(ctx, fc, (i) => from + (i / (n - 1)) * playDur, brightWarp, t0, playDur);
+    const sh = createBrightShelf(ctx, fc, (i) => (from + (i / (n - 1)) * playDur) / k, brightWarp, t0, realDur);
     osc.connect(sh).connect(g).connect(dest);
     if (nodeList) nodeList.push(sh);
   } else osc.connect(g).connect(dest);
   osc.start(t0);
-  osc.stop(t0 + playDur + 0.01);
+  osc.stop(t0 + realDur + 0.01);
   if (nodeList) nodeList.push(osc, g);
   return true;
 }
@@ -118,10 +129,10 @@ export function drawMasterGain(params = getDrawParams()) {
   return peak * DRAW_MASTER > 0.98 ? 0.98 / peak : DRAW_MASTER;
 }
 
-export function scheduleDraw(ctx, dest, { params = getDrawParams(), nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null }) {
+export function scheduleDraw(ctx, dest, { params = getDrawParams(), nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 }) {
   const waveCache = new Map();
   let n = 0;
-  for (const { stroke, piece } of getDrawTimeline(params).items) if (schedulePiece(ctx, dest, stroke, piece, nowTime, cueSec, nodeList, waveCache, ampMask, pitchWarp, brightWarp, params.voiceMod)) n++;
+  for (const { stroke, piece } of getDrawTimeline(params).items) if (schedulePiece(ctx, dest, stroke, piece, nowTime, cueSec, nodeList, waveCache, ampMask, pitchWarp, brightWarp, params.voiceMod, timeScale)) n++;
   return n;
 }
 
@@ -145,11 +156,11 @@ export const getDrawPlayheadSec = transport.playheadSec;
  * Play from the shared cue, or from `fromSec` without moving the cue (Locate drop audition).
  * 큐부터 재생, 또는 큐를 옮기지 않고 fromSec부터 재생 (이동 도구로 놓았을 때).
  */
-export const startDrawAudio = transport.start;
+export const startDrawAudio = (...a) => { stopAudition(); return transport.start(...a); }; // full playback cuts any stroke audition / 전체 재생 시 획 미리듣기 중단
 /** Stop with a short fade; the playhead is cleared. / 짧은 페이드로 정지 */
 export const stopDrawAudio = transport.stop;
-export const toggleDrawPause = transport.togglePause;
-export const toggleDrawPlay = transport.togglePlay;
+export const toggleDrawPause = (...a) => { stopAudition(); return transport.togglePause(...a); };
+export const toggleDrawPlay = (...a) => { stopAudition(); return transport.togglePlay(...a); };
 
 // --------------------------------------------------------------------------
 // One-shot preview of a single stroke (after drawing) / 획 하나 미리듣기
@@ -160,6 +171,7 @@ let preview = null;
 export async function auditionStroke(stroke, result) {
   if (transport.isPlaying() || !result?.pieces?.length) return;
   await ensureAudioCtx();
+  if (transport.isPlaying()) return;
   const ctx = getAudioCtx();
   if (preview) fadeOutPass(preview, ctx.currentTime);
   const master = ctx.createGain();
@@ -185,15 +197,17 @@ export function stopAudition() {
 // Offline render, WAV, JSON / 오프라인 렌더, WAV, JSON
 // --------------------------------------------------------------------------
 
-export async function renderDrawBuffer({ params = getDrawParams(), sampleRate = EXPORT_SAMPLE_RATE, channels = 2, outputStage = true, ampMask = null, pitchWarp = null, brightWarp = null } = {}) {
+/** Offline render. timeScale = Tempo Manager rate (pitch kept; masks / warps in real time). / 오프라인 렌더 (timeScale = 음고 유지 배속) */
+export async function renderDrawBuffer({ params = getDrawParams(), sampleRate = EXPORT_SAMPLE_RATE, channels = 2, outputStage = true, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 } = {}) {
   const { endSec } = getDrawTimeline(params);
   if (endSec <= 0.02) return null;
+  const k = Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1;
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
-  const ctx = new Offline(channels, Math.ceil((endSec + 0.05) * sampleRate), sampleRate);
+  const ctx = new Offline(channels, Math.ceil((endSec / k + 0.05) * sampleRate), sampleRate);
   const master = ctx.createGain();
   master.gain.value = drawMasterGain(params);
   connectStudioOutput(ctx, master, outputStage ? createOfflineOutput(ctx) : ctx.destination, params.tremolo); // same tremolo as live / 실시간과 같은 트레몰로
-  scheduleDraw(ctx, master, { params, nowTime: 0, cueSec: 0, ampMask, pitchWarp, brightWarp });
+  scheduleDraw(ctx, master, { params, nowTime: 0, cueSec: 0, ampMask, pitchWarp, brightWarp, timeScale: k });
   return ctx.startRendering();
 }
 

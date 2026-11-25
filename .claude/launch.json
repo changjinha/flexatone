@@ -101,6 +101,16 @@
       "port": 8027
     },
     {
+      "name": "flexatone-presets",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        ".claude/multi-devserver.py",
+        "8101",
+        "8104"
+      ],
+      "port": 8101
+    },
+    {
       "name": "flexatone-grid",
       "runtimeExecutable": "python3",
       "runtimeArgs": [

@@ -192,7 +192,7 @@ function docKey(inst, doc = getInstanceDoc(inst)) {
   const trem = inst.tremolo?.on ? inst.tremolo : 0; // channel tremolo is baked into the buffer / 채널 트레몰로는 버퍼에 반영
   const w = warpOf(inst).key; // Warp tracks that bend this one / 이 트랙을 휘는 곡률 트랙
   const warp = w && inst.loop ? `${w}|loop ${clipLength(inst)}` : w; // looping + warped clips are unrolled / 반복+곡률 클립은 펼쳐서 렌더
-  if (inst.studio === 'glissando') return JSON.stringify([glissVoices(doc), appState.legatoJoin, appState.joinGlideMs, maskPart, rate, trem, warp]);
+  if (inst.studio === 'glissando') return JSON.stringify([glissVoices(doc), appState.legatoJoin, appState.sampleJoin, appState.joinGlideMs, maskPart, rate, trem, warp]);
   // A studio may name what its sound depends on, so view-only edits do not re-render. / 뷰 편집은 재렌더하지 않도록
   const own = isClipStudio(inst.studio) ? clipStudioKey(inst.studio, resolveParams(inst, doc)) : null;
   return JSON.stringify([own ?? doc ?? null, maskPart, rate, trem, warp]);
@@ -247,7 +247,7 @@ function warpOf(target, { matrix = true } = {}) {
   const mm = matrix && target.id && !('ctxDoc' in target) ? modOfTrack(target) : null;
   if (!stages.length) return mm ? withMatrix({ key: '', fn: null, mod: null, rate: null }, mm) : { key: '', fn: null, mod: null, rate: null };
   const ts = stages.find((st) => st.mod.time); // the first time-driving source sets mode and clock / 시간 구동 첫 출처가 방식·시계를 정함
-  return {
+  const w = {
     key: stages.map((st) => st.key).join('§'),
     fn: createPitchWarp(stages),
     mod: createWarpMod(stages),
@@ -512,7 +512,7 @@ function ensureChannel(ctx, inst) {
   cycleGate.connect(regionGate).connect(chGain);
   freeGate.connect(chGain);
   chGain.connect(analyser);
-  analyser.connect(getOutputBus(ctx));
+  if (!trackRouter || !trackRouter(ctx, inst.id, analyser)) analyser.connect(getOutputBus(ctx)); // Space Master may take the track / 스페이스 마스터가 트랙을 받을 수 있음
   ch = {
     id: inst.id,
     studio: inst.studio,
@@ -533,6 +533,7 @@ function ensureChannel(ctx, inst) {
 }
 
 function disposeChannel(ch) {
+  try { trackRouter?.(null, ch.id, null); } catch (err) { console.error(err); } // the router forgets the track / 라우터가 트랙을 잊음
   stopFree(ch, true);
   ch.cycleSrcs.forEach((s) => stopSource(s, 0));
   ch.cycleSrcs = [];
@@ -1400,8 +1401,11 @@ export function isChannelActive(id) {
  * Render one cycle (every audible instance in the cycle, with faders and fades) through the
  * output stage at 48 kHz and download it. / 사이클 1회를 48 kHz로 렌더링해 다운로드
  */
-export async function exportCycleWav({ download = true } = {}) {
-  const instances = listInstances().filter((i) => i.inCycle && isInstanceAudible(i) && clipLength(i) >= 0.02);
+export async function exportCycleWav({ download = true, only = null, outputStage = true } = {}) {
+  // only: ids of the tracks to render (track export: one track at a time, same cycle length so the files line up)
+  // outputStage false: straight to the destination (no output fader / limiter) / only = 렌더할 트랙 id (트랙 따로 내보내기)
+  const keep = only ? new Set(only) : null;
+  const instances = listInstances().filter((i) => i.inCycle && isInstanceAudible(i) && clipLength(i) >= 0.02 && (!keep || keep.has(i.id)));
   if (!instances.length) return { ok: false, message: t('toast.noAudio') };
   const sr = EXPORT_SAMPLE_RATE;
   await ensureModEnvelopes({ notify: false }); // Modulation envelopes before any track is rendered / 모듈레이션 엔벨로프 먼저
@@ -1434,7 +1438,7 @@ export async function exportCycleWav({ download = true } = {}) {
   if (!parts.length) return { ok: false, message: t('toast.noAudio') };
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
   const ctx = new Offline(2, Math.ceil(C * sr), sr);
-  const out = createOfflineOutput(ctx);
+  const out = outputStage ? createOfflineOutput(ctx) : ctx.destination;
   for (const { inst, buffer, L, tape } of parts) {
     const a = Number(inst.start) || 0;
     const b = a + L;
@@ -1450,7 +1454,8 @@ export async function exportCycleWav({ download = true } = {}) {
     const mask = ctx.createGain();
     mask.gain.value = 1;
     scheduleRegionMask(mask.gain, 0, silencedSpans(inst.id, listRegions(), C));
-    src.connect(g).connect(mask).connect(fader).connect(out);
+    src.connect(g).connect(mask).connect(fader);
+    if (!offlineTrackRouter || !offlineTrackRouter(ctx, inst.id, fader, out, C)) fader.connect(out); // Space Master in the export / 내보내기의 스페이스 마스터
     src.start(a);
     src.stop(b);
   }
@@ -1460,6 +1465,35 @@ export async function exportCycleWav({ download = true } = {}) {
   if (download) triggerDownload(new Blob([wav], { type: 'audio/wav' }), filename);
   return { ok: true, filename, bytes: wav.byteLength, buffer: rendered, message: t('toast.wavDone', filename) };
 }
+
+// --------------------------------------------------------------------------
+// Track output router (audio/space-master.js): a module may take the output of a track (after its
+// fader and meter) instead of the output bus. `router(ctx, id, node)` returns true when it connected
+// the node itself; it is called with (null, id, null) when a track is disposed. With no router, or a
+// router that answers false, the graph is exactly as before.
+// 트랙 출력 라우터: 다른 모듈이 트랙 출력(페이더·미터 뒤)을 출력 버스 대신 받을 수 있음. 라우터가 없거나 false면 그래프는 이전과 동일.
+// --------------------------------------------------------------------------
+let trackRouter = null;
+let offlineTrackRouter = null;
+export function setTrackRouter(fn, offlineFn = null) {
+  trackRouter = fn;
+  offlineTrackRouter = offlineFn;
+  rerouteTracks();
+}
+/** Connect every existing track again (the router's answer may have changed). / 모든 트랙 다시 연결 */
+export function rerouteTracks() {
+  for (const ch of channels.values()) {
+    const ctx = ch.analyser.context;
+    try { ch.analyser.disconnect(); } catch { /* not connected */ }
+    if (!trackRouter || !trackRouter(ctx, ch.id, ch.analyser)) ch.analyser.connect(getOutputBus(ctx));
+  }
+}
+
+/**
+ * Internals other audio modules may call (audio/instance-render.js renders an instance as its track
+ * sounds for studios that import it as a source). / 다른 오디오 모듈용 내부 함수 (인스턴스를 음원으로 쓰는 스튜디오용)
+ */
+export const instanceRenderApi = { renderHeard, docKey };
 
 // Modulation matrix sources read the mixer through these hooks (no circular import). / 모듈레이션 출처용 훅
 configureModSources({

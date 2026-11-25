@@ -92,13 +92,20 @@ function drawAxes(ctx, m, view, length) {
  * @param {{ main: HTMLCanvasElement, hist: HTMLCanvasElement, strip: HTMLCanvasElement, hud: object }} els
  * @param {{ requestRender: Function, onHover?: Function }} opts
  */
-export function createCloudCanvases(els, { requestRender }) {
+/**
+ * opts.edit = the edit function (the workspace passes the module-scoped one), opts.overlay(ctx, m, params)
+ * draws on top of the main view (module bands), opts.pointer = { down, move, up } gets the main view's
+ * pointer first (Locate on the bands) — down returns true when it took the gesture.
+ * opts.edit = 편집 함수(모듈 범위), overlay = 메인 뷰 위 그리기(모듈 띠), pointer = 메인 뷰 포인터 우선 처리(Locate).
+ */
+export function createCloudCanvases(els, { requestRender, edit = editCloud, overlay = null, pointer = null }) {
   const layer = document.createElement('canvas');
   let layerKey = '';
   let cur = { params: null, ev: null };
   let hoverSec = null;
   let drag = null;
   let stripDrag = null;
+  let pointerOwned = false;
 
   // ------------------------------------------------------------------ main layer
   function buildLayer(m, params, ev) {
@@ -175,6 +182,7 @@ export function createCloudCanvases(els, { requestRender }) {
     ctx.setTransform(m.dpr, 0, 0, m.dpr, 0, 0);
     const tr = appState.transport;
     // Shared cue / playhead look (ui/transport-lines.js) / 공용 큐·플레이헤드 모양
+    overlay?.(ctx, m, params, PAD);
     drawCueLine(ctx, m.timeToX(tr.cueSec), PAD.top, PAD.top + m.plotH);
     if (tr.playing && tr.playheadSec >= 0) {
       const ph = tr.playheadSec;
@@ -373,13 +381,13 @@ export function createCloudCanvases(els, { requestRender }) {
     });
     if (idx >= 0 && (e.altKey || e.button === 2)) {
       e.preventDefault();
-      editCloud((d) => { const c = getCurve(d, key); if (idx > 0 && idx < c.customPoints.length - 1) c.customPoints.splice(idx, 1); });
+      edit((d) => { const c = getCurve(d, key); if (idx > 0 && idx < c.customPoints.length - 1) c.customPoints.splice(idx, 1); });
       endHistoryGesture();
       return;
     }
     let target = idx;
     if (target < 0) {
-      editCloud((d) => {
+      edit((d) => {
         const c = getCurve(d, key);
         ensureEditableRange(c, m);
         const q = toPoint(p, c);
@@ -399,7 +407,7 @@ export function createCloudCanvases(els, { requestRender }) {
     const p = pos(els.strip, e);
     const { key, idx, m } = stripDrag;
     const L = cur.params.length;
-    editCloud((d) => {
+    edit((d) => {
       const c = getCurve(d, key);
       ensureEditableRange(c, m);
       const pts = c.customPoints;
@@ -421,6 +429,7 @@ export function createCloudCanvases(els, { requestRender }) {
   // ------------------------------------------------------------------ main interaction
   function onDown(e) {
     if (!cur.params) return;
+    if (pointer?.down(e, metrics(els.main, cur.params.view), pos(els.main, e))) { pointerOwned = true; try { els.main.setPointerCapture?.(e.pointerId); } catch { /* synthetic */ } return; }
     drag = { p: pos(els.main, e), view: { ...cur.params.view } };
     try { els.main.setPointerCapture?.(e.pointerId); } catch { /* synthetic */ }
   }
@@ -428,6 +437,7 @@ export function createCloudCanvases(els, { requestRender }) {
     if (!cur.params) return;
     const p = pos(els.main, e);
     const m = metrics(els.main, cur.params.view);
+    if (pointer?.move(e, m, p, pointerOwned)) return;
     const sec = m.xToTime(p.x);
     const midi = m.yToMidi(p.y);
     els.hud.time.textContent = `${roundTo(sec, 2).toFixed(2)}s`;
@@ -438,10 +448,11 @@ export function createCloudCanvases(els, { requestRender }) {
       const v0 = drag.view;
       const dt = ((p.x - drag.p.x) / m.plotW) * (v0.tMax - v0.tMin);
       const dm = ((p.y - drag.p.y) / m.plotH) * (v0.midiMax - v0.midiMin);
-      editCloud((d) => { Object.assign(d.view, { tMin: v0.tMin - dt, tMax: v0.tMax - dt, midiMin: v0.midiMin + dm, midiMax: v0.midiMax + dm }); }, { history: false });
+      edit((d) => { Object.assign(d.view, { tMin: v0.tMin - dt, tMax: v0.tMax - dt, midiMin: v0.midiMin + dm, midiMax: v0.midiMax + dm }); }, { history: false });
     } else requestRender(['studio']);
   }
   function onUp(e) {
+    if (pointerOwned) { pointerOwned = false; pointer?.up(e); }
     drag = null;
     try { els.main.releasePointerCapture?.(e.pointerId); } catch { /* not captured */ }
   }
@@ -458,7 +469,7 @@ export function createCloudCanvases(els, { requestRender }) {
     const p = pos(els.main, e);
     // Shared wheel grammar (ui/view-nav.js): wheel = pitch, Shift = time, Ctrl/⌘ = zoom at the pointer.
     // 공용 휠 문법: 휠 = 음고, Shift = 시간, Ctrl/⌘ = 포인터 기준 줌
-    editCloud((d) => wheelNavigate(e, d.view, m, p), { history: false });
+    edit((d) => wheelNavigate(e, d.view, m, p), { history: false });
   }
 
   const on = (node, ev, fn, o) => { node.addEventListener(ev, fn, o); return () => node.removeEventListener(ev, fn, o); };

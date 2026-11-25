@@ -38,6 +38,10 @@ import {
   extractRidges,
   createWaveSim,
   createGsSim,
+  createSchrodSim,
+  createDiffSim,
+  harmonicLength,
+  hermiteFunction,
   buildInitialState,
   mediumProfile,
   waveTimelineEnd,
@@ -607,4 +611,104 @@ registerSelfCheck('Wave: Manager — two instances keep separate documents throu
     a.equal(resolveWaveDoc(getInstance(w2.id).doc).length, 7, 'second document kept its edit');
     a.near(waveTimelineEnd(resolveWaveDoc(getInstance(w2.id).doc)), 7, 1e-9, 'clip length follows the stored document');
   });
+}, { group: 'studio' });
+
+// --- Schrödinger / diffusion (quantum + fluid presets) -------------------------------------
+
+/** Mean and standard deviation (in st) of one baked row of a density field. / 밀도 행의 평균·표준편차 */
+function rowMoments(b, sec) {
+  const r = Math.round(sec * b.rate) * b.N;
+  let s0 = 0;
+  let s1 = 0;
+  let s2 = 0;
+  for (let i = 0; i < b.N; i++) { const w = b.U[r + i]; const x = i * b.dp; s0 += w; s1 += w * x; s2 += w * x * x; }
+  const m = s1 / s0;
+  return { mean: m, std: Math.sqrt(Math.max(0, s2 / s0 - m * m)), mass: s0 * b.dp };
+}
+
+registerSelfCheck('Wave: Schrödinger — norm conserved (Crank–Nicolson), free packet spreads as σ₀·√(1 + (D t/σ₀²)²)', (a) => {
+  const base = { eq: 'schrod', boundary: 'fixed', length: 3, qm: { D: 2 }, init: [pulse({ x: 0.5, width: 1.5 })] };
+  const b = simulateWave(doc(base));
+  const m0 = rowMoments(b, 0);
+  const m3 = rowMoments(b, 3);
+  a.near(m3.mass / m0.mass, 1, 1e-3, 'norm after 3 s');
+  const s0 = 1.5 / Math.SQRT2;
+  a.near(m3.std, s0 * Math.sqrt(1 + ((2 * 3) / (s0 * s0)) ** 2), 0.04 * m3.std, 'σ(3 s)');
+  const bf = simulateWave(doc({ ...base, boundary: 'free' }));
+  a.near(rowMoments(bf, 3).mass / rowMoments(bf, 0).mass, 1, 1e-3, 'norm with Neumann ends');
+  const pk = simulateWave(doc({ ...base, boundary: 'absorbing', init: [pulse({ x: 0.2, width: 1.5, velocity: 1 })], length: 12 }));
+  a.near(rowMoments(pk, 1).mean - rowMoments(pk, 0).mean, 6, 0.4, 'group velocity = velocity·vmax');
+  a.ok(rowMoments(pk, 12).mass < 0.1 * rowMoments(pk, 0).mass, 'absorbing ends swallow the packet');
+}, { group: 'studio' });
+
+registerSelfCheck('Wave: Schrödinger — infinite-well revival and harmonic coherent state', (a) => {
+  // Well: E_n = D(nπ/L)², modes 1 + 2 + 3 → exact revival at t = 2π/E₁ (E_n/E₁ = n²)
+  const w = sanitizeWaveParams(createWavePreset('well'));
+  const L = w.pHi - w.pLo;
+  const E1 = w.qm.D * (Math.PI / L) ** 2;
+  const T = (2 * Math.PI) / E1;
+  a.ok(T < w.length, `revival time ${T.toFixed(2)} s fits the preset`);
+  const b = simulateWave({ ...w, length: Math.ceil(T) + 1 });
+  const row = (sec) => Array.from(b.U.subarray(Math.round(sec * b.rate) * b.N, (Math.round(sec * b.rate) + 1) * b.N));
+  const diff = (x, y) => Math.sqrt(x.reduce((q, v, i) => q + (v - y[i]) ** 2, 0) / x.reduce((q, v) => q + v * v, 0));
+  a.ok(diff(row(0), row(T)) < 0.06, `|ψ|² returns after T (${diff(row(0), row(T)).toFixed(3)})`);
+  a.ok(diff(row(0), row(T / 3)) > 0.3, '… and differs in between');
+  // Harmonic oscillator: a Gaussian of width ℓ = √(2D/Ω) oscillates without changing its width, period 2π/Ω
+  const h = sanitizeWaveParams(createWavePreset('oscillator'));
+  a.near(harmonicLength(h.qm), h.init[0].width, 1e-9, 'preset width = ground-state length ℓ');
+  const hb = simulateWave({ ...h, boundary: 'fixed', length: 14 });
+  const P = (2 * Math.PI) / h.qm.omega;
+  const m0 = rowMoments(hb, 0);
+  const mHalf = rowMoments(hb, P / 2);
+  const mFull = rowMoments(hb, P);
+  const centre = 0.5 * (h.pHi - h.pLo);
+  a.near(mHalf.mean - centre, -(m0.mean - centre), 0.8, 'half period: mirrored about the centre');
+  a.near(mFull.mean, m0.mean, 0.8, 'full period: back to the start');
+  a.near(mFull.std, m0.std, 0.06 * m0.std, 'coherent state keeps its width');
+  a.near(hermiteFunction(0, 0), 1, 1e-12, 'Hermite n = 0');
+  a.near(hermiteFunction(2, 0), -2 / Math.sqrt(8), 1e-9, 'Hermite n = 2 at 0: H₂(0) = −2, scaled');
+}, { group: 'studio' });
+
+registerSelfCheck('Wave: Schrödinger — tunnelling splits the packet; a lower barrier transmits more', (a) => {
+  const frac = (V0) => {
+    const p = sanitizeWaveParams(createWavePreset('tunnel'));
+    p.boundary = 'fixed';
+    p.qm.V0 = V0;
+    p.length = 16;
+    const b = simulateWave(p);
+    const r = Math.round(16 * b.rate) * b.N;
+    const ib = Math.round(((p.qm.vx * (p.pHi - p.pLo)) / b.dp));
+    let left = 0;
+    let right = 0;
+    for (let i = 0; i < b.N; i++) { if (i < ib - 4) left += b.U[r + i]; else if (i > ib + 4) right += b.U[r + i]; }
+    return { T: right / (left + right), norm: (left + right) * b.dp };
+  };
+  const hi = frac(4);
+  const lo = frac(1.6);
+  a.ok(lo.T > 0.02 && lo.T < 0.6, `partial transmission T = ${lo.T.toFixed(3)}`);
+  a.ok(lo.T > hi.T * 2, `lower barrier transmits more (${lo.T.toFixed(3)} vs ${hi.T.toFixed(3)})`);
+}, { group: 'studio' });
+
+registerSelfCheck('Wave: diffusion — Stokes layer decays as e^(−y/δ); Poiseuille start-up → parabola G·y(L−y)/2ν', (a) => {
+  const s = sanitizeWaveParams(createWavePreset('stokes'));
+  const delta = Math.sqrt((2 * s.dif.nu) / (2 * Math.PI * s.dif.wallHz));
+  const b = simulateWave({ ...s, length: 12 });
+  const amp = (y) => {
+    const i = Math.round(y / b.dp);
+    let m = 0;
+    for (let f = Math.round(6 * b.rate); f < b.frames; f++) m = Math.max(m, Math.abs(b.U[f * b.N + i]));
+    return m;
+  };
+  a.near(amp(0), 1, 1e-6, 'wall amplitude');
+  a.near(amp(delta) / amp(0), Math.exp(-1), 0.04, 'amplitude at y = δ is e⁻¹');
+  a.near(amp(2 * delta) / amp(0), Math.exp(-2), 0.03, 'amplitude at y = 2δ is e⁻²');
+  const q = sanitizeWaveParams(createWavePreset('poiseuille'));
+  const L = q.pHi - q.pLo;
+  const pb = simulateWave({ ...q, length: 60 });
+  const mid = Math.round((pb.N - 1) / 2);
+  const last = (pb.frames - 1) * pb.N;
+  a.near(pb.U[last + mid], (q.dif.force * (0.5 * L) * (0.5 * L)) / (2 * q.dif.nu), 0.02, 'centre-line velocity G·L²/8ν');
+  const i4 = Math.round((pb.N - 1) / 4);
+  a.near(pb.U[last + i4] / pb.U[last + mid], 0.75, 0.02, 'quarter-width ratio 3/4 (parabola)');
+  a.near(pb.U[last], 0, 1e-12, 'no slip at the wall');
 }, { group: 'studio' });

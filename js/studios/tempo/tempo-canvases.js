@@ -10,12 +10,14 @@
  * 더블클릭 = 큐 · 휠 = 시간 줌 · ◆ 드래그 = 수렴점 (드래그 1회 = 실행 취소 1단계).
  */
 
+import { trimClip } from '../../core/line-clip.js';
+import { drawUnplayed } from '../../ui/line-link.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToNoteName } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
 import { appState, endHistoryGesture } from '../../core/state.js';
 import { readCurve, evalS, phaseMatrix, syncDistance, subjectMidiAt } from './tempo-engine.js';
-import { getTempoParams, editTempo, getTempoBake, isTempoVoiceAudible, voicePitchOffset } from '../tempo-studio.js';
+import { getTempoParams, editTempo, getTempoBake, isTempoVoiceAudible, voicePitchOffset, splitTempoVoice } from '../tempo-studio.js';
 import { getTempoPlayheadSec, isTempoPlaying } from './tempo-audio.js';
 import { drawCueLine, drawPlayheadLine } from '../../ui/transport-lines.js';
 import { wheelNavigate, zoomViewTime, zoomViewPitch } from '../../ui/view-nav.js';
@@ -176,8 +178,15 @@ export function createTempoCanvases(els, { requestRender }) {
       ctx.beginPath();
       let pen = false;
       const lines = [];
+      const ghost = []; // unplayed parts of a trimmed voice (core/line-clip.js) / 잘린 부분
+      let gpen = false;
       for (let x = PAD.left; x <= PAD.left + m.plotW; x += 1.5) {
         const u = m.xToTime(x);
+        if (bv.clipped && u >= 0 && u <= doc.length && readCurve(bv.gainAll, u) >= 0.05 && readCurve(bv.gain, u) < 0.05) {
+          if (!gpen) ghost.push([]);
+          ghost[ghost.length - 1].push({ x, y: midiToY(readCurve(bv.midi, u) + off) });
+          gpen = true;
+        } else gpen = false;
         if (u < 0 || u > doc.length || readCurve(bv.gain, u) < 0.05) { pen = false; continue; }
         const y = midiToY(readCurve(bv.midi, u) + off);
         if (!pen) { ctx.moveTo(x, y); lines.push([]); }
@@ -188,6 +197,7 @@ export function createTempoCanvases(els, { requestRender }) {
       tlPolys.set(v.id, lines);
       ctx.stroke();
       ctx.restore();
+      drawUnplayed(ctx, ghost, v.color, v.id === act);
     }
     cueAndPlayhead(ctx, m);
     ctx.restore();
@@ -515,8 +525,22 @@ export function createTempoCanvases(els, { requestRender }) {
       const vw = ensureView(getTempoParams());
       if (!(Number.isFinite(vw.midiMin) && Number.isFinite(vw.midiMax)) && tlM?.range) { vw.midiMin = tlM.range.lo; vw.midiMax = tlM.range.hi; }
       const v = getTempoParams().voices.find((x) => x.id === id);
-      return { start: Number(v.start) || 0, transpose: Number(v.transpose) || 0 };
+      const bv = getTempoBake(getTempoParams())?.map?.get(id);
+      return { start: Number(v.start) || 0, transpose: Number(v.transpose) || 0, clip: v.clip ? { ...v.clip } : undefined, span: bv ? { a: bv.uOn0, d: Math.max(1e-6, bv.uOff0 - bv.uOn0) } : null };
     },
+    // ⌘ + drag: trim the audible window (a voice is lengthened with Loop / its tempo); double-click: ✂ split
+    // ⌘ + 드래그: 발음 구간 줄이기 (늘리기는 루프·템포로), 더블클릭: 자르기
+    trim(id, side, w) {
+      const sp = w.orig.span;
+      if (!sp) return;
+      editTempo((d) => {
+        const v = d.voices.find((x) => x.id === id);
+        if (!v) return;
+        const c = trimClip(w.orig.clip, sp.a, sp.d, side, w.sec, { minDur: 0.1, uMin: 0, uMax: 1 });
+        if (c) v.clip = c; else delete v.clip;
+      }, { coalesceKey: `tempo-trim-${side}` });
+    },
+    split: (id, sec) => splitTempoVoice(id, sec),
     startOf: (id) => Math.max(0, Number(getTempoParams().voices.find((x) => x.id === id)?.start) || 0),
     select(id) { if (getTempoParams().activeVoiceId !== id) editTempo((d) => { d.activeVoiceId = id; }, { history: false }); },
     apply(id, kind, w) {

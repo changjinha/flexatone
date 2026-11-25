@@ -24,15 +24,16 @@
 import { clamp, roundTo, deepClone } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
 import { createDefaultCurveParams } from '../../core/state.js';
-import { createDefaultTremolo, normalizeTremolo } from '../../core/tremolo-config.js';
+import { createDefaultTremolo, normalizeTremolo, isTremoloOn, tremoloHz } from '../../core/tremolo-config.js';
+import { createTremoloEvaluator } from '../../modules/tremolo.js';
 import { createDefaultVoiceMod, normalizeVoiceMod, voiceModFrame } from '../../core/voice-mod.js';
 import { evaluateCurveObjectY } from '../../modules/curve-engine.js';
 import { compensationForCount } from '../../modules/gain-bus.js';
 import { computeOffsets, GRID_MODES } from './harmony-grid.js';
-import { evalGlobalEnvelope, envelopeSlope, EQ_PRESETS, sanitizeEqNode, ENV_SHAPES, MAX_EQ_NODES } from './peq-envelope.js';
+import { evalGlobalEnvelope, envelopeSlope, EQ_PRESETS, sanitizeEqNode, ENV_SHAPES, MAX_EQ_NODES, eqChainResponseDb } from './peq-envelope.js';
 import { initVoiceParticles, stepLocalParticles, LOCAL_MODES, FADE_DISTS, MIN_M0 } from './local-particles.js';
 import { AUTOMATABLE_PARAMS, computeEffective, createLane, normalizeLane, AUTO_LOOP_RANGE } from './loop-automation.js';
-import { createDefaultRegion, sanitizeRegions, isClassicField, createRegionState, stepRegionRotation, regionCrossings, assignSlots, edgeFade } from './space-regions.js';
+import { createDefaultRegion, sanitizeRegions, isClassicField, createRegionState, stepRegionRotation, regionCrossings, assignSlots, edgeFade, regionFit } from './space-regions.js';
 import { createSignalState, defineStage, runStages } from './signal-graph.js';
 import { analyzeColor, createColorState, createDefaultColorCtl, sanitizeColorCtl, stepColorController, pushColorHistory } from './color-analysis.js';
 import { RissetVoiceBank } from './risset-voicebank.js';
@@ -130,6 +131,7 @@ export function createDefaultRissetParams() {
     voiceMod: createDefaultVoiceMod(), // per-voice tremolo + vibrato with randomizer (core/voice-mod.js) / 보이스별 트레몰로·비브라토
     // Export / bake / 내보내기
     exportSec: 15,
+    timeRate: 1, // time speed: × real time for the field's own clock (0 … 4) / 시간 흐름 속도
     bakeSec: 8,
     // View / 보기
     view: { viewMode: 'piano', showTrails: true, showMaskBand: true, timeWindowSec: 16, offsetsExpanded: false },
@@ -151,6 +153,7 @@ export function sanitizeRissetParams(raw) {
   p.envGamma = clamp(Number(p.envGamma) || 4, 0.5, 12);
   p.spectralTilt = clamp(Number(p.spectralTilt) || 0, -12, 12);
   p.colorCtl = sanitizeColorCtl(p.colorCtl);
+  p.timeRate = timeRateOf(p);
   // Base pitch reaches down into the rhythm band (MIDI −49 ≈ 0.5 Hz, A-3); 0.01 st resolution.
   // 기준 음고는 리듬 대역(≈0.5 Hz)까지 내려감.
   p.baseMidi = clamp(Math.round((Number.isFinite(Number(p.baseMidi)) ? Number(p.baseMidi) : 24) * 100) / 100, BASE_MIDI_RANGE[0], BASE_MIDI_RANGE[1]);
@@ -363,7 +366,24 @@ export const REGION_OWN_KEYS = Object.freeze([
   'voiceCount',
   'globalEnvEnabled', 'envShape', 'envCenter', 'envWidth', 'envSkew', 'envGamma',
   'shapeKind', 'shapePeriodSec', 'shapeAmount', 'shapePower',
+  // harmonic offset grid (the voices' spacing inside the region) / 화성 오프셋 격자
+  'gridMode', 'ratioText', 'fixedStep', 'patternText', 'patternIntervalMode', 'pitchText', 'offsets',
+  // per-region voice tremolo · vibrato and interaction dynamics / 영역별 보이스 트레몰로·비브라토와 상호작용 동역학
+  'voiceMod', 'dyn',
+  // per-region output tremolo and local flicker (A_local) / 영역별 출력 트레몰로와 로컬 명멸
+  'tremolo',
+  // per-region loop automation and harmonic colour control / 영역별 루핑 오토메이션과 화성 색채 제어
+  'autoLanes', 'autoLoopSec', 'colorCtl',
+  // per-region timbre (waveform, spectral tilt, flutter, oscillator sync) and parametric EQ / 영역별 음색·EQ
+  'waveMorph', 'waveDuty', 'spectralTilt', 'flutterDb', 'oscSyncHz', 'eqNodes',
+  // per-region time speed (its own clock) / 영역별 시간 흐름 속도 (자체 시계)
+  'timeRate',
+  'localMode', 'localRateHz', 'localThreshold', 'fadeMeanMs', 'fadeDevMs', 'fadeCurve', 'fadeDist', 'bandMin', 'bandMax', 'bandMinHz', 'bandMaxHz',
 ]);
+const OWN_TIMBRE_KEYS = ['waveMorph', 'waveDuty', 'spectralTilt', 'flutterDb', 'oscSyncHz'];
+const OWN_LOCAL_KEYS = ['localMode', 'localRateHz', 'localThreshold', 'fadeMeanMs', 'fadeDevMs', 'fadeCurve', 'fadeDist', 'bandMin', 'bandMax', 'bandMinHz', 'bandMaxHz'];
+const OWN_GRID_KEYS = ['gridMode', 'ratioText', 'fixedStep', 'patternText', 'patternIntervalMode', 'pitchText', 'offsets'];
+const OWN_TEXT_KEYS = new Set(['envShape', 'shapeKind', 'gridMode', 'ratioText', 'patternText', 'pitchText', 'localMode', 'fadeDist']);
 const OWN_ENV_KEYS = ['globalEnvEnabled', 'envShape', 'envCenter', 'envWidth', 'envSkew', 'envGamma'];
 
 /** Keep only known keys with values of the right kind. / 알려진 키만 유지 */
@@ -374,10 +394,21 @@ export function sanitizeRegionOwn(raw) {
     if (!(k in raw)) continue;
     const v = raw[k];
     if (k === 'globalEnvEnabled') out[k] = v !== false;
-    else if (k === 'envShape' || k === 'shapeKind') { if (typeof v === 'string' && v) out[k] = v; }
+    else if (k === 'voiceMod') { if (v && typeof v === 'object') out[k] = normalizeVoiceMod(v); }
+    else if (k === 'dyn') { if (v && typeof v === 'object') out[k] = sanitizeDynamics(v); }
+    else if (k === 'tremolo') { if (v && typeof v === 'object') out[k] = normalizeTremolo(v); }
+    else if (k === 'colorCtl') { if (v && typeof v === 'object') out[k] = sanitizeColorCtl(v); }
+    else if (k === 'eqNodes') { if (Array.isArray(v)) out[k] = v.slice(0, MAX_EQ_NODES).map(sanitizeEqNode); }
+    else if (k === 'autoLanes') {
+      if (v && typeof v === 'object') { const lanes = {}; for (const spec of AUTOMATABLE_PARAMS) if (v[spec.key]) lanes[spec.key] = normalizeLane(v[spec.key]); out[k] = lanes; }
+    }
+    else if (k === 'patternIntervalMode') out[k] = v === true;
+    else if (k === 'offsets') { if (Array.isArray(v)) out[k] = v.slice(0, MAX_VOICES).map((x) => clamp(Number(x) || 0, -48, 48)); }
+    else if (OWN_TEXT_KEYS.has(k)) { if (typeof v === 'string' && (v || k === 'pitchText')) out[k] = v.slice(0, 400); }
     else if (Number.isFinite(Number(v))) out[k] = Number(v);
   }
   if ('voiceCount' in out) out.voiceCount = clamp(Math.round(out.voiceCount), MIN_VOICES, MAX_VOICES);
+  if ('timeRate' in out) out.timeRate = timeRateOf(out);
   return out;
 }
 
@@ -397,26 +428,94 @@ export const hasRegionOwn = (r) => !!(r && r.own && Object.keys(r.own).length);
 export function regionParams(params, r) {
   if (!hasRegionOwn(r)) return params;
   const q = { ...params, ...r.own };
-  if ('voiceCount' in r.own && r.own.voiceCount !== params.voiceCount) q.offsets = evenOffsets(q);
+  if ('voiceCount' in r.own && r.own.voiceCount !== params.voiceCount && !('offsets' in r.own)) q.offsets = evenOffsets(q);
   return q;
+}
+
+/**
+ * Voice offsets (phase, 0…1 of the ring) a region lays its voices out with: 'pitch' = the region's own
+ * span ((hi − lo) · span semitones, intervals kept in semitones), own count / grid = its own grid, else the
+ * shared (dynamics-aware) offsets. / 영역이 쓰는 보이스 오프셋 ('pitch' = 영역 자체 스팬)
+ */
+export function regionOffsets(params, rt, r) {
+  const pr = regionParams(params, r);
+  if (r.layout === 'pitch') {
+    const q = { ...pr, spanSemitones: Math.max(1, (r.hi - r.lo) * params.spanSemitones) };
+    if (q.gridMode === 'equal') q.offsets = evenOffsets(q); // an equal grid divides the region's own span / 등간격 = 영역 스팬을 N등분
+    return phaseOffsets(q);
+  }
+  if (pr !== params && regionOwnsSpacing(r)) return phaseOffsets(pr);
+  return relOffsets(params, rt);
+}
+
+/** Voice positions a region draws with right now (its dynamics when it runs them). / 영역의 현재 보이스 위치 */
+export function regionVoicePositions(params, rt, r) {
+  const ds = rt.regionDyn?.[r.id];
+  const offs = regionOffsets(params, rt, r);
+  return ds && ds.N === offs.length && isDynamicsOn(regionParams(params, r).dyn) ? ds.x.subarray(0, ds.N) : offs;
+}
+
+/** Pitch range of a region in MIDI: { base, span }. / 영역의 음고 범위 */
+export const regionPitchRange = (params, r) => ({ base: params.baseMidi + r.lo * params.spanSemitones, span: (r.hi - r.lo) * params.spanSemitones });
+
+/** A region spaces its voices itself (own count or own grid). / 영역 자체 보이스 간격 */
+export const regionOwnsSpacing = (r) => hasRegionOwn(r) && ('voiceCount' in r.own || OWN_GRID_KEYS.some((k) => k in r.own));
+
+/** Regions that sound: enabled, not muted, and soloed when any region is soloed. / 소리 나는 영역 (S/M) */
+export function regionAudible(r, regions) {
+  if (!r.enabled || r.mute) return false;
+  return !regions.some((x) => x.solo && x.enabled) || !!r.solo;
 }
 
 /** Effective (automated) values of a region: its own envelope / shape fields win over the lanes. */
 function regionEff(eff, r) {
   if (!hasRegionOwn(r)) return eff;
   const e = { ...eff };
-  for (const k of ['envCenter', 'envWidth', 'envSkew', 'shapeAmount']) if (k in r.own) e[k] = r.own[k];
+  for (const k of ['envCenter', 'envWidth', 'envSkew', 'shapeAmount', 'localRateHz', 'localThreshold', 'spectralTilt']) if (k in r.own) e[k] = r.own[k];
   return e;
 }
 
-function stepRegions(params, rt, dt, scrubbing) {
+/**
+ * One region's interaction dynamics (A-5) on its own voice grid: a state per region in rt.regionDyn,
+ * reset when the grid or the voice count changes. The forces use the region's voice positions only;
+ * mass / buoyancy are taken as 0 (the critical-band width is a fixed 1/40 of the ring).
+ * 영역 하나의 상호작용 동역학: 영역마다 상태(rt.regionDyn), 격자·보이스 수가 바뀌면 초기화.
+ */
+function stepRegionDynamics(pr, rt, r, grid, dt, scrubbing) {
+  if (!rt.regionDyn) rt.regionDyn = {};
+  const N = grid.length;
+  let ds = rt.regionDyn[r.id];
+  if (!ds) ds = rt.regionDyn[r.id] = createDynState(MAX_VOICES, 1 + (r.id.length * 7919) % 997);
+  const key = `${N}|${Array.from(grid).map((g) => g.toFixed(6)).join(',')}`;
+  if (ds.key !== key || ds.N !== N) { resetDynState(ds, grid, N); ds.key = key; ds.staticKey = ''; }
+  const env = { mass: null, buoy: null, grid: ds.grid, cbw: null };
+  const d = pr.dyn;
+  if (d.order === 'static') {
+    const sk = `${key}|${JSON.stringify(d)}|${pr.massM0}`;
+    if (ds.staticKey !== sk) { resetDynState(ds, grid, N); relaxStatic(d, ds, env, pr.massM0); ds.staticKey = sk; }
+  } else if (!scrubbing) stepDynamics(d, ds, env, pr.massM0, dt);
+  return ds;
+}
+
+/** A region runs its own clock (own time speed). / 영역 자체 시계 */
+export const regionOwnsTime = (r) => hasRegionOwn(r) && 'timeRate' in r.own;
+
+/**
+ * Regions → sounding points. `dt` = field time step (real step × the shared time speed), `dtIn` = the
+ * real step: a region with its own time speed steps its clocks by dtIn × its speed. The points' ω come
+ * out per real second here (the frame does not scale them again).
+ * 영역 → 발음점. dt = 음장 시간 스텝, dtIn = 실제 스텝 (자체 시간 속도 영역은 dtIn × 자기 속도).
+ */
+function stepRegions(params, rt, dt, scrubbing, dtIn = dt) {
   const regions = params.regions || [];
   const anyOwn = regions.some(hasRegionOwn);
   rt.classic = isClassicField(regions) && !anyOwn;
   // A region with its own envelope: the envelope goes into each point's gain and the bank's shared
   // envelope is switched off (frame env.enabled = false) / 영역별 포락선은 점 이득에 넣고 뱅크 공용 포락선은 끔
-  rt.envInGain = anyOwn && regions.some((r) => hasRegionOwn(r) && OWN_ENV_KEYS.some((k) => k in r.own));
+  // (also with own automation / colour control: their envelope values are per region too / 자체 오토메이션·색채도)
+  rt.envInGain = anyOwn && regions.some((r) => hasRegionOwn(r) && (OWN_ENV_KEYS.some((k) => k in r.own) || 'autoLanes' in r.own || 'colorCtl' in r.own || 'autoLoopSec' in r.own || 'timeRate' in r.own));
   const N = params.voiceCount;
+  const kg = timeRateOf(params);
   if (rt.classic) {
     // Classic field: slot i = voice i, always sounding / 기존 음장
     const st = regionState(rt, regions[0]);
@@ -437,6 +536,7 @@ function stepRegions(params, rt, dt, scrubbing) {
   }
   const offs = relOffsets(params, rt);
   const env = envOf(params, rt.eff);
+  const eqPerRegion = regionsOwnEq(params);
   const points = [];
   const live = new Set();
   regions.forEach((r, ri) => {
@@ -444,39 +544,119 @@ function stepRegions(params, rt, dt, scrubbing) {
     live.add(r.id);
     const own = hasRegionOwn(r);
     const pr = own ? regionParams(params, r) : params; // this region's view of the document / 이 영역이 보는 문서
-    const er = own ? regionEff(rt.eff, r) : rt.eff;
-    if (r.linkRate) {
+    // Own automation lanes or colour control: the region's effective values come from its own lanes / colour
+    // controller (its speed as the base of a rate lane); else the shared lanes with its own fixed values.
+    // 자체 오토메이션·색채 제어가 있으면 영역 자체 레인·제어기로 실효값 계산, 아니면 공유 레인 + 자체 고정값.
+    const ownAuto = own && ('autoLanes' in r.own || 'colorCtl' in r.own || 'autoLoopSec' in r.own);
+    // Own time speed: the region's clocks (glissando, shape, automation, rotation, dynamics, flicker,
+    // colour) step by the real step × its own speed. / 자체 시간 속도: 영역 시계들이 실제 스텝 × 자기 속도로 진행
+    const ownTime = regionOwnsTime(r);
+    const kr = ownTime ? timeRateOf(r.own) : kg;
+    const dtR = ownTime ? dtIn * kr : dt;
+    if (ownTime) {
+      if (!Number.isFinite(st.autoTimeSec)) st.autoTimeSec = rt.autoTimeSec;
+      if (rt.sig.ctx?.running || Math.abs(params.rateHz) > 1e-5) st.autoTimeSec += dtR;
+    }
+    const tAuto = ownTime ? st.autoTimeSec : rt.autoTimeSec;
+    let er = own ? regionEff(rt.eff, r) : rt.eff;
+    let colR = null;
+    const prE = (ownAuto || ownTime) ? { ...pr, rateHz: r.linkRate ? params.rateHz : r.rateHz } : null;
+    if (ownAuto) {
+      if (!rt.regionColor) rt.regionColor = {};
+      colR = rt.regionColor[r.id] || (rt.regionColor[r.id] = createColorState());
+      er = computeEffective(prE, tAuto, pr.colorCtl?.enabled ? colR.out : null);
+    } else if (ownTime) {
+      // the shared lanes read at the region's own clock; its own fixed values still win
+      // 공유 레인을 영역 자체 시계로 읽음 (자체 고정값 우선)
+      er = regionEff(computeEffective(prE, tAuto, params.colorCtl.enabled ? rt.color.out : null), r);
+    }
+    if (r.linkRate && !ownTime) {
       st.phase = rt.masterPhase;
       st.shapeTimeSec = rt.shapeTimeSec;
       st.v = rt.eff.rateHz;
     } else {
-      st.v = r.rateHz;
+      st.v = ownAuto || ownTime ? er.rateHz : r.rateHz; // a region's own rate lane / clock moves its speed / 영역 속도 레인·시계
       if (!scrubbing && Math.abs(st.v) > 1e-6) {
-        st.phase = wrap01(st.phase + st.v * shapeSpeed(pr, st.shapeTimeSec, er) * dt);
-        st.shapeTimeSec += dt;
+        st.phase = wrap01(st.phase + st.v * shapeSpeed(pr, st.shapeTimeSec, er) * dtR);
+        st.shapeTimeSec += dtR;
       }
     }
-    stepRegionRotation(r, st, dt);
-    if (!r.enabled || r.gain <= 0) return;
+    stepRegionRotation(r, st, dtR);
+    if (!regionAudible(r, regions) || r.gain <= 0) return; // S / M / 솔로·뮤트
     const Nr = pr.voiceCount;
-    const offsR = pr === params || Nr === N ? offs : phaseOffsets(pr);
+    const ownSpacing = r.layout === 'pitch' || (pr !== params && regionOwnsSpacing(r));
+    let offsR = ownSpacing ? regionOffsets(params, rt, r) : offs;
+    // Interaction dynamics inside the region (its own settings, or the shared ones): its voices move
+    // around its own grid. / 영역 안의 상호작용 동역학 (자체 또는 공유 설정): 영역 자체 격자 주위로 이동
+    const dynR = ownSpacing && isDynamicsOn(pr.dyn) ? stepRegionDynamics(pr, rt, r, offsR, dtR, scrubbing) : null;
+    if (dynR) offsR = dynR.x.subarray(0, dynR.N);
     const envR = own ? envOf(pr, er) : env;
     const pts = regionCrossings(r, st.angleDeg, regionPhiFn(pr, rt, r), offsR, Nr);
     // Un-rotated points move with the region speed (+ dynamics drift); rotated ones get a finite difference.
     // 회전 없는 점은 영역 속도(+동역학)로, 회전된 점은 차분으로 속도 추정.
     const rotated = Math.abs(((st.angleDeg % 360) + 360) % 360) > 1e-9;
     const vReg = st.v * (Math.abs(st.v) > 1e-12 ? shapeSpeed(pr, st.shapeTimeSec, er) : 0);
+    if (!rt.regionEffs) rt.regionEffs = {};
+    rt.regionEffs[r.id] = er;
+    const eqR = eqPerRegion ? pr.eqNodes : null;
+    // Local flicker of the region (its own A_local settings): own particles per region voice
+    // 영역 자체 로컬 명멸 설정이 있으면 영역 보이스마다 자체 입자
+    const ownLocal = own && OWN_LOCAL_KEYS.some((k) => k in r.own);
+    let locR = null;
+    if (ownLocal) {
+      if (!rt.regionLocal) rt.regionLocal = {};
+      const rng = rt.regionRng || (rt.regionRng = seededUniform(4242));
+      let ps = rt.regionLocal[r.id];
+      if (!ps || ps.length !== Nr) ps = rt.regionLocal[r.id] = initVoiceParticles(ps, Nr, pr, rng);
+      const ph = rt.regionLocalPh || (rt.regionLocalPh = new Float64Array(MAX_VOICES));
+      ph.fill(0.5, 0, Nr);
+      for (const pt of pts) ph[pt.voice] = pt.s;
+      if (!scrubbing) stepLocalParticles(ps, pr, er, ph, dtR, rng, null);
+      locR = ps;
+    }
     for (const pt of pts) {
       const shared = pt.voice < N; // voices beyond the shared count have no local-particle / dynamics state / 공유 수 밖의 보이스
-      let gain = (shared ? rt.sig.aLocal[pt.voice] : 1) * r.gain * edgeFade(r, pt.s);
+      const aLoc = locR ? locR[pt.voice]?.aLocal ?? 1 : shared ? rt.sig.aLocal[pt.voice] : 1;
+      let gain = aLoc * r.gain * edgeFade(r, pt.s);
+      // per-region EQ: the region's (or the shared) bands at the point's frequency / 영역별 EQ: 발음점 주파수에서의 응답
+      if (eqR) gain *= Math.pow(10, eqChainResponseDb(eqR, phaseToFreq(pr, pt.s)) / 20);
       const envA = evalGlobalEnvelope(envR, pt.s);
       if (rt.envInGain) gain *= envA;
       const amp = (rt.envInGain ? 1 : envA) * gain;
-      points.push({ region: ri, voice: pt.voice, s: pt.s, amp, gain, vel: rotated ? undefined : vReg + (shared ? rt.sig.vel[pt.voice] - rt.frameVel : 0) });
+      const vk = regionFit(r) ? r.hi - r.lo : 1; // fit: the ring is squeezed into the region / 영역에 압축된 고리
+      const vDyn = dynR ? dynR.u[pt.voice] || 0 : ownSpacing ? 0 : shared ? rt.sig.vel[pt.voice] - rt.frameVel : 0;
+      // ω per real step: region motion × its speed; shared dynamics drift × the shared speed
+      // 실제 스텝당 속도: 영역 운동 × 영역 속도, 공유 동역학 드리프트 × 공유 속도
+      const vDynK = dynR || ownSpacing ? kr : kg;
+      points.push({ region: ri, voice: pt.voice, s: pt.s, amp, gain, vel: rotated ? undefined : vk * (vReg * kr + vDyn * vDynK) });
     }
   });
+  // per-region colour controllers: analyse each region's own points (at most 60 times a second)
+  // 영역별 색채 제어기: 영역 자체 발음점 분석 (초당 최대 60회)
+  if (rt.regionColor) {
+    regions.forEach((r, ri) => {
+      const c = rt.regionColor[r.id];
+      if (!c || !hasRegionOwn(r) || !r.own.colorCtl?.enabled) return;
+      const dtC = regionOwnsTime(r) ? dtIn * timeRateOf(r.own) : dt;
+      c.tick = (c.tick || 0) + dtC;
+      if (c.tick < 1 / 60 && dtC > 0) return;
+      const step = c.tick;
+      c.tick = 0;
+      const pr = regionParams(params, r);
+      const mine = points.filter((p) => p.region === ri);
+      const fs = new Float64Array(mine.length);
+      const as = new Float64Array(mine.length);
+      mine.forEach((p, k) => { fs[k] = phaseToFreq(pr, p.s); as[k] = p.amp; });
+      const m = analyzeColor(fs, as, mine.length);
+      pushColorHistory(c, m, step);
+      stepColorController(pr.colorCtl, c, Number(r.linkRate || pr.colorCtl.actuator !== 'rateHz' ? pr[pr.colorCtl.actuator] : r.rateHz) || 0, m, step);
+    });
+    for (const k of Object.keys(rt.regionColor)) if (!live.has(k)) delete rt.regionColor[k];
+  }
   for (const k of Object.keys(rt.regionStates)) if (!live.has(k)) delete rt.regionStates[k];
-  assignSlots(rt.slots, points, dt);
+  if (rt.regionDyn) for (const k of Object.keys(rt.regionDyn)) if (!live.has(k)) delete rt.regionDyn[k];
+  if (rt.regionLocal) for (const k of Object.keys(rt.regionLocal)) if (!live.has(k)) delete rt.regionLocal[k];
+  assignSlots(rt.slots, points, dtIn); // real step: finite-difference ω per real second / 실제 스텝 기준 차분
 }
 
 // --------------------------------------------------------------------------
@@ -651,8 +831,8 @@ export function createBakedRuntime(params, seconds) {
 
 /** 6. Output: region modules / rotation → sounding slots. / 출력: 영역·회전 → 발음 슬롯 */
 const STAGE_OUTPUT = defineStage('output', (st, dt) => {
-  const { params, rt, scrubbing } = st.ctx;
-  stepRegions(params, rt, dt, scrubbing);
+  const { params, rt, scrubbing, dtIn } = st.ctx;
+  stepRegions(params, rt, dt, scrubbing, dtIn ?? dt);
 });
 
 /** Partials (f, a) actually sounding: slot pitch × A × frequency weight. / 발음 부분음 */
@@ -714,17 +894,27 @@ export const RISSET_STAGES = Object.freeze([STAGE_PHASE, STAGE_GRID, STAGE_ENVEL
  */
 export function stepRuntime(params, rt, dt, { running = true, scrubbing = false, rng = Math.random } = {}) {
   const st = rt.sig;
-  st.ctx = { params, rt, running, scrubbing, rng };
-  runStages(RISSET_STAGES, st, dt);
+  st.ctx = { params, rt, running, scrubbing, rng, dtIn: dt };
+  // Time speed (×): how fast the field's own time runs — glissando, trajectory shape, automation,
+  // dynamics and flicker together (0 = time stands still). / 시간 흐름 속도: 음장 자체 시간의 배속
+  const k = timeRateOf(params);
+  rt.timeRate = k;
+  runStages(RISSET_STAGES, st, dt * k);
   st.ctx = null;
   return rt;
 }
+
+export const TIME_RATE_RANGE = Object.freeze([0, 4]);
+/** Time speed of the document (× real time; 0 … 4, default 1). / 시간 흐름 속도 */
+export const timeRateOf = (params) => clamp(Number.isFinite(Number(params?.timeRate)) ? Number(params.timeRate) : 1, TIME_RATE_RANGE[0], TIME_RATE_RANGE[1]);
 
 /** Control frame for RissetVoiceBank (p, ω, g, flags per slot). / 보이스 뱅크 제어 프레임 */
 export function buildControlFrame(params, rt, { scale = outputScale(params, rt.eff), into = null } = {}) {
   const n = rt.slots.length;
   const slots = into && into.length >= n * 4 ? into : new Float32Array(Math.max(4, n * 4));
-  const ts = Number(rt.timeScale) > 0 ? Number(rt.timeScale) : 1; // Tempo Manager: runtime s → real s / 템포: 런타임 초 → 실제 초
+  // Tempo Manager × time speed: runtime s → real s. Region slots already carry their speed (per region).
+  // 템포 × 시간 속도 (영역 슬롯은 영역별 속도가 이미 반영됨)
+  const ts = (Number(rt.timeScale) > 0 ? Number(rt.timeScale) : 1) * (rt.classic ? timeRateOf(params) : 1);
   for (let j = 0; j < n; j++) {
     const sl = rt.slots[j];
     slots[j * 4] = sl.s;
@@ -743,8 +933,86 @@ export function buildControlFrame(params, rt, { scale = outputScale(params, rt.e
     weight: weightOf(params, rt.eff),
     syncHz: Number(params.oscSyncHz) || 0,
     mod: voiceModFrame(params.voiceMod), // per-voice tremolo / vibrato (null = off) / 보이스별 변조
+    // regions with their own voice tremolo / vibrato: one mod per region, and each slot's region
+    // 영역별 보이스 변조: 영역마다 mod 하나, 슬롯마다 영역 번호
+    ...regionModsOf(params, rt),
+    ...regionTremOf(params, rt),
+    ...regionTimbreOf(params, rt),
     slots,
   };
+}
+
+/** Region of every slot (for the per-region bank settings). / 슬롯마다 영역 번호 */
+function slotRegionsOf(rt) {
+  const slotRegion = new Uint8Array(rt.slots.length);
+  rt.slots.forEach((sl, j) => { slotRegion[j] = Math.max(0, Math.min(255, sl.region | 0)); });
+  return slotRegion;
+}
+
+/** Per-region voice modulation for the bank (only when a region owns voiceMod). / 영역별 보이스 변조 */
+function regionModsOf(params, rt) {
+  const regions = params.regions || [];
+  if (rt.classic || !regions.some((r) => r.own && 'voiceMod' in r.own)) return {};
+  const mods = regions.map((r) => voiceModFrame(r.own && 'voiceMod' in r.own ? r.own.voiceMod : params.voiceMod));
+  return { mods, slotRegion: slotRegionsOf(rt) };
+}
+
+/** Per-region waveform / weighting / oscillator sync for the bank. / 영역별 파형·가중·동기화 */
+function regionTimbreOf(params, rt) {
+  const regions = params.regions || [];
+  if (rt.classic || !regions.some((r) => r.own && OWN_TIMBRE_KEYS.some((k) => k in r.own))) return {};
+  const regWave = [];
+  const regWeight = [];
+  const regSync = [];
+  for (const r of regions) {
+    const pr = regionParams(params, r);
+    regWave.push(waveOf(pr));
+    regWeight.push(weightOf(pr, rt.regionEffs?.[r.id] || rt.eff));
+    regSync.push(Number(pr.oscSyncHz) || 0);
+  }
+  return { regWave, regWeight, regSync, slotRegion: slotRegionsOf(rt) };
+}
+
+/** True when the EQ is applied per region (a region owns one): as a gain on each sounding point. / 영역별 EQ */
+export const regionsOwnEq = (params) => (params.regions || []).length > 1 && params.regions.some((r) => r.own && 'eqNodes' in r.own);
+
+/** EQ bands the post-bank filter chain plays: none while the regions carry their own. / 뱅크 뒤 EQ (영역별이면 없음) */
+export const eqNodesFor = (params) => (regionsOwnEq(params) ? [] : params.eqNodes);
+
+/** True when the output tremolo is applied per region in the bank (a region owns one). / 영역별 출력 트레몰로 */
+export const regionsOwnTremolo = (params) => (params.regions || []).length > 1 && params.regions.some((r) => r.own && 'tremolo' in r.own);
+
+/**
+ * The tremolo the post-bank LFO node plays: off while the regions carry their own in the bank.
+ * 뱅크 뒤 LFO 노드의 트레몰로: 영역별 트레몰로가 뱅크에 있으면 끔.
+ */
+export const tremoloNodeCfg = (params) => (regionsOwnTremolo(params) ? { ...normalizeTremolo(params.tremolo), on: false } : params.tremolo);
+
+const tremTabMemo = new Map();
+/**
+ * One LFO cycle of a tremolo as a 64-point gain table + its rate in Hz (sweep / fade-in are not part
+ * of the Risset tremolo). / 트레몰로 한 주기의 이득 표 (64점) + 속도
+ */
+function tremTable(cfg) {
+  const c = normalizeTremolo(cfg);
+  if (!isTremoloOn(c)) return null;
+  const key = JSON.stringify(c);
+  if (tremTabMemo.has(key)) return tremTabMemo.get(key);
+  const hz = Math.max(0.01, tremoloHz(c, 'rate'));
+  const ev = createTremoloEvaluator({ ...c, rateEnd: c.rate, fadeIn: 0, sync: 'voice' }, { startTime: 0, duration: 1 / hz });
+  const tab = new Float32Array(65);
+  for (let k = 0; k <= 64; k++) tab[k] = ev ? ev.gainAtSec(((k % 64) / 64) / hz) : 1;
+  const out = { rate: hz, tab };
+  tremTabMemo.set(key, out);
+  if (tremTabMemo.size > 32) tremTabMemo.delete(tremTabMemo.keys().next().value);
+  return out;
+}
+
+/** Per-region output tremolo for the bank (a region's own, else the shared one). / 영역별 출력 트레몰로 */
+function regionTremOf(params, rt) {
+  if (rt.classic || !regionsOwnTremolo(params)) return {};
+  const regTrem = params.regions.map((r) => tremTable(r.own && 'tremolo' in r.own ? r.own.tremolo : params.tremolo));
+  return { regTrem, slotRegion: slotRegionsOf(rt) };
 }
 
 /** Waveform morph (A-3; sine by default). / 파형 모핑 */

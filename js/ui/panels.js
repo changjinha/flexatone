@@ -11,7 +11,7 @@
  * never interrupted. / 포커스된 입력은 덮어쓰지 않고, 구조가 바뀔 때만 다시 생성.
  */
 
-import { clamp, roundTo, createLinearSplinePoints, splitSplineSegmentPreservingShape, removeSplinePoint } from '../core/math-utils.js';
+import { clamp, roundTo, deepClone, createLinearSplinePoints, splitSplineSegmentPreservingShape, removeSplinePoint } from '../core/math-utils.js';
 import { midiToNoteName, noteNameToMidi } from '../core/units.js';
 import { t, getLang } from '../core/i18n.js';
 import {
@@ -23,6 +23,7 @@ import {
   setVoiceTiming,
   setPref,
   selectVoice,
+  selectAllVoices,
   addVoice,
   duplicateVoice,
   deleteVoices,
@@ -37,10 +38,16 @@ import {
   MORPH_MODES,
   TIMBRE_WAVES,
   MAX_TIME,
+  createDefaultVoice,
+  splitVoice,
+  setVoiceLink,
 } from '../core/state.js';
+import { linkFamily, clipOf, isClipped } from '../core/line-clip.js';
+import { normalizeAdsr, adsrGainAt } from '../core/adsr.js';
 import {
   ENGINE_DEFS,
   PARAM_SCHEMAS,
+  schemaVisible,
   getEngineDef,
   getEngineLabel,
   switchCurveEngine,
@@ -53,11 +60,14 @@ import {
 import { previewTimbreCycle, getTimbreCoefficientsCached } from '../modules/timbre-synth.js';
 import { normalizeSampleSpec } from '../modules/sample-source.js';
 import { createSampleEditor } from './sample-editor.js';
+import { sampleReadSecAt } from '../audio/audio-engine.js';
+import { openTimbreGroupDialog } from './timbre-group-dialog.js';
 import { compileCurveFormula, analyzeRegionEdge, regionEdgeRamped } from '../modules/curve-engine.js';
 import { nextFormulaVarName, MAX_FORMULA_VARS } from '../core/formula.js';
 import { StudioRegistry } from '../studios/registry.js';
 import { uiState, captureOptions, fitOptions } from './ui-state.js';
 import { setSliderDefault } from './slider-reset.js';
+import { voiceGainControl } from './voice-gain.js';
 
 let hooks = { showToast: () => {}, fitAll: () => {}, requestRender: () => {} };
 const $ = (id) => document.getElementById(id);
@@ -191,9 +201,111 @@ export function rangeRow({ label, value, min, max, step, accent = '', key, onInp
 
 let dragFromIndex = -1;
 
+/**
+ * S on a voice card. Batch (2+ selected, this one among them): only the selection is soloed and
+ * every other solo is cleared; pressing it again when exactly the selection is soloed clears all solos.
+ * 카드의 S. 일괄: 다른 솔로를 모두 끄고 선택된 보이스만 솔로 (이미 그 상태면 솔로 모두 해제).
+ */
+function soloClick(id, batch) {
+  if (!batch) { updateVoices((vv) => { vv.solo = !vv.solo; }, { ids: [id], scope: PANEL_SCOPE }); return; }
+  const set = new Set(batch);
+  const exact = appState.voices.every((x) => !!x.solo === set.has(x.id));
+  updateVoices((vv) => { vv.solo = !exact && set.has(vv.id); }, { ids: appState.voices.map((x) => x.id), scope: PANEL_SCOPE });
+}
+
+/**
+ * M on a voice card. Click: mutes the selection (batch) or toggles this voice; when every target is
+ * already muted the click unmutes them. Double-click: only the targets stay muted, every other voice
+ * is unmuted. The second click of a double-click is caught by time, because the card re-renders after
+ * the first one. / 카드의 M. 클릭: 대상 뮤트 (모두 뮤트돼 있으면 해제). 더블클릭: 대상'만' 뮤트.
+ */
+let lastMuteClick = { id: null, at: 0 };
+const MUTE_DBL_MS = 350;
+function muteClick(id, batch) {
+  const now = performance.now();
+  const dbl = lastMuteClick.id === id && now - lastMuteClick.at < MUTE_DBL_MS;
+  lastMuteClick = dbl ? { id: null, at: 0 } : { id, at: now };
+  const targets = batch || [id];
+  const key = `mute:${id}`; // both clicks of a double-click = one undo step / 더블클릭 = 실행 취소 한 단계
+  if (dbl) {
+    const set = new Set(targets);
+    updateVoices((vv) => { vv.muted = set.has(vv.id); }, { ids: appState.voices.map((x) => x.id), scope: PANEL_SCOPE, coalesceKey: key });
+    endHistoryGesture();
+    return;
+  }
+  const allMuted = targets.every((x) => getVoiceById(x)?.muted);
+  updateVoices((vv) => { vv.muted = !allMuted; }, { ids: targets, scope: PANEL_SCOPE, coalesceKey: key });
+  setTimeout(() => { if (lastMuteClick.id === id) endHistoryGesture(); }, MUTE_DBL_MS + 10);
+}
+
+/**
+ * 🔗 checkbox on a card of a piece cut from a line (core/line-clip.js): ticked = its curve shape stays
+ * in sync with the other pieces; unticked = a separate line. Trimmed / extended lines show their range.
+ * 잘린 조각 카드의 🔗 체크박스: 체크 = 다른 조각과 곡선 모양 동기화, 해제 = 별개의 선.
+ */
+function linkBox(v) {
+  const fam = linkFamily(appState.voices, v);
+  const c = clipOf(v);
+  const range = isClipped(v) ? el('span', { class: 'text-[9px] font-mono text-amber-300/80', text: `${Math.round(c.u0 * 100)}–${Math.round(c.u1 * 100)}%`, title: t('clip.range', Math.round(c.u0 * 100), Math.round(c.u1 * 100)), dataset: { help: 'gliss.clip' } }) : null;
+  if (!v.link || fam.length < 2) return range;
+  const others = fam.length - 1;
+  const box = el('input', {
+    type: 'checkbox',
+    class: 'accent-emerald-500 w-3 h-3 cursor-pointer',
+    on: {
+      click: (e) => { e.stopPropagation(); setVoiceLink(v.id, e.target.checked); },
+      dblclick: (e) => e.stopPropagation(),
+      mousedown: (e) => e.stopPropagation(),
+    },
+  });
+  box.checked = v.link.on !== false;
+  const tip = v.link.on !== false ? t('clip.link', others) : t('clip.unlinked', others);
+  box.setAttribute('aria-label', tip);
+  return el('label', { class: `flex items-center gap-0.5 text-[10px] ${v.link.on !== false ? 'text-emerald-300' : 'text-slate-500'}`, title: tip, dataset: { help: 'gliss.clip' } }, [box, '🔗', range]);
+}
+
+/** Grapher controls of the play range: ✂ Split, ◌ Unplayed parts, Extend. / 재생 구간 컨트롤 동기화 */
+function renderClipControls() {
+  setToggle($('btnClipGhost'), appState.clipGhost !== false);
+  const ext = $('selectClipExt');
+  const v = getActiveVoice();
+  if (ext && v && document.activeElement !== ext) ext.value = clipOf(v).ext;
+  const split = $('btnSplitVoice');
+  if (split && v) {
+    const cue = Number(appState.transport?.cueSec) || 0;
+    const ok = cue > v.startTime + 0.05 && cue < getVoiceEnd(v) - 0.05;
+    split.classList.toggle('opacity-40', !ok);
+    split.title = ok ? t('clip.splitTip') : `${t('clip.splitTip')} — ${t('clip.splitNa')}`;
+  }
+  $('btnClipGhost')?.setAttribute('title', t('clip.ghostTip'));
+  ext?.setAttribute('title', t('clip.extTip'));
+}
+
+function bindClipControls() {
+  $('btnSplitVoice')?.addEventListener('click', () => {
+    const v = getActiveVoice();
+    if (!v) return;
+    const ev = splitVoice(v.id, Number(appState.transport?.cueSec) || 0);
+    if (ev?.result) hooks.showToast(t('clip.splitDone', v.name));
+    else hooks.showToast(t('clip.splitNa'), 'error');
+  });
+  $('btnClipGhost')?.addEventListener('click', () => setPref('clipGhost', appState.clipGhost === false, ['canvas', 'panels']));
+  $('selectClipExt')?.addEventListener('change', (e) => {
+    const ext = e.target.value === 'tangent' ? 'tangent' : 'shape';
+    editTargets((vv) => {
+      const c = clipOf(vv);
+      if (ext === 'shape' && !isClipped(vv)) delete vv.clip;
+      else vv.clip = { u0: c.u0, u1: c.u1, ext };
+    });
+    commitGesture();
+  });
+}
+
 function renderVoiceCards() {
+  renderClipControls();
   const box = $('voiceCardsContainer');
   if (!box) return;
+  if (box.contains(document.activeElement) && document.activeElement.type === 'range') return; // a gain slider is being dragged / 게인 드래그 중
   setText($('voiceCountBadge'), t('grapher.voiceCount', appState.voices.length));
   const selected = new Set(appState.selectedVoiceIds);
   const anySolo = appState.voices.some((v) => v.solo);
@@ -204,8 +316,11 @@ function renderVoiceCards() {
       const cls = active
         ? 'border-sky-400 bg-slate-800 shadow shadow-sky-500/20'
         : selected.has(v.id)
-          ? 'border-slate-500 bg-slate-800/70'
+          ? 'border-sky-600/80 bg-sky-950/60'
           : 'border-slate-700 bg-slate-900 hover:border-slate-500';
+      // Batch target: the whole selection when this voice is one of 2+ selected voices
+      // 일괄 대상: 이 보이스가 2개 이상 선택에 들어 있으면 선택 전체
+      const batch = selected.size > 1 && selected.has(v.id) ? [...selected] : null;
       const sm = (label, on, onCls, title, field) =>
         el('button', {
           class: `w-5 h-5 rounded text-[10px] font-bold transition ${on ? onCls : 'bg-slate-800 text-slate-400 hover:text-white'}`,
@@ -215,10 +330,31 @@ function renderVoiceCards() {
           on: {
             click: (e) => {
               e.stopPropagation();
-              updateVoices((vv) => { vv[field] = !vv[field]; }, { ids: [v.id], scope: PANEL_SCOPE });
+              if (field === 'solo') soloClick(v.id, batch);
+              else muteClick(v.id, batch);
             },
+            dblclick: (e) => e.stopPropagation(), // not the card rename / 카드 이름 바꾸기 아님
           },
         });
+      // Selection checkbox: tick to add / untick to remove, no modifier keys needed
+      // 선택 체크박스: 체크하면 더하고 해제하면 뺌 (보조 키 불필요)
+      const check = el('input', {
+        type: 'checkbox',
+        class: 'accent-sky-500 w-3.5 h-3.5 shrink-0 cursor-pointer',
+        title: t('grapher.tip.check'),
+        dataset: { help: 'gliss.multiSelect' },
+        on: {
+          click: (e) => {
+            e.stopPropagation();
+            selectVoice(v.id, { additive: true });
+            if (appState.selectedVoiceIds.length > 1 && !appState.groupApplyMode) setPref('groupApplyMode', true, GROUP_SCOPE);
+          },
+          dblclick: (e) => e.stopPropagation(),
+          mousedown: (e) => e.stopPropagation(),
+        },
+      });
+      check.checked = selected.has(v.id);
+      check.setAttribute('aria-label', t('grapher.tip.check'));
       const nameSpan = el('span', { class: `font-semibold truncate max-w-[110px] ${silent ? 'text-slate-500 line-through' : 'text-slate-100'}`, text: v.name });
       const card = el(
         'div',
@@ -256,17 +392,51 @@ function renderVoiceCards() {
           },
         },
         [
+          check,
           el('span', { class: 'text-slate-500 cursor-grab text-[11px] leading-none tracking-tighter', text: '⋮⋮', title: t('ui.dragToReorder'), dataset: { help: 'gliss.voiceReorder' } }),
           el('span', { class: 'w-2.5 h-2.5 rounded-full shrink-0', style: `background:${v.color}` }),
           nameSpan,
+          linkBox(v),
           el('span', { class: 'text-[10px] text-slate-500 font-mono', text: String(getEngineDef(v.engine)?.num ?? '') }),
-          sm(t('morph.soloShort'), v.solo, 'bg-amber-500 text-slate-950', t('grapher.solo'), 'solo'),
-          sm('M', v.muted, 'bg-rose-600 text-white', t('grapher.mute'), 'muted'),
+          voiceGainControl({ get: () => v.baseGain, set: (val, ck) => updateVoices((vv) => { vv.baseGain = val; }, { ids: [v.id], scope: ['canvas', 'gain', 'matrix'], coalesceKey: `${ck}:${v.id}` }), commit: () => endHistoryGesture(), push: (fn) => fn(), def: 0.85 }),
+          sm(t('morph.soloShort'), v.solo, 'bg-amber-500 text-slate-950', batch ? t('grapher.tip.soloMulti', batch.length) : t('grapher.tip.solo'), 'solo'),
+          sm('M', v.muted, 'bg-rose-600 text-white', batch ? t('grapher.tip.muteMulti', batch.length) : t('grapher.tip.mute'), 'muted'),
         ],
       );
       return card;
     }),
   );
+}
+
+/**
+ * Grapher header: selection badge, Multi-select toggle, group edit mode (Active only / Sync /
+ * Ratio / Offset). 'Active only' = groupApplyMode off; the others set appState.groupEditMode.
+ * 그래퍼 머리줄: 선택 배지, 다중 선택, 그룹 편집 방식 (활성만 / 동기화 / 비율 / 덧셈).
+ */
+function renderGrapherHeader() {
+  const n = appState.selectedVoiceIds.length;
+  const multi = n > 1;
+  const badge = $('voiceSelBadge');
+  if (badge) { badge.classList.toggle('hidden', !multi); setText(badge, t('grapher.selectedCount', n)); }
+  const all = $('btnSelectAllVoices');
+  if (all) all.title = t('grapher.tip.selectAll');
+  const cur = appState.groupApplyMode ? (['ratio', 'offset'].includes(appState.groupEditMode) ? appState.groupEditMode : 'sync') : 'off';
+  const seg = $('groupEditSeg');
+  if (!seg) return;
+  seg.classList.toggle('opacity-50', !multi); // takes effect with 2+ selected voices / 2개 이상 선택 시 작동
+  for (const b of seg.querySelectorAll('button[data-mode]')) {
+    const on = b.dataset.mode === cur;
+    b.className = `px-2 py-0.5 rounded transition ${on ? (cur === 'off' ? 'bg-slate-700 text-white font-semibold' : 'bg-sky-600 text-white font-semibold') : 'text-slate-400 hover:text-white font-medium'}`;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.title = `${t(`grapher.tip.edit.${b.dataset.mode}`)}${multi ? '' : ` — ${t('ui.groupNeedsMulti')}`}`;
+  }
+}
+
+const GROUP_SCOPE = ['panels', 'selection', 'canvas'];
+function setGroupEdit(mode) {
+  endHistoryGesture();
+  if (mode !== 'off') setPref('groupEditMode', mode, GROUP_SCOPE);
+  setPref('groupApplyMode', mode !== 'off', GROUP_SCOPE);
 }
 
 // ==========================================================================
@@ -668,6 +838,7 @@ function morphEditor(getObj) {
     if (editing) {
       const parts = [];
       for (const s of PARAM_SCHEMAS[n.engine] || []) {
+        if (!schemaVisible(s, n)) continue;
         if (s.type === 'points') parts.push(polynomialEditor(getNode, nodeEdit));
         else if (s.type === 'spline') {
           parts.push(el('p', { class: 'text-[10px] text-fuchsia-300', text: t('hint.custom') }));
@@ -765,8 +936,9 @@ function renderParamRack() {
   const region = editedRegion(v);
   const key = [getLang(), v.id, appState.engineTarget, region?.id || '', obj.engine,
     obj.engine === 'formula' ? (obj.formulaVars || []).map((fv) => `${fv.name}:${fv.min}:${fv.max}`).join(',') : '',
-    obj.engine === 'morph' ? obj.morphNodes.map((n) => `${n.id}:${n.engine}:${(n.polyPoints || []).length}:${(n.customPoints || []).length}`).join(',') : '',
+    obj.engine === 'morph' ? obj.morphNodes.map((n) => `${n.id}:${n.engine}:${n.flowKind || ''}:${(n.polyPoints || []).length}:${(n.customPoints || []).length}`).join(',') : '',
     obj.engine === 'morph' ? uiState.morphEditNodeId : '',
+    obj.engine === 'flow' ? obj.flowKind : '',
     obj.engine === 'custom' ? (obj.customPoints || []).length : '',
     obj.engine === 'polynomial' ? (obj.polyPoints || []).length : ''].join('|');
   if (key !== rackKey) {
@@ -783,6 +955,7 @@ function renderParamRack() {
       el('code', { class: 'font-mono text-[10px] text-slate-400 break-words', text: def.formula }),
     ];
     for (const s of PARAM_SCHEMAS[obj.engine] || []) {
+      if (!schemaVisible(s, obj)) continue;
       if (s.type === 'points') children.push(polynomialEditor(getObj, applyEdit));
       else if (s.type === 'nodes') children.push(morphEditor(getObj));
       else if (obj.engine === 'morph' && s.key === 'morphMode') continue;
@@ -885,6 +1058,14 @@ function bindPitchTiming() {
   $('sliderBaseGain').addEventListener('input', (e) => gain(Number(e.target.value), 'gain'));
   $('sliderBaseGain').addEventListener('change', commitGesture);
 
+  // Double-click → a new voice's defaults (ui/slider-reset.js) / 더블클릭 → 새 보이스의 기본값
+  const dv0 = createDefaultVoice(0);
+  setSliderDefault($('sliderF0Midi'), dv0.f0Midi);
+  setSliderDefault($('sliderF1Midi'), dv0.f1Midi);
+  setSliderDefault($('sliderStart'), dv0.startTime);
+  setSliderDefault($('sliderDuration'), () => (appState.durEditMode === 'end' ? (getActiveVoice()?.startTime ?? dv0.startTime) + dv0.duration : dv0.duration));
+  setSliderDefault($('sliderBaseGain'), dv0.baseGain);
+
   $('btnGroupApply').addEventListener('click', () => setPref('groupApplyMode', !appState.groupApplyMode, 'panels'));
   $('btnScaleLog').addEventListener('click', () => editTargets((v) => { v.logScale = true; }));
   $('btnScaleLin').addEventListener('click', () => editTargets((v) => { v.logScale = false; }));
@@ -911,11 +1092,19 @@ function renderTimbre() {
   $('timbreFuncPanel')?.classList.toggle('hidden', !func);
   $('timbreSamplePanel')?.classList.toggle('hidden', !smp);
   if (smp && sampleEd) sampleEd.sync();
+  const gb = $('btnTimbreGroup');
+  if (gb) {
+    const multi = appState.selectedVoiceIds.length > 1;
+    gb.disabled = !multi;
+    gb.classList.toggle('opacity-40', !multi);
+    gb.title = multi ? t('timbreGroup.tip', appState.selectedVoiceIds.length) : t('ui.groupNeedsMulti');
+  }
   for (const w of TIMBRE_WAVES) {
     const S = w[0].toUpperCase() + w.slice(1);
     syncValue($(`sliderTimbre${S}`), v.timbre[w]);
     setText($(`valTimbre${S}`), num(v.timbre[w]).toFixed(2));
   }
+  renderAdsr(v);
   if (!func) return;
   const tf = v.timbreFunc;
   syncValue($('selectTimbreSource'), tf.source);
@@ -934,6 +1123,57 @@ function renderTimbre() {
   errEl.classList.toggle('hidden', !error);
   setText(errEl, error ? t('timbre.exprError', error.message) : '');
   drawTimbrePreview(v);
+}
+
+/** ADSR block of the timbre toolbox (core/adsr.js). / 음색 툴박스의 ADSR */
+function renderAdsr(v) {
+  const a = normalizeAdsr(v.adsr);
+  const on = $('chkAdsrOn');
+  if (!on) return;
+  on.checked = a.on;
+  $('chkAdsrRetrig').checked = a.retrig;
+  $('lblAdsrRetrig').title = t('adsr.retrigTip');
+  $('adsrSliders').classList.toggle('opacity-40', !a.on);
+  for (const k of ['a', 'd', 's', 'r']) {
+    const K = k.toUpperCase();
+    syncValue($(`sliderAdsr${K}`), a[k]);
+    setText($(`valAdsr${K}`), k === 's' ? a[k].toFixed(2) : `${a[k].toFixed(k === 'a' ? 3 : 2)} s`);
+  }
+  // little picture of the envelope over the voice / 보이스 위의 엔벨로프 그림
+  const c = $('adsrCanvas');
+  if (!c || c.clientWidth === 0) return;
+  const dpr = globalThis.devicePixelRatio || 1;
+  const w = c.clientWidth;
+  const h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = a.on ? '#a78bfa' : '#475569';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  const dur = Math.max(0.05, v.duration);
+  for (let i = 0; i <= w; i++) {
+    const y = h - 2 - (h - 4) * adsrGainAt({ ...a, on: true }, (i / w) * dur, dur);
+    if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
+  }
+  ctx.stroke();
+}
+
+function bindAdsr() {
+  const on = $('chkAdsrOn');
+  if (!on) return;
+  const edit = (fn, key) => editTargets((vv) => { vv.adsr = normalizeAdsr(vv.adsr); fn(vv.adsr); }, key);
+  on.addEventListener('change', (e) => { edit((a) => { a.on = e.target.checked; }); commitGesture(); });
+  $('chkAdsrRetrig').addEventListener('change', (e) => { edit((a) => { a.retrig = e.target.checked; }); commitGesture(); });
+  const def = createDefaultVoice(0).adsr;
+  for (const k of ['a', 'd', 's', 'r']) {
+    const sl = $(`sliderAdsr${k.toUpperCase()}`);
+    setSliderDefault(sl, def[k]); // double-click → default / 더블클릭 → 기본값
+    // moving a slider switches the envelope on / 슬라이더를 움직이면 엔벨로프가 켜짐
+    sl.addEventListener('input', () => edit((a) => { a[k] = Number(sl.value); a.on = true; }, `adsr-${k}`));
+    sl.addEventListener('change', commitGesture);
+  }
 }
 
 function drawTimbrePreview(v) {
@@ -974,18 +1214,23 @@ function bindTimbre() {
     editActive((v) => { v.timbreMode = 'sample'; v.timbreSample = normalizeSampleSpec(v.timbreSample); });
     commitGesture();
   });
+  // Group Apply: pick one of the selected voices' timbres (or import a file) for all of them
+  // 그룹 적용: 선택된 보이스들의 음색 중 하나(또는 새 파일)를 모두에게
+  $('btnTimbreGroup')?.addEventListener('click', () => openTimbreGroupDialog({ toast: (m, k) => hooks.showToast(m, k) }));
   const mount = $('timbreSamplePanel');
   if (mount) {
     sampleEd = createSampleEditor({
       get: () => getActiveVoice()?.timbreSample,
       edit: (fn, k) => editActive((v) => { v.timbreSample = normalizeSampleSpec(v.timbreSample); fn(v.timbreSample); }, k),
       toast: (m) => hooks.showToast(m),
+      readPos: (sec) => { const v = getActiveVoice(); return v ? sampleReadSecAt(v.id, sec) : null; },
     });
     mount.replaceChildren(sampleEd.root);
   }
   for (const w of TIMBRE_WAVES) {
     const S = w[0].toUpperCase() + w.slice(1);
     const s = $(`sliderTimbre${S}`);
+    setSliderDefault(s, createDefaultVoice(0).timbre[w]); // double-click → default / 더블클릭 → 기본값
     s.addEventListener('input', () => editTargets((v) => { v.timbre[w] = clamp(Number(s.value), 0, 1); }, `timbre-${w}`));
     s.addEventListener('change', commitGesture);
   }
@@ -1181,8 +1426,22 @@ function renderStudioPanel() {
       }
       return null;
     }).filter(Boolean);
+    // ☑ toolboxes (plugin.toolboxes): the checked ones are copied from the active voice as it is at
+    // the moment of generation (params.toolSource) / 체크한 툴박스 = 생성 직전의 활성 보이스 설정 그대로
+    const toolList = Array.isArray(plugin.toolboxes) ? plugin.toolboxes : [];
+    const toolRow = toolList.length ? el('div', { class: 'flex flex-col gap-1.5 pt-3', 'data-help': `gen.${id}.tools` }, [
+      el('span', { class: 'text-[11px] font-semibold text-fuchsia-200', text: t('glis.tools') }),
+      el('div', { class: 'flex flex-wrap gap-x-4 gap-y-1' }, toolList.map((tb) => {
+        const box = el('input', { type: 'checkbox', class: 'accent-fuchsia-500', on: { change: () => { set({ tools: { ...(params().tools || {}), [tb.key]: box.checked } }); commitGesture(); } } });
+        studioSyncers.push(() => { box.checked = !!params().tools?.[tb.key]; });
+        return el('label', { class: 'flex items-center gap-1.5 text-[11px] text-slate-200 cursor-pointer select-none', dataset: { tool: tb.key } }, [box, t(tb.labelKey)]);
+      })),
+      el('p', { class: 'text-[10px] text-slate-500', text: t('glis.tools.hint') }),
+    ]) : null;
     const bake = (mode) => {
-      StudioRegistry.bakeVoices(id, { mode });
+      const p = params();
+      const useTools = toolList.some((tb) => p.tools?.[tb.key]);
+      StudioRegistry.bakeVoices(id, { mode, params: useTools ? { ...p, toolSource: deepClone(getActiveVoice()) } : undefined });
       hooks.fitAll();
       hooks.showToast(`${t('studio.generate')} · ${t(mode === 'append' ? 'studio.append' : 'studio.replace')}`);
     };
@@ -1190,6 +1449,7 @@ function renderStudioPanel() {
     mount.replaceChildren(el('details', { class: 'group' }, [
       el('summary', { class: 'cursor-pointer select-none text-xs font-bold uppercase tracking-wider text-fuchsia-300', 'data-help': `gen.${id}.panel`, text: `${t(`studio.${id}`) === `studio.${id}` ? plugin.name.en : t(`studio.${id}`)} · ${t('studio.generate')}` }),
       el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3' }, controls),
+      toolRow,
       el('div', { class: 'flex gap-2 pt-3' }, [
         el('button', { class: 'px-3 py-1 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-semibold', 'data-help': `gen.${id}.replace`, text: t('studio.replace'), on: { click: () => bake('replace') } }),
         el('button', { class: 'px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs', 'data-help': `gen.${id}.append`, text: t('studio.append'), on: { click: () => bake('append') } }),
@@ -1212,6 +1472,14 @@ export function initPanels(h) {
     if (deleteVoices().result === false) hooks.showToast(t('toast.lastVoice'), 'error');
   });
   $('btnToggleMatrix').addEventListener('click', () => setPref('matrixOpen', !appState.matrixOpen, 'matrix'));
+  // Selection & group edit mode. Asking for several voices means editing them together, so a card
+  // checkbox that makes 2+ selected and Select all switch group edit on (in the mode last used).
+  // 선택 · 그룹 편집 방식. 카드 체크박스로 2개 이상이 되거나 모두 선택하면 그룹 편집을 켠다.
+  $('btnSelectAllVoices')?.addEventListener('click', () => {
+    selectAllVoices();
+    if (!appState.groupApplyMode) setPref('groupApplyMode', true, GROUP_SCOPE);
+  });
+  for (const b of document.querySelectorAll('#groupEditSeg button[data-mode]')) b.addEventListener('click', () => setGroupEdit(b.dataset.mode));
   $('btnClearVersions').addEventListener('click', () => { clearVersions(); hooks.showToast(t('toast.versionsCleared')); });
   $('btnShotFull').addEventListener('click', () => setPref('screenshotMode', 'full', ['versions']));
   $('btnShotClean').addEventListener('click', () => setPref('screenshotMode', 'clean', ['versions']));
@@ -1241,6 +1509,8 @@ export function initPanels(h) {
 
   bindPitchTiming();
   bindTimbre();
+  bindAdsr();
+  bindClipControls();
   bindGain();
 }
 
@@ -1250,6 +1520,7 @@ export function renderPanels(scopes = new Set(['all'])) {
   const any = (...names) => all || names.some((n) => scopes.has(n));
   if (any('voices', 'selection', 'panels', 'matrix', 'history')) {
     renderVoiceCards();
+    renderGrapherHeader();
     renderMatrix();
   }
   if (any('voices', 'selection', 'panels', 'history', 'timbre')) {

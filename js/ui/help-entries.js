@@ -94,6 +94,10 @@ export const HELP_EXTRA = {
     ['Export WAV', 'Render the active studio offline to a 48 kHz / 16-bit WAV.', 'The output stage (fader, limiter) is applied exactly as during playback.'],
     ['WAV 내보내기', '활성 스튜디오를 48kHz / 16비트 WAV로 오프라인 렌더합니다.', '출력 단계(페이더, 리미터)가 재생 때와 똑같이 적용됩니다.'],
   ),
+  'app.exportMenu': H(
+    ['Export', 'Export the active studio. Choose the format under the button: WAV (sound) or MP4 (video).', 'WAV renders offline at 48 kHz / 16-bit. MP4 opens the video window: pick monitors, lay them out, choose view states; it records in real time with the progress in %.'],
+    ['내보내기', '활성 스튜디오를 내보냅니다. 버튼 아래에서 형식을 고릅니다: WAV(소리) 또는 MP4(동영상).', 'WAV는 48kHz / 16비트로 오프라인 렌더합니다. MP4는 동영상 창을 엽니다: 모니터 선택·배치·보기 상태를 고르고, 진행률(%)을 보며 실시간 녹화합니다.'],
+  ),
   'app.lang': H(
     ['Language', 'Switch the interface between English and Korean.', ''],
     ['언어', '인터페이스를 영어 / 한국어로 전환합니다.', ''],
@@ -133,8 +137,8 @@ export const HELP_EXTRA = {
     ['그리드 분할', '표시와 스냅에 쓰는 시간 격자 간격입니다.', ''],
   ),
   'gliss.locate': H(
-    ['Locate mode', 'Drag the curve body to move a voice, drag an endpoint to stretch it.', 'Arrow keys nudge F₀/F₁ or the whole voice; Shift for larger steps (Glissando window). The same Locate is shared by Field (particles), Draw (strokes, with Select / Node), Tempo (timeline voices: start + transpose) and Space (observed-pitch roll: start + emitted pitch; end dots = time only). In those studios, releasing a drag plays the studio from the object’s start without moving the cue.'],
-    ['위치 모드', '곡선 몸통을 드래그하면 이동, 끝점을 드래그하면 늘이기.', '화살표 키로 F₀/F₁이나 보이스 전체를 미세 이동합니다 (Shift: 크게, 글리산도 창). 같은 이동 도구를 필드(입자), 드로(획, 선택·노드 도구), 템포(타임라인 보이스: 시작·조옮김), 스페이스(관측 음고 롤: 시작·방출 음고, 끝점은 시간만)에서도 씁니다. 이 스튜디오들에서는 드래그를 놓으면 큐를 옮기지 않고 그 대상의 시작부터 재생합니다.'],
+    ['Locate mode', 'Drag the curve body to move a voice, drag an endpoint to stretch it.', 'Arrow keys nudge F₀/F₁ or the whole voice; Shift for larger steps (Glissando monitor). The same Locate is shared by Field (particles), Draw (strokes, with Select / Node), Tempo (timeline voices: start + transpose) and Space (observed-pitch roll: start + emitted pitch; end dots = time only). In those studios, releasing a drag plays the studio from the object’s start without moving the cue.'],
+    ['위치 모드', '곡선 몸통을 드래그하면 이동, 끝점을 드래그하면 늘이기.', '화살표 키로 F₀/F₁이나 보이스 전체를 미세 이동합니다 (Shift: 크게, 글리산도 모니터). 같은 이동 도구를 필드(입자), 드로(획, 선택·노드 도구), 템포(타임라인 보이스: 시작·조옮김), 스페이스(관측 음고 롤: 시작·방출 음고, 끝점은 시간만)에서도 씁니다. 이 스튜디오들에서는 드래그를 놓으면 큐를 옮기지 않고 그 대상의 시작부터 재생합니다.'],
   ),
   'gliss.snap': H(
     ['Snap', 'Snap dragged positions to semitones and 0.1 s.', ''],
@@ -220,8 +224,24 @@ export const HELP_EXTRA = {
     ['음색 모드', '믹스: 다섯 파형 섞기. f(x): 수식이나 다른 보이스 곡선으로 파형 정의. 샘플: 이 보이스가 사운드 파일의 구간을 재생.', ''],
   ),
   'gliss.timbreSample': H(
-    ['Sampler (this voice)', 'The voice plays a region of a sound file instead of a synthesized wave. Its pitch curve sets the playback speed, like tape: one octave up plays twice as fast.', 'Sampler voices are individual voices: the setting belongs to the active voice only (Group Apply does not copy it), and they never join legato chains. Root = the note the file sounds at normal speed (Detect estimates it). Loop region repeats the region while the voice lasts (with a crossfade of Fade ms); otherwise the region plays once. Files are kept in the project file (16-bit mono, at most 60 s each). Playback — Tape: pitch and speed move together. Pitch only: the pitch curve changes only the pitch (granular shift, Grain ms) and the file is read at Speed × its own speed; Speed 0 freezes the sound at the region start.', 'tape: rate(t) = f(t) / f_root   ·   pitch only: ratio(t) = f(t) / f_root, read pointer = t0 + speed · t'],
-    ['샘플러 (이 보이스)', '보이스가 합성 파형 대신 사운드 파일의 구간을 재생합니다. 음고 곡선이 테이프처럼 재생 속도를 정합니다 — 한 옥타브 위 = 두 배 속도.', '샘플러 보이스는 개별 보이스입니다: 설정은 활성 보이스에만 적용되고(그룹 적용으로 복사되지 않음), 레가토 체인에 들어가지 않습니다. 루트 = 파일이 원래 속도로 낼 때의 음(추정 버튼으로 계산). 구간 반복은 보이스가 계속되는 동안 구간을 반복하고(페이드 ms 길이의 크로스페이드), 끄면 구간을 한 번만 재생합니다. 파일은 프로젝트 파일에 저장됩니다(16비트 모노, 파일당 최대 60초). 재생 방식 — 테이프: 음높이와 속도가 함께 변함. 음높이만: 음고 곡선이 음높이만 바꾸고(그레인 시프트, 그레인 ms) 파일은 속도 × 원래 속도로 읽음. 속도 0은 구간 시작에서 소리를 정지(프리즈)합니다.', '테이프: rate(t) = f(t) / f_root   ·   음높이만: ratio(t) = f(t) / f_root, 읽기 위치 = t0 + speed · t'],
+    ['Sampler (this voice)', 'The voice plays a region of a sound file instead of a synthesized wave. Its pitch curve sets the playback speed, like tape: one octave up plays twice as fast.', 'The setting belongs to the active voice (use the timbre Group Apply to give several voices the same file). Root = the note the file sounds at normal speed (Detect estimates it). Loop region repeats the region while the voice lasts (with a crossfade of Fade ms); otherwise the region plays once. Envelope adds a fade-in and fade-out over the region (on the waveform: the bottom half sets the region, the top half drags the fade-in on the left and the fade-out on the right, and turns the envelope on); with Loop, Overlap fades lays each pass\'s fade-out over the next pass\'s fade-in (off: fade out, then fade in). ▶ / ■ and the playhead bar play the region on its own at the root note and the play speed. Back-to-back Sampler voices with the same settings can read on through each other (Sampler join, next to Legato Join). Files are kept in the project file (16-bit mono, at most 60 s each). Playback — Tape: pitch and speed move together, and Speed × scales both (×2 = twice as fast and an octave up; at least ×0.05). Pitch only: the pitch curve changes only the pitch (granular shift, Grain ms) and the file is read at Speed × its own speed; Speed 0 freezes the sound at the region start.', 'tape: rate(t) = speed · f(t) / f_root   ·   pitch only: ratio(t) = f(t) / f_root, read pointer = t0 + speed · t'],
+    ['샘플러 (이 보이스)', '보이스가 합성 파형 대신 사운드 파일의 구간을 재생합니다. 음고 곡선이 테이프처럼 재생 속도를 정합니다 — 한 옥타브 위 = 두 배 속도.', '설정은 활성 보이스에 속합니다(여러 보이스에 같은 파일을 주려면 음색의 그룹 적용을 사용). 루트 = 파일이 원래 속도로 낼 때의 음(추정 버튼으로 계산). 구간 반복은 보이스가 계속되는 동안 구간을 반복하고(페이드 ms 길이의 크로스페이드), 끄면 구간을 한 번만 재생합니다. 엔벨로프는 구간에 페이드인·페이드아웃을 더합니다(파형 위: 아래쪽 반은 구간, 위쪽 반은 왼쪽 = 페이드인, 오른쪽 = 페이드아웃을 끌어 조정하며 엔벨로프가 켜집니다). 반복과 함께 쓰면 페이드 겹치기가 매 회차의 페이드아웃을 다음 회차의 페이드인 위에 겹칩니다(끄면 페이드아웃 후 페이드인). ▶ / ■ 와 플레이헤드 막대는 구간을 루트 음과 재생 속도로 따로 재생합니다. 같은 설정의 맞닿은 샘플러 보이스는 이어서 읽을 수 있습니다(레가토 연결 옆의 샘플러 잇기). 파일은 프로젝트 파일에 저장됩니다(16비트 모노, 파일당 최대 60초). 재생 방식 — 테이프: 음높이와 속도가 함께 변하며, 속도 ×가 둘을 함께 바꿈(×2 = 두 배 빠르고 한 옥타브 위, 최소 ×0.05). 음높이만: 음고 곡선이 음높이만 바꾸고(그레인 시프트, 그레인 ms) 파일은 속도 × 원래 속도로 읽음. 속도 0은 구간 시작에서 소리를 정지(프리즈)합니다.', '테이프: rate(t) = speed · f(t) / f_root   ·   음높이만: ratio(t) = f(t) / f_root, 읽기 위치 = t0 + speed · t'],
+  ),
+  'gliss.timbreGroup': H(
+    ['Timbre Group Apply', 'Give the selected voices one timbre: pick one of the timbres they use now, or import a new sound file.', 'Tick the voices first (card checkboxes). The window lists each different timbre among them (Mix, f(x) or Sample) with a small picture and the voices that use it; Apply copies it onto every selected voice. Import sound file… (or drop a file on that row) makes the new file the Sampler timbre of all of them, keeping the active voice\'s Sampler settings when it already is one. Each voice keeps its own copy, so it can still be edited alone. One undo step.'],
+    ['음색 그룹 적용', '선택된 보이스들에 음색 하나를 줍니다: 지금 쓰는 음색 중 하나를 고르거나 새 사운드 파일을 가져옵니다.', '먼저 보이스를 체크하세요(카드 체크박스). 창에 그 보이스들의 서로 다른 음색(Mix, f(x), 샘플)이 작은 그림, 그 음색을 쓰는 보이스와 함께 나옵니다. 적용을 누르면 선택된 모든 보이스에 복사됩니다. 사운드 파일 가져오기…(또는 그 줄에 파일 끌어 놓기)는 새 파일을 모두의 샘플러 음색으로 만들며, 활성 보이스가 이미 샘플러면 그 설정을 유지합니다. 각 보이스는 자기 사본을 가지므로 나중에 따로 편집할 수 있습니다. 실행 취소 한 단계.'],
+  ),
+  'gliss.sampleJoin': H(
+    ['Sampler join', 'What back-to-back Sampler voices do at the junction: start the file again, or read on.', 'Continue if pitches meet (default): when a voice starts where the previous one ends (in time) and within 0.3 semitone of its end pitch, one source reads on through both — no restart, no click. Always continue: the same at any pitch (a pitch step then becomes a short glide of Junction glide ms). Restart each voice: every voice plays its region from the start. Only voices with the same sample settings (file, region, root, playback, envelope, speed) read on; any other back-to-back Sampler voices (restart, pitch apart, other settings) start anew, and with Legato Join on they are crossfaded in like synth joins (no gap, no two fades). Synth voices follow Legato Join. While playing, the Sampler monitor shows where the active voice is reading.'],
+    ['샘플러 잇기', '맞닿은 샘플러 보이스가 경계에서 하는 일: 파일을 다시 시작하거나 이어서 읽습니다.', '음고가 이어질 때만 이어서(기본): 보이스가 앞 보이스의 끝(시간)에서 시작하고 끝 음고와 0.3반음 안이면, 소스 하나가 두 보이스를 이어서 읽습니다 — 다시 시작도, 뚝 소리도 없음. 항상 이어서: 음고와 무관하게 똑같이(음고 차이는 경계 글라이드 ms 길이의 짧은 글라이드가 됨). 보이스마다 새로 재생: 각 보이스가 구간을 처음부터 재생합니다. 샘플 설정(파일·구간·루트·재생 방식·엔벨로프·속도)이 같은 보이스끼리만 이어 읽으며, 그 밖의 맞닿은 샘플러 보이스(새로 재생, 음고 차이, 다른 설정)는 새로 시작하되 레가토 연결이 켜져 있으면 신스처럼 교차 페이드로 이어집니다(끊김·이중 페이드 없음). 신스 보이스는 레가토 연결을 따릅니다. 재생 중에는 샘플러 모니터에 활성 보이스가 읽는 위치가 표시됩니다.'],
+  ),
+  'gliss.adsr': H(
+    ['ADSR envelope', 'Attack, decay, sustain and release of the voice\'s sound, inside the voice\'s own span.', 'Attack rises from silence to full level, Decay falls to the Sustain level, which holds until Release fades to silence at the voice\'s end (the voice never gets longer; when A + D do not fit they are squeezed). It multiplies the gain envelope, tremolo and regions. Restart at joins: off (default) — voices joined back to back (Legato Join) with the same ADSR count as one line and get one envelope over the whole run; on — this voice starts a new envelope where it joins the previous one. Group Apply honoured.', 'g(t) = A: t/a · D: 1 + (s − 1)(t − a)/d · S: s · R: s · (1 − (t − (T − r))/r)'],
+    ['ADSR 엔벨로프', '보이스 소리의 어택·디케이·서스테인·릴리스 (보이스 자신의 구간 안에서).', '어택은 무음에서 최대 레벨로, 디케이는 서스테인 레벨로 내려가고, 서스테인은 보이스 끝에서 릴리스가 무음으로 끝날 때까지 유지됩니다 (보이스가 길어지지 않으며, A + D가 들어가지 않으면 압축). 게인 엔벨로프·트레몰로·구간과 곱해집니다. 이어진 선에서 새로 시작: 꺼짐(기본) — 맞닿아 이어진 보이스(레가토 연결)가 같은 ADSR이면 하나의 선으로 보고 전체에 엔벨로프 하나; 켜짐 — 이 보이스가 앞 보이스와 이어지는 곳에서 새 엔벨로프. 그룹 적용 지원.', 'g(t) = A: t/a · D: 1 + (s − 1)(t − a)/d · S: s · R: s · (1 − (t − (T − r))/r)'],
+  ),
+  'gliss.clip': H(
+    ['Play range · trim · split', 'Play only part of a line\'s curve, extend it along its own shape, or cut it into linked pieces.', 'With ✥ Locate on: ⌘ (Ctrl) + drag a line along x moves its nearer end along the curve — shorter trims it (the unplayed part stays visible, faint), past the curve\'s end extends it (Extend: Shape follows the engine\'s formula, Straight goes on with the end slope). The curve itself does not move or stretch. Double-click a line (or ✂ Split at the cue) cuts it into two pieces that together play the same; they are linked 🔗: curve-shape edits on one are copied to the other. Untick 🔗 on a card to make that piece a separate line. Unplayed parts: faint in the monitor, or hidden. The gain envelope and regions belong to the whole curve, so a piece plays its part of them. The same gestures work in Field (particles; extending follows the end tangent, linked pieces share one trajectory), Draw (strokes; linked strokes share the drawn line), Space (sources; trim only — lengthen with Duration) and Tempo (voices; trim only — lengthen with Loop or the tempo). Studios whose lines are generated (Cloud, Chaos, Fractal, Wave, Grid) have nothing to trim; their Locate buttons say so.'],
+    ['재생 구간 · 자르기 · 나누기', '선의 곡선 중 일부만 재생하거나, 선 자신의 모양대로 늘리거나, 링크된 조각으로 자릅니다.', '✥ 이동 도구가 켜진 상태에서 ⌘(Ctrl) + 선을 x 방향으로 드래그하면 가까운 끝이 곡선을 따라 움직입니다 — 짧게 하면 잘림(재생하지 않는 부분은 연하게 보임), 곡선 끝을 넘어가면 연장(연장: 모양대로 = 엔진 수식, 직선 = 끝 기울기). 곡선 자체는 움직이거나 늘어나지 않습니다. 선 더블클릭(또는 큐 위치에서 ✂ 자르기)은 합치면 같은 소리가 나는 두 조각으로 자르며, 두 조각은 링크 🔗되어 한쪽의 곡선 모양 변경이 다른 쪽에 복사됩니다. 카드의 🔗 체크를 해제하면 별개의 선이 됩니다. 재생 안 하는 부분: 모니터에 연하게, 또는 숨김. 게인 엔벨로프와 구간은 곡선 전체의 것이라 조각은 자기 부분을 재생합니다. 같은 동작이 필드(입자; 늘리기는 끝 접선, 링크 조각은 한 궤적 공유), 드로잉(획; 링크 획은 그린 선 공유), 스페이스(음원; 줄이기만 — 늘리기는 길이로), 템포(보이스; 줄이기만 — 늘리기는 루프·템포로)에서도 됩니다. 선이 생성되는 스튜디오(클라우드·카오스·프랙탈·웨이브·그리드)는 자를 대상이 없으며 이동 버튼에 이유가 표시됩니다.'],
   ),
   'gliss.timbreMix': H(
     ['Waveform mix', 'Levels of sine, triangle, saw, square and rich partials.', 'Combined into one PeriodicWave (additive synthesis).'],
@@ -416,8 +436,20 @@ export const HELP_EXTRA = {
 
   // ---------------- Voice cards / 보이스 카드
   'gliss.grapher': H(
-    ['Multi-Voice Grapher', 'All Glissando voices as cards; the badge shows how many there are.', 'Pick the active voice here, add / duplicate / delete voices, open the Unified Matrix and set legato joins.'],
-    ['다중 보이스 그래퍼', '모든 글리산도 보이스를 카드로 보여 줍니다. 배지는 보이스 수입니다.', '여기서 활성 보이스를 고르고, 보이스를 추가·복제·삭제하며, 통합 매트릭스와 레가토 연결을 설정합니다.'],
+    ['Module List (Multi-Voice Grapher)', 'All Glissando voices as cards; the badge shows how many there are.', 'Pick the active voice here, add / duplicate / delete voices, open the Unified Matrix and set legato joins.'],
+    ['모듈 리스트 (다중 보이스 그래퍼)', '모든 글리산도 보이스를 카드로 보여 줍니다. 배지는 보이스 수입니다.', '여기서 활성 보이스를 고르고, 보이스를 추가·복제·삭제하며, 통합 매트릭스와 레가토 연결을 설정합니다.'],
+  ),
+  'gliss.multiSelect': H(
+    ['Selecting voices', 'Tick the checkbox at the start of a card to add that voice to the selection; untick it to remove it.', 'No mode to switch on: the checkboxes always add and remove. A plain click on a card selects only that voice; Ctrl/⌘+click and Shift+click (range) still work. Select all takes every voice. When two or more are ticked, group edit switches on (in the mode last used). The bright card is the active voice — the one the toolboxes show.'],
+    ['보이스 선택', '카드 맨 앞의 체크박스를 체크하면 그 보이스가 선택에 더해지고, 해제하면 빠집니다.', '따로 켜는 모드가 없습니다: 체크박스는 언제나 더하고 뺍니다. 카드를 그냥 클릭하면 그 보이스만 선택됩니다. Ctrl/⌘+클릭과 Shift+클릭(범위)도 그대로 됩니다. 모두 선택은 모든 보이스를 고릅니다. 2개 이상 체크하면 그룹 편집이 (마지막에 쓴 방식으로) 켜집니다. 밝은 카드가 활성 보이스 — 툴박스가 보여 주는 보이스입니다.'],
+  ),
+  'gliss.groupEdit': H(
+    ['Group edit mode', 'How a toolbox edit or a Locate drag reaches the other selected voices.', 'Active only: nothing but the active voice changes. Sync: every selected voice gets the same value. Ratio: every voice is scaled by the same factor as the active voice. Offset: the same amount is added to every voice. Ratio and Offset keep the voices different; they are measured from the start of the drag. Settings that are not numbers (engine, modes, point lists) are always synced, and pitch always moves by the same interval. A Locate drag on a selected line moves the whole selection together (Ratio scales the start times).', 'sync: bᵢ = a′   ·   ratio: bᵢ′ = bᵢ · a′/a   ·   offset: bᵢ′ = bᵢ + (a′ − a)'],
+    ['그룹 편집 방식', '툴박스 편집이나 이동(Locate) 드래그가 다른 선택 보이스에 전달되는 방식.', '활성만: 활성 보이스만 바뀝니다. 동기화: 선택한 모든 보이스가 같은 값이 됩니다. 비율: 활성 보이스와 같은 배율을 곱합니다. 덧셈: 같은 양을 더합니다. 비율·덧셈은 보이스마다 다른 값을 유지하며, 드래그 시작 시점을 기준으로 계산합니다. 숫자가 아닌 설정(엔진·모드·점 목록)은 항상 동기화되고, 음고는 항상 같은 음정만큼 움직입니다. 선택된 선을 이동 도구로 끌면 선택 전체가 함께 움직입니다(비율은 시작 시각을 배율로 조정).', 'sync: bᵢ = a′   ·   ratio: bᵢ′ = bᵢ · a′/a   ·   offset: bᵢ′ = bᵢ + (a′ − a)'],
+  ),
+  'gen.glissando.tools': H(
+    ['Apply toolboxes', 'Stamp the active voice\'s toolbox settings onto every generated voice.', 'Check the toolboxes you need. When you press Replace or Append, each checked toolbox is copied exactly as it is set on the active voice at that moment. Curve Engine replaces the generator\'s own Curve Engine choice. Pitch & Timing copies the scale, f(t) / f′(t) and base gain only — F₀, F₁, start and duration come from the preset.'],
+    ['툴박스 적용', '활성 보이스의 툴박스 설정을 생성되는 모든 보이스에 그대로 적용합니다.', '필요한 툴박스를 체크하세요. 교체 / 추가를 누르면, 체크한 툴박스가 그 순간 활성 보이스에 설정된 그대로 복사됩니다. 곡선 엔진을 체크하면 생성기의 곡선 엔진 선택을 대신합니다. 음고 & 타이밍은 스케일·f(t)/f′(t)·기본 게인만 복사합니다 — F₀·F₁·시작·길이는 프리셋이 정합니다.'],
   ),
   'gliss.voiceCard': H(
     ['Voice card', 'Click to make this voice active; the editors below then edit it.', 'Ctrl/⌘+click adds or removes it from the selection, Shift+click selects a range (used by Group Apply). Double-click renames it. The small number is its curve engine; a struck-through name means it is silent (muted, or another voice is soloed).'],
@@ -428,10 +460,9 @@ export const HELP_EXTRA = {
     ['순서 변경 손잡이', '카드를 다른 카드 위로 드래그해 보이스 순서를 바꿉니다.', '순서는 카드 목록, 매트릭스, 이웃 보이스 사이의 레가토 연결에 영향을 줍니다.'],
   ),
   'gliss.soloMute': H(
-    ['Solo / Mute', 'S plays only the soloed voices; M silences this voice.', 'When any voice is soloed, every non-soloed voice is silent. Both also apply to WAV export.'],
-    ['솔로 / 뮤트', 'S는 솔로된 보이스만 재생하고, M은 이 보이스를 끕니다.', '솔로된 보이스가 하나라도 있으면 솔로가 아닌 보이스는 모두 소리가 나지 않습니다. WAV 내보내기에도 똑같이 적용됩니다.'],
+    ['Solo / Mute', 'S plays only the soloed voices; M silences this voice. On a voice that is one of several selected voices, both act on the whole selection.', 'Selection: S solos exactly the selected voices and turns every other solo off (press again to clear all solos). M mutes the selected voices whatever else is muted (when they are all muted already, it unmutes them); double-click M to mute only the selected voices and unmute every other one. One voice: S and M toggle it; double-click M mutes only that voice. When any voice is soloed, every non-soloed voice is silent. Both also apply to WAV export.'],
+    ['솔로 / 뮤트', 'S는 솔로된 보이스만 재생하고, M은 이 보이스를 끕니다. 여러 보이스가 선택돼 있고 이 보이스가 그중 하나면 선택 전체에 적용됩니다.', '선택: S는 다른 솔로를 모두 끄고 선택된 보이스만 솔로합니다(다시 누르면 솔로 모두 해제). M은 다른 뮤트 상태와 관계없이 선택된 보이스를 뮤트합니다(이미 모두 뮤트돼 있으면 해제). M을 더블클릭하면 선택된 보이스만 뮤트하고 나머지는 모두 뮤트를 풉니다. 보이스 하나: S·M은 켜고 끄기, M 더블클릭은 그 보이스만 뮤트. 솔로된 보이스가 하나라도 있으면 솔로가 아닌 보이스는 모두 소리가 나지 않습니다. WAV 내보내기에도 똑같이 적용됩니다.'],
   ),
-
   // ---------------- Version gallery items / 버전 갤러리 항목
   'ver.item': H(
     ['Version', 'One backup of the Glissando voices, taken together with a screenshot.', '#number, the time it was taken, and “clean” when the screenshot used the Axes + lines mode. The thumbnail is the screenshot image.'],
@@ -476,7 +507,7 @@ export const HELP_EXTRA_BY_ID = {
   btnStudioChaos: 'app.studio.chaos', btnStudioFractal: 'app.studio.fractal', btnStudioWave: 'app.studio.wave',
   btnPlay: 'app.play', btnLoop: 'app.loop', btnStop: 'app.stop', btnCueReset: 'app.cue',
   btnUndo: 'app.undo', btnRedo: 'app.undo', btnScreenshot: 'app.screenshot',
-  btnNewProject: 'app.newProject', btnSaveProject: 'app.saveLoad', btnLoadProject: 'app.saveLoad', btnExportWav: 'app.exportWav',
+  btnNewProject: 'app.newProject', btnSaveProject: 'app.saveLoad', btnLoadProject: 'app.saveLoad', btnExportWav: 'app.exportWav', btnExport: 'app.exportMenu', btnExportVideo: 'app.studioVideo', btnExportTracks: 'app.trackExport',
   btnLangToggle: 'app.lang', btnLayoutToggle: 'app.layout',
   btnZoomOut: 'app.uiZoom', btnZoomIn: 'app.uiZoom', inputUiZoom: 'app.uiZoom',
   btnManager: 'app.manager', btnHelpMode: 'app.helpMode',
@@ -493,7 +524,7 @@ export const HELP_EXTRA_BY_ID = {
   btnTargetCurve: 'gliss.target', btnTargetAmp: 'gliss.target',
   btnReverse: 'gliss.reverse', btnInverse: 'gliss.reverse',
   inputAmpMin: 'gliss.ampRange', inputAmpMax: 'gliss.ampRange', btnAmpAutoFit: 'gliss.ampRange',
-  btnGroupApply: 'gliss.groupApply', btnScaleLog: 'gliss.scale', btnScaleLin: 'gliss.scale',
+  btnGroupApply: 'gliss.groupApply', btnTimbreGroup: 'gliss.timbreGroup', selectSampleJoin: 'gliss.sampleJoin', btnScaleLog: 'gliss.scale', btnScaleLin: 'gliss.scale',
   btnAudioPos: 'gliss.audioTarget', btnAudioVel: 'gliss.audioTarget',
   inputF0Note: 'gliss.f0', sliderF0Midi: 'gliss.f0', inputF0Hz: 'gliss.f0', inputF0Fine: 'gliss.f0',
   inputF1Note: 'gliss.f1', sliderF1Midi: 'gliss.f1', inputF1Hz: 'gliss.f1', inputF1Fine: 'gliss.f1',

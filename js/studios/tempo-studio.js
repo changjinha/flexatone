@@ -14,6 +14,7 @@
  * Imports: core/*, modules/*, studios/registry.js, studios/tempo/tempo-engine.js, tempo-i18n.js.
  */
 
+import { splitClip, syncLinkedAfterEdit } from '../core/line-clip.js';
 import { deepClone } from '../core/math-utils.js';
 import { midiToFreq } from '../core/units.js';
 import { findMissingI18nKeys, I18N } from '../core/i18n.js';
@@ -44,6 +45,7 @@ import {
   PRESET_IDS,
   RATE_MIN,
   BAKE_RATE,
+  MAX_TEMPO_VOICES,
 } from './tempo/tempo-engine.js';
 import { timbreSpecToVoiceFields } from '../modules/timbre-spec.js';
 
@@ -61,8 +63,45 @@ export function getTempoParams() {
  */
 export function editTempo(fn, { history = true, coalesceKey = null } = {}) {
   const draft = getTempoParams();
+  const before = draft.voices.some((v) => v.link?.on) ? JSON.parse(JSON.stringify(draft.voices)) : null;
   fn(draft);
+  // 🔗 linked pieces of one voice keep one tempo line (core/line-clip.js) / 링크된 조각은 같은 템포 선
+  if (before) syncLinkedAfterEdit(before, draft.voices, TEMPO_LINK_KEYS, draft.activeVoiceId);
   return StudioRegistry.setParams(TEMPO_ID, draft, { history, coalesceKey });
+}
+
+/** What linked pieces of a voice share (🔗): its tempo line, loop and transposition. / 링크된 조각이 공유하는 필드 */
+export const TEMPO_LINK_KEYS = Object.freeze(['tempo', 'loop', 'transpose', 'octaveShift']);
+
+/**
+ * ✂ Cut a voice at `sec` into two linked voices (Locate double-click on the timeline): both keep the
+ * whole tempo line, their play ranges split the audible window. / 보이스를 sec에서 링크된 두 보이스로 자르기
+ */
+export function splitTempoVoice(id, sec) {
+  const doc = getTempoParams();
+  const bv = getTempoBake(doc)?.map?.get(id);
+  if (!bv || doc.voices.length >= MAX_TEMPO_VOICES) return false;
+  let ok = false;
+  editTempo((d) => {
+    const i = d.voices.findIndex((x) => x.id === id);
+    const v = d.voices[i];
+    if (!v) return;
+    const cl = splitClip(v.clip, bv.uOn0, Math.max(1e-6, bv.uOff0 - bv.uOn0), sec);
+    if (!cl) return;
+    const linkId = v.link?.id || `ln_${Math.random().toString(36).slice(2, 8)}`;
+    const b = JSON.parse(JSON.stringify(v));
+    b.id = `tv_${Math.random().toString(36).slice(2, 8)}`;
+    b.name = `${String(v.name || 'Voice').replace(/ ✂\d+$/, '')} ✂${Math.max(1, d.voices.filter((x) => x.link?.id === linkId).length) + 1}`.slice(0, 40);
+    b.solo = false;
+    v.link = { id: linkId, on: true };
+    b.link = { id: linkId, on: true };
+    if (cl[0]) v.clip = cl[0]; else delete v.clip;
+    if (cl[1]) b.clip = cl[1]; else delete b.clip;
+    d.voices.splice(i + 1, 0, b);
+    d.activeVoiceId = b.id;
+    ok = true;
+  });
+  return ok;
 }
 
 export function getActiveTempoVoice(doc = getTempoParams()) {

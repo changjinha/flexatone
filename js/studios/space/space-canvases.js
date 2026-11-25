@@ -14,15 +14,19 @@
  * Time canvases: double-click sets the cue (shared transport).
  */
 
+import { trimClip, splitByClip } from '../../core/line-clip.js';
+import { drawUnplayed } from '../../ui/line-link.js';
+import { spaceSourceWindow } from './space-audio.js';
 import { clamp, roundTo } from '../../core/math-utils.js';
 import { freqToMidi, midiToNoteName } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
 import { appState, endHistoryGesture } from '../../core/state.js';
 import {
   getKinematics, trajectoryPolyline, wavefrontRings, pathHandles, applyHandleDrag, resampleStroke,
-  sampleBake, pathLength, effectiveC, MAX_RINGS, MAX_DRAW_POINTS,
+  sampleBake, pathLength, effectiveC, MAX_RINGS, MAX_DRAW_POINTS, listenerStateAt, superMode, soundSpeed,
 } from './space-engine.js';
-import { getSpaceParams, editSpace, getActiveSource, isSourceAudible, getSpaceBake } from '../space-studio.js';
+import { drawListenerPath, drawRoomBox, drawSourceName } from './space-scene3d.js';
+import { getSpaceParams, editSpace, getActiveSource, isSourceAudible, getSpaceBake, splitSource } from './space-doc.js'; // the document on screen: studio or Space Master / 화면의 문서
 import { drawCueLine, drawPlayheadLine } from '../../ui/transport-lines.js';
 import { wheelNavigate, zoomViewTime, zoomViewPitch } from '../../ui/view-nav.js';
 import { attachLocate, cueOrAudition } from '../../ui/locate-tool.js';
@@ -127,7 +131,9 @@ function plotSeries(ctx, b, key, ax, toY, plotW) {
   ctx.stroke();
 }
 
-export function createSpaceCanvases(els, { requestRender }) {
+export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
+  /** The top view as a space-views.js orthographic view (node editor). / 상단 뷰 어댑터 */
+  const topView = (m) => ({ plane: 'top', k: m.k, toPx: (q) => ({ x: m.wx(q.x), y: m.wy(q.y) }), fromPx: (px, py) => ({ x: m.sx(px), y: m.sy(py) }) });
   // Zoom / scroll of the time canvases (shared view-nav). UI-local: null = whole piece / fitted pitch.
   // 시간 캔버스 줌·스크롤 (공용 view-nav). UI 지역 상태: null = 전체 길이 / 자동 음고 범위
   let timeView = null; // { tMin, tMax }
@@ -160,8 +166,9 @@ export function createSpaceCanvases(els, { requestRender }) {
     const doc = getSpaceParams();
     const bake = getSpaceBake(doc);
     const m = sceneMetrics(w, h, doc.view);
-    const L = doc.listener;
     const T = sceneTime();
+    // where the listener is (and faces) now; equal to doc.listener while it is static / 지금의 청취자 위치·방향
+    const L = { ...doc.listener, ...listenerStateAt(doc, T) };
     const cEff = effectiveC(doc);
     ctx.fillStyle = '#020617';
     ctx.fillRect(0, 0, w, h);
@@ -214,14 +221,20 @@ export function createSpaceCanvases(els, { requestRender }) {
 
     // wavefront rings + sources at T / 파면 링과 T 시점 음원
     const ringDt = Math.max(0.01, doc.view.span / cEff / 14);
+    const showRings = doc.view3d?.rings !== false; // ◎ toggle in the monitor toolbar / 모니터 툴바의 ◎ 토글
     for (const s of doc.sources) {
       if (!isSourceAudible(s, doc)) continue;
       const kin = getKinematics(s, doc);
-      for (const ring of wavefrontRings(s, doc, T, ringDt, MAX_RINGS)) {
+      if (showRings) for (const ring of wavefrontRings(s, doc, T, ringDt, MAX_RINGS)) {
         ctx.strokeStyle = alpha(s.color, 0.5 * (1 - ring.k / (MAX_RINGS + 1)));
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(m.wx(ring.x), m.wy(ring.y), ring.radius * m.k, 0, Math.PI * 2);
+        // cross-section of the sphere with the listener's horizontal plane (dz = 0 → the full radius)
+        // 청취자 높이의 수평면과 구의 단면 (dz = 0이면 전체 반지름)
+        const dz = (ring.z || 0) - (Number(L.z) || 0);
+        const rr = ring.radius * ring.radius - dz * dz;
+        if (rr <= 0) continue;
+        ctx.arc(m.wx(ring.x), m.wy(ring.y), Math.sqrt(rr) * m.k, 0, Math.PI * 2);
         ctx.stroke();
       }
       const tau = T - kin.start;
@@ -233,8 +246,7 @@ export function createSpaceCanvases(els, { requestRender }) {
       arrow(ctx, px, py, px + st.vx * m.k * sc, py - st.vy * m.k * sc, '#e2e8f0', 1.4);
       ctx.fillStyle = s.color;
       ctx.beginPath(); ctx.arc(px, py, s.id === active?.id ? 7 : 5.5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillText(s.name, px + 9, py - 8);
+      drawSourceName(ctx, doc, s.name, px, py);
     }
     // heard (emission) position, sound ray and v_r / 들리는 방출 위치, 음선, v_r
     for (const s of doc.sources) {
@@ -259,8 +271,41 @@ export function createSpaceCanvases(els, { requestRender }) {
         arrow(ctx, m.wx(hx), m.wy(hy), m.wx(hx) + ux * len, m.wy(hy) - uy * len, '#f59e0b', 2);
       }
     }
+    // Supersonic sources: every other place the source is heard at now, and its Mach cone / 초음속: 지금 들리는 다른 위치들과 마하 원뿔
+    if (superMode(doc) !== 'clamp') for (const s of doc.sources) {
+      if (!isSourceAudible(s, doc)) continue;
+      for (const ex of bake.sources.get(s.id)?.more || []) {
+        const ex1 = sampleBake(ex, 'x', T);
+        if (!Number.isFinite(ex1)) continue;
+        const ey = sampleBake(ex, 'y', T);
+        ctx.strokeStyle = alpha(s.color, 0.5);
+        ctx.setLineDash(ex.reversed ? [3, 3] : [1, 3]);
+        ctx.beginPath(); ctx.moveTo(m.wx(ex1), m.wy(ey)); ctx.lineTo(m.wx(L.x), m.wy(L.y)); ctx.stroke();
+        ctx.beginPath(); ctx.arc(m.wx(ex1), m.wy(ey), 6, 0, Math.PI * 2); ctx.stroke(); // dashed ring: heard backwards / 점선 고리: 거꾸로 들림
+        ctx.setLineDash([]);
+      }
+      const kin = getKinematics(s, doc);
+      const tau = T - kin.start;
+      if (!(tau >= 0 && tau <= kin.dur)) continue;
+      const st = kin.stateAt(tau);
+      const cNow = soundSpeed(doc).at(T);
+      if (!(st.speed > cNow)) continue;
+      const mu = Math.asin(cNow / st.speed); // half-angle of the Mach cone / 마하 원뿔의 반각
+      const back = Math.atan2(-st.vy, -st.vx);
+      const reach = doc.view.span;
+      ctx.strokeStyle = 'rgba(248, 113, 113, 0.75)';
+      ctx.lineWidth = 1.2;
+      for (const sg of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(m.wx(st.x), m.wy(st.y));
+        ctx.lineTo(m.wx(st.x + reach * Math.cos(back + sg * mu)), m.wy(st.y + reach * Math.sin(back + sg * mu)));
+        ctx.stroke();
+      }
+    }
 
     // listener / 청취자
+    drawRoomBox(ctx, doc, (q) => ({ x: m.wx(q.x), y: m.wy(q.y) }));
+    drawListenerPath(ctx, doc, (q) => ({ x: m.wx(q.x), y: m.wy(q.y) }));
     const lx = m.wx(L.x);
     const ly = m.wy(L.y);
     const hd = (L.headingDeg * Math.PI) / 180;
@@ -297,6 +342,7 @@ export function createSpaceCanvases(els, { requestRender }) {
         ctx.strokeRect(m.wx(hnd.x) - 5, m.wy(hnd.y) - 5, 10, 10);
       }
     }
+    nodeEditor?.draw(ctx, topView(m)); // spline nodes + handles of the active source / 활성 음원의 스플라인 노드·핸들
     if (stroke && stroke.length > 1) {
       ctx.strokeStyle = '#f472b6';
       ctx.lineWidth = 2;
@@ -313,8 +359,10 @@ export function createSpaceCanvases(els, { requestRender }) {
     const hd = (L.headingDeg * Math.PI) / 180;
     const nx = m.wx(L.x) + Math.sin(hd) * 22;
     const ny = m.wy(L.y) - Math.cos(hd) * 22;
-    if (Math.hypot(p.x - nx, p.y - ny) < 8) return { type: 'heading' };
-    if (Math.hypot(p.x - m.wx(L.x), p.y - m.wy(L.y)) < 12) return { type: 'listener' };
+    // A moving listener is edited through its path nodes, an automated heading through its lanes
+    // 움직이는 청취자는 경로 노드로, 자동화된 방향은 레인으로 편집
+    if (!L.move?.on && (L.orient?.mode || 'fixed') === 'fixed' && Math.hypot(p.x - nx, p.y - ny) < 8) return { type: 'heading' };
+    if (!L.move?.on && Math.hypot(p.x - m.wx(L.x), p.y - m.wy(L.y)) < 12) return { type: 'listener' };
     const active = getActiveSource(doc);
     if (active) for (const hnd of pathHandles(active, L)) if (Math.abs(p.x - m.wx(hnd.x)) < 8 && Math.abs(p.y - m.wy(hnd.y)) < 8) return { type: 'handle', key: hnd.key };
     const T = sceneTime();
@@ -338,6 +386,7 @@ export function createSpaceCanvases(els, { requestRender }) {
       drag = { type: 'draw' };
       return;
     }
+    if (nodeEditor?.down(e, topView(m), p, doc.tool)) { drag = { type: 'node' }; return; }
     const hit = hitScene(p, doc, m);
     if (hit?.type === 'select') { editSpace((d) => { d.activeSourceId = hit.id; }, { history: false }); drag = null; return; }
     drag = hit || { type: 'pan', x: p.x, y: p.y, view: { ...doc.view } };
@@ -349,6 +398,7 @@ export function createSpaceCanvases(els, { requestRender }) {
     const p = pos(e, els.scene);
     const wx = m.sx(p.x);
     const wy = m.sy(p.y);
+    if (drag.type === 'node') { nodeEditor.move(e, topView(m), p); return; }
     if (drag.type === 'draw') {
       const last = stroke[stroke.length - 1];
       if (Math.hypot(p.x - last.px, p.y - last.py) >= 3) stroke.push({ x: wx, y: wy, px: p.x, py: p.y });
@@ -379,13 +429,14 @@ export function createSpaceCanvases(els, { requestRender }) {
           s.path.type = 'draw';
           s.path.points = pts;
           const len = pathLength(s, d.listener);
-          const v = s.speed.mode === 'const' ? s.speed.value : 0.5 * (s.speed.from + s.speed.to);
+          const v = s.speed.mode === 'curve' ? 0.5 * (s.speed.from + s.speed.to) : s.speed.value;
           if (v > 0.1 && len > 0) s.duration = roundTo(clamp(len / v, 0.5, 300), 2); // traverse once / 한 번 주행
         });
         endHistoryGesture();
       }
       stroke = null;
-    } else if (drag && drag.type !== 'pan') endHistoryGesture();
+    } else if (drag?.type === 'node') nodeEditor.up();
+    else if (drag && drag.type !== 'pan') endHistoryGesture();
     drag = null;
     try { els.scene.releasePointerCapture?.(e.pointerId); } catch { /* not captured */ }
     requestRender(['space']);
@@ -441,11 +492,26 @@ export function createSpaceCanvases(els, { requestRender }) {
       if (!b) continue;
       const step = Math.max(1, Math.floor(b.n / 400));
       const pl = [];
-      for (let i = 0; i < b.n; i += step) pl.push({ x: ax.timeToX(b.t[i]), y: hzToY(b.fObs[i]) });
-      pl.push({ x: ax.timeToX(b.t[b.n - 1]), y: hzToY(b.fObs[b.n - 1]) });
-      obsPolys.set(s.id, pl);
+      const span = Math.max(1e-9, b.t1 - b.t0);
+      for (let i = 0; i < b.n; i += step) pl.push({ x: ax.timeToX(b.t[i]), y: hzToY(b.fObs[i]), u: (b.t[i] - b.t0) / span });
+      pl.push({ x: ax.timeToX(b.t[b.n - 1]), y: hzToY(b.fObs[b.n - 1]), u: 1 });
+      // Play range (core/line-clip.js): the played part is the line, the rest is drawn faint / 재생 부분만 선, 나머지는 연하게
+      const parts = s.clip ? splitByClip(pl, s.clip) : { played: [pl], ghost: [] };
+      obsPolys.set(s.id, parts.played.length ? parts.played.flat() : []);
       const aud = isSourceAudible(s, doc);
       const on = s.id === active?.id;
+      if (s.clip) {
+        ctx.strokeStyle = alpha(s.color, aud ? 0.6 : 0.2); // emitted frequency, as for every source / 방출 주파수
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        plotSeries(ctx, b, 'fs', ax, hzToY, ax.plotW);
+        ctx.setLineDash([]);
+        drawUnplayed(ctx, parts.ghost, s.color, on);
+        ctx.strokeStyle = alpha(s.color, aud ? 1 : 0.3);
+        ctx.lineWidth = on ? 2.2 : 1.3;
+        for (const line of parts.played) { ctx.beginPath(); line.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.stroke(); }
+        continue;
+      }
       ctx.strokeStyle = alpha(s.color, aud ? 0.6 : 0.2);
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
@@ -476,10 +542,23 @@ export function createSpaceCanvases(els, { requestRender }) {
     begin(id) {
       if (!obsPitch) obsPitch = { ...obsAuto };
       const s = getSpaceParams().sources.find((x) => x.id === id);
-      return { start: Number(s.start) || 0, duration: Number(s.duration) || 1, f: { ...s.f } };
+      return { start: Number(s.start) || 0, duration: Number(s.duration) || 1, f: { ...s.f }, clip: s.clip ? { ...s.clip } : undefined };
     },
-    // Observed sound starts after the propagation delay: the bake's t0 / 관측음은 전파 지연 후 시작
-    startOf: (id) => getSpaceBake(getSpaceParams()).sources.get(id)?.t0,
+    // Observed sound starts after the propagation delay: the bake's t0 (or the play range's start) / 관측음은 전파 지연 후 시작
+    startOf: (id) => { const doc = getSpaceParams(); const b = getSpaceBake(doc).sources.get(id); const s = doc.sources.find((x) => x.id === id); return b && s ? spaceSourceWindow(s, b).t0 : undefined; },
+    // ⌘ + drag: trim the heard span (a Space source is lengthened with its Duration); double-click: ✂ split
+    // ⌘ + 드래그: 들리는 구간 줄이기 (늘리기는 음원의 길이로), 더블클릭: 자르기
+    trim(id, side, w) {
+      const b = getSpaceBake(getSpaceParams()).sources.get(id);
+      if (!b) return;
+      editSpace((d) => {
+        const s = d.sources.find((x) => x.id === id);
+        if (!s) return;
+        const c = trimClip(w.orig.clip, b.t0, b.t1 - b.t0, side, w.sec, { minDur: 0.1, uMin: 0, uMax: 1 });
+        if (c) s.clip = c; else delete s.clip;
+      }, { coalesceKey: `space-trim-${side}` });
+    },
+    split: (id, sec) => splitSource(id, sec),
     select(id) { if (getActiveSource(getSpaceParams())?.id !== id) editSpace((d) => { d.activeSourceId = id; }, { history: false }); },
     apply(id, kind, w) {
       const o = w.orig;
@@ -568,6 +647,11 @@ export function createSpaceCanvases(els, { requestRender }) {
   els.scene.addEventListener('pointerup', onUp);
   els.scene.addEventListener('pointercancel', onUp);
   els.scene.addEventListener('wheel', onWheel, { passive: false });
+  els.scene.addEventListener('dblclick', (e) => {
+    if (e.altKey || !nodeEditor) return;
+    const doc = getSpaceParams();
+    nodeEditor.dbl(topView(sceneMetrics(els.scene.clientWidth, els.scene.clientHeight, doc.view)), pos(e, els.scene));
+  });
   // Shared wheel grammar (ui/view-nav.js): wheel = pitch, Shift = time, Ctrl/⌘ = zoom at the pointer.
   // The gain / pan / distance lanes have no pitch axis, so the wheel moves time there.
   // 공용 휠 문법. 음량·팬·거리 레인에는 음고 축이 없어 시간만 움직임

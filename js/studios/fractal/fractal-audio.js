@@ -15,6 +15,8 @@
  * 재생 중 프랙탈 연산 없음: 곡선은 캐시된 베이킹 배열의 부분 배열.
  */
 
+import { applyAdsrToCurve } from '../../core/adsr.js';
+import { timbreSpecAdsr } from '../../modules/timbre-spec.js';
 import { lineMixGain } from '../../core/line-mix.js';
 import { t } from '../../core/i18n.js';
 import { createTimbreWave } from '../../audio/studio-fx.js';
@@ -24,6 +26,9 @@ import { getOutputBus, createOfflineOutput } from '../../audio/output-bus.js';
 import { encodeWav, triggerDownload, EXPORT_SAMPLE_RATE, createBrightShelf } from '../../audio/audio-engine.js';
 import { createLiveTransport, soundKey } from '../../audio/live-transport.js';
 import { getFractalParams, getFractalBake } from '../fractal-studio.js';
+import { retimeFractalBake } from './fractal-engine.js';
+import { applyTempoToVoices } from '../../modules/tempo-manager.js';
+import { createToneSource } from '../../audio/sample-voice.js'; // the shared voice-source seam (D-1) / 공용 음원 이식점
 
 const MASTER = 0.42;
 const START_LEAD_SEC = 0.03;
@@ -45,7 +50,7 @@ export const masterFor = (bake) => {
  * 베이킹 보이스 하나를 cueSec부터 nowTime에 스케줄.
  * @returns {boolean} true when something was scheduled
  */
-export function scheduleBakedFractalVoice(ctx, dest, v, wave, nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null, voiceMod = null, voiceIndex = 0) {
+export function scheduleBakedFractalVoice(ctx, dest, v, wave, nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null, voiceMod = null, voiceIndex = 0, adsr = null) {
   const end = v.startSec + v.durSec;
   if (v.durSec <= 0.02 || end <= cueSec + 0.01) return false;
   const n = v.hz.length;
@@ -56,8 +61,7 @@ export function scheduleBakedFractalVoice(ctx, dest, v, wave, nowTime, cueSec, n
   const dur = (n - 1 - i0) / v.rate;
   if (dur <= 0.02) return false;
 
-  const osc = ctx.createOscillator();
-  osc.setPeriodicWave(wave);
+  const osc = createToneSource(ctx, { wave });
   const env = ctx.createGain();
   const fade = ctx.createGain();
   // Manager Warp: a warped copy (the cached bake stays untouched) / 매니저 곡률: 복사본만 휨 (베이크 캐시는 그대로)
@@ -65,14 +69,17 @@ export function scheduleBakedFractalVoice(ctx, dest, v, wave, nowTime, cueSec, n
   // Per-voice tremolo / vibrato (core/voice-mod.js), on voice time / 보이스별 트레몰로·비브라토
   const vm = createVoiceModEvaluator(voiceMod, voiceIndex, 69 + 12 * Math.log2(Math.max(10, hz[0]) / 440));
   const vt = i0 / v.rate;
-  osc.frequency.setValueCurveAtTime(voiceModFreqCurve(vm, hz, vt, dur), t0, dur);
+  // Tempo Manager: vibrato / tremolo run on document time, so they speed up with the tempo / 문서 시간 기준 → 템포와 함께 빨라짐
+  const k = v.timeScale || 1;
+  osc.frequency.setValueCurveAtTime(voiceModFreqCurve(vm, hz, vt * k, dur * k), t0, dur);
   // no other event inside the curve span (the fade gain is 0 before t0) / 곡선 구간에 다른 이벤트 없음
   let gc = v.gain.subarray(i0);
   if (ampMask) {
     // Manager shape mask (document sec, Hz); copy so the cached bake stays untouched / 매니저 모양 마스크 (베이크 캐시는 그대로)
     gc = Float32Array.from(gc, (g, k) => g * ampMask(v.startSec + (i0 + k) / v.rate, hz[k]));
   }
-  env.gain.setValueCurveAtTime(voiceModGainCurve(vm, gc, vt, dur), t0, dur);
+  if (adsr) gc = applyAdsrToCurve(adsr, Float32Array.from(gc), vt, dur, v.durSec); // timbre ADSR on a copy (cached bake untouched) / 사본에 음색 ADSR
+  env.gain.setValueCurveAtTime(voiceModGainCurve(vm, gc, vt * k, dur * k), t0, dur);
   const f = Math.min(FADE_SEC, dur * 0.25);
   fade.gain.setValueAtTime(0, nowTime);
   fade.gain.setValueAtTime(0, t0);
@@ -91,15 +98,16 @@ export function scheduleBakedFractalVoice(ctx, dest, v, wave, nowTime, cueSec, n
 }
 
 /** Schedule every baked voice (live or offline). / 모든 베이킹 보이스 스케줄 */
-export function scheduleFractal(ctx, dest, { params = getFractalParams(), nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null }) {
-  const bake = getFractalBake(params); // memoised: no re-bake unless the shape changed / 캐시 사용
+export function scheduleFractal(ctx, dest, { params = getFractalParams(), nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 }) {
+  // memoised: no re-bake unless the shape changed; timeScale = Tempo Manager rate (pitch kept) / 캐시 사용, timeScale = 템포 배속 (음고 유지)
+  const bake = retimeFractalBake(getFractalBake(params), timeScale);
   const wave = createTimbreWave(ctx, params.timbre); // Mix or ƒ(x) (shared timbre synthesis) / 믹스 또는 ƒ(x)
   let count = 0;
   bake.voices.forEach((v, i) => {
     const mix = lineMixGain(params, v.id ?? `f${i}`); // S / M / gain of this line (core/line-mix.js) / 선별 S·M·게인
     if (!(mix > 0)) return;
     const vv = mix === 1 ? v : { ...v, gain: Float32Array.from(v.gain, (g) => g * mix) };
-    if (scheduleBakedFractalVoice(ctx, dest, vv, wave, nowTime, cueSec, nodeList, ampMask, pitchWarp, brightWarp, params.voiceMod, i)) count++;
+    if (scheduleBakedFractalVoice(ctx, dest, vv, wave, nowTime, cueSec, nodeList, ampMask, pitchWarp, brightWarp, params.voiceMod, i, timbreSpecAdsr(params.timbre))) count++;
   });
   return count;
 }
@@ -139,18 +147,22 @@ export const toggleFractalPlay = transport.togglePlay;
 
 /**
  * Render the baked voices offline. outputStage:false is for internal checks only (skips the
- * Loudness Manager fader/limiter). / 오프라인 렌더 (outputStage:false = 내부 점검용)
+ * Loudness Manager fader/limiter). timeScale = Tempo Manager rate: every document time ÷ rate, pitch
+ * kept (the studio tremolo speeds up with it, as in Glissando); masks / warps are read in real time.
+ * 오프라인 렌더 (outputStage:false = 내부 점검용). timeScale = 템포 배속 (음고 유지, 마스크·곡률은 실제 시간).
  */
-export async function renderFractalBuffer({ params = getFractalParams(), sampleRate = EXPORT_SAMPLE_RATE, channels = 2, outputStage = true, maxSec = Infinity, ampMask = null, pitchWarp = null, brightWarp = null } = {}) {
-  const bake = getFractalBake(params);
+export async function renderFractalBuffer({ params = getFractalParams(), sampleRate = EXPORT_SAMPLE_RATE, channels = 2, outputStage = true, maxSec = Infinity, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 } = {}) {
+  const rate = Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1;
+  const bake = retimeFractalBake(getFractalBake(params), rate);
   const endSec = Math.min(bake.endSec, maxSec);
   if (endSec <= 0.02) return null;
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
   const ctx = new Offline(channels, Math.ceil((endSec + 0.05) * sampleRate), sampleRate);
   const master = ctx.createGain();
   master.gain.value = masterFor(bake);
-  connectStudioOutput(ctx, master, outputStage ? createOfflineOutput(ctx) : ctx.destination, params.tremolo); // same tremolo as live / 실시간과 같은 트레몰로
-  scheduleFractal(ctx, master, { params, nowTime: 0, cueSec: 0, ampMask, pitchWarp, brightWarp });
+  const tremolo = rate === 1 || !params.tremolo ? params.tremolo : applyTempoToVoices([{ tremolo: params.tremolo }], rate)[0].tremolo; // Glissando's rule / 글리산도와 같은 규칙
+  connectStudioOutput(ctx, master, outputStage ? createOfflineOutput(ctx) : ctx.destination, tremolo); // same tremolo as live / 실시간과 같은 트레몰로
+  scheduleFractal(ctx, master, { params, nowTime: 0, cueSec: 0, ampMask, pitchWarp, brightWarp, timeScale: rate });
   return ctx.startRendering();
 }
 

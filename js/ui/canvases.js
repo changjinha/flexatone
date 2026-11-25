@@ -28,7 +28,9 @@ import {
   MAX_REGIONS_PER_VOICE,
   MIN_DURATION,
   MAX_TIME,
+  splitVoice,
 } from '../core/state.js';
+import { isClipped, clipFullSpan, trimLineEdge } from '../core/line-clip.js';
 import {
   evaluateCurveObjectY,
   mapNormYToFreq,
@@ -405,6 +407,31 @@ function voicePolyline(v, m, valueAt = (tn) => evaluateCurveObjectY(v, tn)) {
   return pts;
 }
 
+/**
+ * The parts of a trimmed line's curve that are not played (u ∈ [0, u0) and (u1, 1]) as screen
+ * polylines — drawn faint, or not at all when ◌ Unplayed parts is off. / 잘린 선의 재생하지 않는 부분
+ */
+function voiceGhostPolylines(v, m) {
+  if (!isClipped(v)) return [];
+  const f = clipFullSpan(v);
+  const out = [];
+  const piece = (ua, ub) => {
+    const s0 = Math.max(f.start + ua * f.dur, m.vp.timeMin);
+    const s1 = Math.min(f.start + ub * f.dur, m.vp.timeMax);
+    if (s1 <= s0) return;
+    const n = clamp(Math.ceil((m.timeToX(s1) - m.timeToX(s0)) / 2), 8, 1200);
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+      const sec = s0 + ((s1 - s0) * i) / n;
+      pts.push([m.timeToX(sec), voiceNormToPlotY(v, evaluateCurveObjectY(v, (sec - f.start) / f.dur, { u: true }), m)]);
+    }
+    out.push(pts);
+  };
+  if (f.u0 > 0) piece(0, Math.min(1, f.u0));
+  if (f.u1 < 1) piece(Math.max(0, f.u1), 1);
+  return out;
+}
+
 function strokePolyline(ctx, pts) {
   if (pts.length < 2) return;
   ctx.beginPath();
@@ -440,6 +467,21 @@ function drawVoices(ctx, m, opts = {}) {
   ctx.setLineDash([]);
 
   const order = appState.voices.filter((v) => v !== active).concat(active ? [active] : []);
+  // Unplayed parts of trimmed lines: faint, thin, dotted (◌ Unplayed parts off → left out)
+  // 잘린 선의 재생하지 않는 부분: 연하게 (◌ 끄면 표시 안 함)
+  if (appState.clipGhost !== false) {
+    ctx.setLineDash([2, 4]);
+    for (const v of order) {
+      const ghosts = voiceGhostPolylines(v, m);
+      if (!ghosts.length) continue;
+      ctx.globalAlpha = v === active ? 0.32 : 0.18;
+      ctx.lineWidth = 1.3;
+      ctx.strokeStyle = v.color;
+      for (const g of ghosts) strokePolyline(ctx, g);
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
   for (const v of order) {
     const pts = voicePolyline(v, m);
     if (!cap) renderedCurves.push({ id: v.id, pts });
@@ -893,7 +935,7 @@ function hitTest(p, m) {
 }
 
 function cursorFor(p, m) {
-  if (drag) return drag.type === 'freehand' || drag.type === 'regionNew' ? 'crosshair' : drag.type === 'regionEdge' ? 'ew-resize' : drag.type === 'bend' ? 'ns-resize' : 'grabbing';
+  if (drag) return drag.type === 'freehand' || drag.type === 'regionNew' ? 'crosshair' : drag.type === 'regionEdge' || drag.type === 'trim' ? 'ew-resize' : drag.type === 'bend' ? 'ns-resize' : 'grabbing';
   if (!p) return 'default';
   if (appState.selectMode && inPlot(p, m)) {
     const hit = regionHit(p, m, getActiveVoice());
@@ -931,6 +973,16 @@ function editActive(fn, key) {
   const v = getActiveVoice();
   if (!v) return;
   updateVoices(fn, { ids: [v.id], coalesceKey: key, scope: CANVAS_SCOPE });
+}
+
+/**
+ * Locate start / end dot edits: the active voice, or — with group edit on and 2+ voices selected —
+ * the whole selection in the grapher's group edit mode (Sync / Ratio / Offset, core/state.js).
+ * 이동 도구의 시작·끝 점 편집: 활성 보이스, 또는 그룹 편집이 켜져 있으면 선택 전체 (동기화·비율·덧셈).
+ */
+function editLocate(fn, key) {
+  if (appState.groupApplyMode && appState.selectedVoiceIds.length > 1) updateVoices(fn, { coalesceKey: key, scope: CANVAS_SCOPE });
+  else editActive(fn, key);
 }
 
 /** Raw (pre-reverse/inverse) normalized coordinates of a pointer for voice v. */
@@ -1000,7 +1052,9 @@ function onMainPointerDown(evt) {
   }
   if (h.type === 'start' || h.type === 'end') {
     setSelection({ kind: h.type, voiceId: v.id });
-    drag = { type: h.type, orig: { start: v.startTime, end: getVoiceEnd(v) } };
+    // ⌘ + drag: trim / extend along the curve (core/line-clip.js) / ⌘ + 드래그: 곡선을 따라 줄이기·늘리기
+    if (evt.metaKey || evt.ctrlKey) drag = { type: 'trim', side: h.type, id: v.id, orig: trimOrig(v), moved: true };
+    else drag = { type: h.type, orig: { start: v.startTime, end: getVoiceEnd(v) } };
     return;
   }
   if (h.type === 'customCurve') {
@@ -1030,14 +1084,33 @@ function onMainPointerDown(evt) {
     drag = { type: 'bend', i, k, nodeId: ectx.nodeId, raw0: raw.y, y0: q0.handles[k].y, w: bendWeight(q0, q1, k, tx) };
     return;
   }
-  if (h.type === 'curve') {
-    if (h.id !== appState.activeVoiceId || evt.shiftKey || evt.metaKey || evt.ctrlKey) {
-      selectVoice(h.id, { additive: evt.metaKey || evt.ctrlKey, range: evt.shiftKey });
+  if (h.type === 'curve' && appState.locateMode && (evt.metaKey || evt.ctrlKey) && !evt.shiftKey) {
+    // Locate + ⌘ + drag along x: trim / extend the nearer end along the curve; a ⌘-click without
+    // moving keeps its old meaning (add to the selection, on pointer up).
+    // 이동 + ⌘ + x 드래그: 가까운 끝을 곡선을 따라 줄이기·늘리기. 움직이지 않은 ⌘ 클릭은 기존대로 선택 추가.
+    const target = getVoiceById(h.id);
+    if (target) {
+      const sec = m.xToTime(p.x);
+      drag = { type: 'trim', side: sec < target.startTime + target.duration / 2 ? 'start' : 'end', id: h.id, orig: trimOrig(target), p0: p, moved: false };
+      return;
     }
+  }
+  if (h.type === 'curve') {
+    const mod = evt.shiftKey || evt.metaKey || evt.ctrlKey;
+    const inSel = appState.selectedVoiceIds.length > 1 && appState.selectedVoiceIds.includes(h.id);
+    if (mod) selectVoice(h.id, { additive: evt.metaKey || evt.ctrlKey, range: evt.shiftKey });
+    // a line of the selection: it becomes the active voice, the selection stays (so the group can
+    // be dragged by any of its lines) / 선택된 선: 활성만 바꾸고 선택은 유지
+    else if (inSel) { if (h.id !== appState.activeVoiceId) selectVoice(h.id, { keep: true }); }
+    else if (h.id !== appState.activeVoiceId || appState.selectedVoiceIds.length > 1) selectVoice(h.id, { additive: !!appState.multiSelectMode });
     setSelection(null);
     const target = getVoiceById(h.id);
     if (appState.locateMode && target) {
-      drag = { type: 'move', id: h.id, p0: p, orig: { start: target.startTime, f0: target.f0Hz, f1: target.f1Hz }, midi0: m.piano ? m.yToVal(p.y) : 0 };
+      // Group edit on: the whole selection moves with the dragged line / 그룹 편집: 선택 전체가 함께 이동
+      const sel = appState.selectedVoiceIds;
+      const group = (appState.groupApplyMode && sel.length > 1 && sel.includes(h.id) ? sel.map(getVoiceById).filter(Boolean) : [target])
+        .map((g) => ({ id: g.id, start: g.startTime, f0: g.f0Hz, f1: g.f1Hz }));
+      drag = { type: 'move', id: h.id, p0: p, orig: { start: target.startTime, f0: target.f0Hz, f1: target.f1Hz }, group, midi0: m.piano ? m.yToVal(p.y) : 0 };
     }
     return;
   }
@@ -1131,7 +1204,7 @@ function onMainPointerMove(evt) {
     case 'end': {
       const sec = snapTime(clamp(m.xToTime(p.x), 0, MAX_TIME));
       const midi = m.piano ? snapSemis(m.yToVal(p.y)) : null;
-      editActive((vv) => {
+      editLocate((vv) => {
         const side = pitchSideAtDot(vv, drag.type === 'start' ? 0 : 1);
         if (drag.type === 'start') {
           const start = Math.min(sec, drag.orig.end - MIN_DURATION);
@@ -1144,18 +1217,35 @@ function onMainPointerMove(evt) {
       }, `locate-${drag.type}`);
       break;
     }
+    case 'trim': {
+      if (!drag.moved && Math.abs(p.x - drag.p0.x) < 3) break;
+      drag.moved = true;
+      const sec = snapTime(clamp(m.xToTime(p.x), 0, MAX_TIME));
+      // y is ignored on purpose: the line keeps its own shape / y는 무시 — 선은 자기 모양 그대로
+      updateVoices((vv) => trimLineEdge(vv, drag.orig, drag.side, sec, { minDur: MIN_DURATION, maxTime: MAX_TIME }), { ids: [drag.id], coalesceKey: `locate-trim-${drag.side}`, scope: CANVAS_SCOPE });
+      break;
+    }
     case 'move': {
       const target = getVoiceById(drag.id);
       if (!target) break;
       const dSec = m.xToTime(p.x) - m.xToTime(drag.p0.x);
       const dSemi = m.piano ? snapSemis(m.yToVal(p.y) - drag.midi0) : 0;
+      // The dragged line snaps; the other selected lines follow it: by the same time shift (Sync /
+      // Offset — a rigid move) or with their start scaled by the same factor (Ratio). Pitch always
+      // moves by the same interval. / 끄는 선이 스냅되고 나머지 선택 선이 따라감: 같은 시간 이동(동기화·
+      // 덧셈) 또는 시작 시각에 같은 배율(비율). 음고는 항상 같은 음정.
+      const leadStart = clamp(snapTime(drag.orig.start + dSec), 0, MAX_TIME);
+      const ratio = appState.groupEditMode === 'ratio' && drag.orig.start > 1e-6 ? leadStart / drag.orig.start : null;
+      const by = new Map(drag.group.map((g) => [g.id, g]));
       updateVoices((vv) => {
-        vv.startTime = clamp(snapTime(drag.orig.start + dSec), 0, MAX_TIME);
+        const g = by.get(vv.id);
+        if (!g) return;
+        vv.startTime = clamp(vv.id === drag.id ? leadStart : ratio !== null ? g.start * ratio : g.start + (leadStart - drag.orig.start), 0, MAX_TIME);
         if (m.piano) {
-          setVoicePitch(vv, 'f0', { hz: drag.orig.f0 * 2 ** (dSemi / 12) });
-          setVoicePitch(vv, 'f1', { hz: drag.orig.f1 * 2 ** (dSemi / 12) });
+          setVoicePitch(vv, 'f0', { hz: g.f0 * 2 ** (dSemi / 12) });
+          setVoicePitch(vv, 'f1', { hz: g.f1 * 2 ** (dSemi / 12) });
         }
-      }, { ids: [drag.id], coalesceKey: 'locate-move', scope: CANVAS_SCOPE });
+      }, { ids: drag.group.map((g) => g.id), coalesceKey: 'locate-move', scope: CANVAS_SCOPE });
       break;
     }
     case 'freehand': {
@@ -1175,6 +1265,7 @@ function onMainPointerUp(evt) {
   drag = null;
   try { mainView.canvas.releasePointerCapture(evt.pointerId); } catch { /* not captured */ }
   if (d.type === 'ruler' && d.scrub) stopScrubAudio();
+  if (d.type === 'trim' && !d.moved) selectVoice(d.id, { additive: true }); // plain ⌘-click / 그냥 ⌘ 클릭
   selectToolUp(d);
   if (d.type === 'freehand') {
     const pts = fitStrokeToSpline(d.raw);
@@ -1214,7 +1305,22 @@ function onMainDblClick(evt) {
     const sec = Math.max(0, snapTime(m.xToTime(p.x)));
     setCueSec(sec);
     showToastFn(t('toast.cueSet', sec.toFixed(2)));
+    return;
   }
+  // Locate + double-click on a line: ✂ split it there into two linked pieces / 이동 + 선 더블클릭: 그 자리에서 자르기
+  if (h.type === 'curve' && appState.locateMode) {
+    const target = getVoiceById(h.id);
+    endHistoryGesture();
+    const ev = target ? splitVoice(h.id, snapTime(m.xToTime(p.x))) : null;
+    endHistoryGesture();
+    if (ev?.result) showToastFn(t('clip.splitDone', target.name));
+    else showToastFn(t('clip.splitNa'));
+  }
+}
+
+/** Snapshot of a line before a ⌘-drag trim. / ⌘ 드래그 전 스냅샷 */
+function trimOrig(v) {
+  return { startTime: v.startTime, duration: v.duration, clip: v.clip ? { ...v.clip } : undefined };
 }
 
 function onMainContextMenu(evt) {
@@ -1274,7 +1380,7 @@ export function nudgeSelection(dx, dy, coarse = false) {
   if (sel && (sel.kind === 'start' || sel.kind === 'end') && appState.locateMode) {
     const dt = dx * (coarse ? 0.1 : 0.01);
     const dSemi = dy * (coarse ? 1 : 0.1);
-    editActive((vv) => {
+    editLocate((vv) => {
       if (sel.kind === 'start') {
         const end = getVoiceEnd(vv);
         vv.startTime = clamp(vv.startTime + dt, 0, end - MIN_DURATION);

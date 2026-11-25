@@ -23,7 +23,12 @@
  *   select?(id), commit?(),               // commit defaults to endHistoryGesture()
  *   startOf?(id): sec                     // where the object starts sounding — on drop the studio
  *                                         // plays from here; the cue line does not move
+ *   trim?(id, side, w),                   // ⌘ (Ctrl) + drag along x: move that end of the line ALONG its
+ *                                         // curve (core/line-clip.js); side 'start' | 'end', w = { orig, sec }.
+ *                                         // On the body the nearer end is taken. Pointer y is ignored.
+ *   split?(id, sec),                      // double-click a line: cut it there into linked pieces (🔗)
  * }
+ * ⌘ + drag / 줄이기·늘리기: 선의 끝을 곡선을 따라 이동 (y 무시). 더블클릭 / 자르기: 그 자리에서 링크된 두 조각으로.
  * The controller listens in the capture phase and only swallows events it handles, so the
  * studio's own tools (pan, nodes, regions, drawing) keep working when Locate is off or nothing
  * is hit. / 캡처 단계에서 처리한 이벤트만 가로채므로 스튜디오 자체 도구는 그대로 동작.
@@ -36,13 +41,13 @@ import { t, I18N } from '../core/i18n.js';
 // 선이 생성되는 스튜디오에서 이동 도구가 꺼져 있는 이유 (비활성 버튼에 표시)
 Object.assign(I18N.en, {
   'locate.altDbl': 'Shift + double-click on the timeline: play from there (the cue stays)',
-  'locate.na.generated': 'Locate is not available in this studio: its lines are generated from the settings, so there is no single object to move. Shift + double-click on the timeline plays from there.',
-  'locate.na.wave': 'Locate is not needed in this studio: drag a pulse or a driver directly on the canvas. Shift + double-click on the timeline plays from there.',
+  'locate.na.generated': 'Locate is not available in this studio: its lines are generated from the settings, so there is no single object to move, trim, split or link (🔗). Shift + double-click on the timeline plays from there.',
+  'locate.na.wave': 'Locate is not needed in this studio: drag a pulse or a driver directly on the canvas (its lines are generated, so they are not trimmed, split or linked). Shift + double-click on the timeline plays from there.',
 });
 Object.assign(I18N.ko, {
   'locate.altDbl': '타임라인 Shift + 더블클릭: 그 자리부터 재생 (큐는 그대로)',
-  'locate.na.generated': '이 스튜디오에서는 이동 도구를 쓸 수 없습니다: 선이 설정값에서 생성되므로 옮길 개별 대상이 없습니다. 타임라인을 Shift + 더블클릭하면 그 자리부터 재생합니다.',
-  'locate.na.wave': '이 스튜디오에서는 이동 도구가 필요 없습니다: 펄스와 구동원을 캔버스에서 바로 드래그합니다. 타임라인을 Shift + 더블클릭하면 그 자리부터 재생합니다.',
+  'locate.na.generated': '이 스튜디오에서는 이동 도구를 쓸 수 없습니다: 선이 설정값에서 생성되므로 옮기거나 자르거나 링크(🔗)할 개별 대상이 없습니다. 타임라인을 Shift + 더블클릭하면 그 자리부터 재생합니다.',
+  'locate.na.wave': '이 스튜디오에서는 이동 도구가 필요 없습니다: 펄스와 구동원을 캔버스에서 바로 드래그합니다 (선이 생성되므로 자르기·링크는 없음). 타임라인을 Shift + 더블클릭하면 그 자리부터 재생합니다.',
 });
 
 const HIT_END = 9;
@@ -112,7 +117,7 @@ export function createLocateButtons({ className = 'px-2 py-1 rounded-lg border t
   };
   const locate = mk('✥', 'view.locate', 'gliss.locate', () => toggleLocateMode());
   const snap = mk('🧲', 'view.snap', 'gliss.snap', () => setPref('locateSnap', !appState.locateSnap, ['view']));
-  locate.title = `${t('tip.locateStudio')} · ${t('locate.altDbl')}`;
+  locate.title = `${t('tip.locateStudio')} · ${t('clip.locateHint')} · ${t('locate.altDbl')}`;
   snap.title = t('tip.snap');
   const paint = (b, on, tone) => {
     b.className = `${className} ${on ? tone : 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white'}`;
@@ -180,12 +185,26 @@ export function attachLocate(canvas, adapter) {
   const onDown = (e) => {
     if (e.button !== 0 || !live()) return;
     const p = pos(e);
-    const hit = locateHitTest(adapter.items() || [], p);
+    const items = adapter.items() || [];
+    const hit = locateHitTest(items, p);
     if (!hit) return;
     swallow(e);
     adapter.select?.(hit.id);
     const w0 = adapter.toWorld(p);
-    drag = { id: hit.id, kind: hit.kind, w0, orig: adapter.begin(hit.id), moved: false, p0: p };
+    let kind = hit.kind;
+    let side = null;
+    if ((e.metaKey || e.ctrlKey) && adapter.trim) {
+      // ⌘ + drag: trim / extend along the curve; on the body, the nearer end / 몸통이면 가까운 끝
+      const it = items.find((x) => x.id === hit.id);
+      let ends = it?.start && it?.end ? [it.start.x, it.end.x] : null;
+      if (!ends && it?.poly?.length) { // no end dots: the drawn extent / 끝 점이 없으면 그린 범위
+        const xs = (Array.isArray(it.poly[0]) ? it.poly.flat() : it.poly).map((q) => q.x);
+        ends = [Math.min(...xs), Math.max(...xs)];
+      }
+      side = hit.kind !== 'move' ? hit.kind : ends ? (Math.abs(p.x - ends[0]) <= Math.abs(p.x - ends[1]) ? 'start' : 'end') : 'end';
+      kind = 'trim';
+    }
+    drag = { id: hit.id, kind, side, w0, orig: adapter.begin(hit.id), moved: false, p0: p };
     try { canvas.setPointerCapture?.(e.pointerId); } catch { /* synthetic pointer */ }
     canvas.style.cursor = hit.kind === 'move' ? 'grabbing' : 'ew-resize';
   };
@@ -205,6 +224,7 @@ export function attachLocate(canvas, adapter) {
     if (!drag.moved && Math.hypot(p.x - drag.p0.x, p.y - drag.p0.y) < 2) return;
     drag.moved = true;
     const w = adapter.toWorld(p);
+    if (drag.kind === 'trim') { adapter.trim(drag.id, drag.side, { orig: drag.orig, sec: locateSnapTime(w.sec) }); return; }
     const pitch = w.midi != null && drag.w0.midi != null;
     adapter.apply(drag.id, drag.kind, {
       orig: drag.orig,
@@ -228,6 +248,18 @@ export function attachLocate(canvas, adapter) {
     // Audition: play the studio from the dropped object's start, cue untouched / 놓은 대상의 시작부터 재생 (큐는 그대로)
     auditionFrom(adapter.startOf?.(id));
   };
+  // Double-click a line: ✂ split it there (only when the studio supports it) / 선 더블클릭: 자르기
+  const onDbl = (e) => {
+    if (!live() || !adapter.split) return;
+    const p = pos(e);
+    const hit = locateHitTest(adapter.items() || [], p);
+    if (!hit || hit.kind !== 'move') return;
+    swallow(e);
+    endHistoryGesture();
+    adapter.split(hit.id, locateSnapTime(adapter.toWorld(p).sec));
+    endHistoryGesture();
+  };
+  canvas.addEventListener('dblclick', onDbl, true);
   canvas.addEventListener('pointerdown', onDown, true);
   canvas.addEventListener('pointermove', onMove, true);
   canvas.addEventListener('pointerup', onUp, true);
@@ -255,7 +287,10 @@ export function attachLocate(canvas, adapter) {
       }
     },
     isDragging: () => !!drag,
+    /** True while a ⌘-drag trim is running. / ⌘ 드래그 중 */
+    isTrimming: () => drag?.kind === 'trim',
     destroy() {
+      canvas.removeEventListener('dblclick', onDbl, true);
       canvas.removeEventListener('pointerdown', onDown, true);
       canvas.removeEventListener('pointermove', onMove, true);
       canvas.removeEventListener('pointerup', onUp, true);

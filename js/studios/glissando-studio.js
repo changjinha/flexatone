@@ -12,7 +12,7 @@
  * Imports: core/*, studios/registry.js. Never ui/* or audio/*.
  */
 
-import { getVoiceMidi, getVoiceEnd, ENGINE_IDS, appState, createDefaultVoice, registerSelfCheck } from '../core/state.js';
+import { getVoiceMidi, getVoiceEnd, ENGINE_IDS, appState, createDefaultVoice, createDefaultCurveConfig, createDefaultMorphNode, registerSelfCheck } from '../core/state.js';
 import { noteNameToMidi } from '../core/units.js';
 import { StudioRegistry, createStudioRegistry } from './registry.js';
 
@@ -20,6 +20,34 @@ export const GLISSANDO_PRESETS = Object.freeze(['cluster', 'canon', 'mirror']);
 
 /** Engines offered by the generator (composite / hand-edited ones excluded). */
 const GENERATOR_ENGINES = ENGINE_IDS.filter((id) => id !== 'morph' && id !== 'custom');
+
+/**
+ * Toolboxes whose settings the generator can stamp onto every new voice (☑ in the Generate panel).
+ * The settings are read from the active voice as it is when Replace / Append is pressed.
+ * Pitch & Timing copies the scale, f(t) / f′(t) and base gain only — F₀, F₁, start and duration
+ * are what the preset lays out. / 생성기가 새 보이스에 그대로 적용할 수 있는 툴박스 (생성 직전의
+ * 활성 보이스 설정). 음고·타이밍은 스케일·f/f′·기본 게인만 — F₀·F₁·시작·길이는 프리셋이 배치.
+ */
+const TOOLBOX_FIELDS = Object.freeze({
+  engine: Object.keys(createDefaultCurveConfig()),
+  pitch: ['logScale', 'audioTarget', 'baseGain'],
+  timbre: ['timbreMode', 'timbre', 'timbreFunc', 'timbreSample', 'adsr'],
+  gain: ['gainMode', 'gainUnit', 'dbTaper', 'dbMin', 'gainPoints', 'gainEngineObj'],
+  tremolo: ['tremolo'],
+});
+export const GLISSANDO_TOOLBOXES = Object.freeze(Object.keys(TOOLBOX_FIELDS));
+
+/** Copy the checked toolboxes' settings from `src` onto `voice` (pure). / 체크한 툴박스 설정 복사 */
+export function applyToolboxSettings(voice, src, tools) {
+  if (!src || !tools) return voice;
+  for (const id of GLISSANDO_TOOLBOXES) {
+    if (!tools[id]) continue;
+    for (const k of TOOLBOX_FIELDS[id]) if (src[k] !== undefined) voice[k] = JSON.parse(JSON.stringify(src[k]));
+  }
+  // every voice owns its morph nodes / 모핑 노드 id는 보이스마다 고유
+  for (const n of [...(voice.morphNodes || []), ...(voice.gainEngineObj?.morphNodes || [])]) n.id = createDefaultMorphNode().id;
+  return voice;
+}
 
 const DEFAULT_PARAMS = Object.freeze({
   preset: 'cluster',
@@ -30,6 +58,7 @@ const DEFAULT_PARAMS = Object.freeze({
   stagger: 0.5,
   duration: 4,
   engine: 'harmonic',
+  tools: Object.freeze({ engine: false, pitch: false, timbre: false, gain: false, tremolo: false }),
 });
 
 const clampNum = (v, lo, hi, fallback) => {
@@ -118,7 +147,16 @@ export const GlissandoStudio = {
     },
   ],
 
-  defaultParams: () => ({ ...DEFAULT_PARAMS }),
+  /** ☑ list in the Generate panel (ui/panels.js): params.tools[key]. / 생성 패널의 툴박스 체크 목록 */
+  toolboxes: [
+    { key: 'engine', labelKey: 'engine.title' },
+    { key: 'pitch', labelKey: 'glis.tool.pitch' },
+    { key: 'timbre', labelKey: 'timbre.title' },
+    { key: 'gain', labelKey: 'glis.tool.gain' },
+    { key: 'tremolo', labelKey: 'trem.title' },
+  ],
+
+  defaultParams: () => ({ ...DEFAULT_PARAMS, tools: { ...DEFAULT_PARAMS.tools } }),
 
   /**
    * Dashed F₀ / F₁ guides across the active voice's time span (piano-roll view only).
@@ -161,7 +199,9 @@ export const GlissandoStudio = {
         f0Fine: 0,
         f1Fine: 0,
       });
-      return v;
+      // ☑ toolboxes: the source voice's settings, as they were when Generate was pressed
+      // (params.toolSource, handed over by the Generate panel) / 체크한 툴박스 설정 적용
+      return applyToolboxSettings(v, params?.toolSource, params?.tools);
     });
   },
 };
@@ -208,6 +248,18 @@ registerSelfCheck('Glissando presets layout & generated voices', (a) => {
   a.ok(voices.every((v) => v.engine === 'bounce' && v.duration === 3), 'engine & duration applied');
   a.near(getVoiceMidi(voices[0], 'f1') - getVoiceMidi(voices[0], 'f0'), 7, 1e-9, 'interval preserved');
   a.equal(new Set(voices.map((v) => v.id)).size, 5, 'unique ids');
+
+  // ☑ toolboxes: checked ones take the source voice's settings, the rest keep the generator's
+  const src = createDefaultVoice(0, { engine: 'chirp', chirpA: 0.3, baseGain: 0.4, logScale: false, gainMode: 'engine' });
+  src.timbre.saw = 0.9;
+  src.tremolo.on = true;
+  const stamped = reg.generateVoices('glissando', { preset: 'canon', voiceCount: 3, engine: 'bounce', duration: 3, toolSource: src, tools: { engine: true, timbre: true, tremolo: true } });
+  a.ok(stamped.every((v) => v.engine === 'chirp' && v.chirpA === 0.3), 'Curve Engine copied (replaces the generator engine)');
+  a.ok(stamped.every((v) => v.timbre.saw === 0.9 && v.tremolo.on === true), 'timbre & tremolo copied');
+  a.ok(stamped.every((v) => v.baseGain === 0.85 && v.logScale === true && v.gainMode === 'points'), 'unchecked toolboxes untouched');
+  a.ok(stamped.every((v) => v.duration === 3 && v.id !== src.id), 'layout stays the preset\'s');
+  a.equal(new Set(stamped.flatMap((v) => v.morphNodes.map((n) => n.id))).size, stamped.length * src.morphNodes.length, 'morph node ids unique');
+  a.ok(reg.generateVoices('glissando', { toolSource: src, tools: {} }).every((v) => v.engine === 'harmonic'), 'nothing checked → nothing copied');
 }, { group: 'studio' });
 
 registerSelfCheck('Glissando overlay draws only in piano view', (a) => {

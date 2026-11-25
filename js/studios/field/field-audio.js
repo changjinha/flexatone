@@ -16,6 +16,9 @@
  * 재생 중 벡터장 연산 없음: 모든 곡선은 캐시된 배열 조회로 생성.
  */
 
+import { clipWindow } from '../../core/line-clip.js';
+import { applyAdsrToCurve } from '../../core/adsr.js';
+import { timbreSpecAdsr } from '../../modules/timbre-spec.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -27,7 +30,7 @@ import { getOutputBus, createOfflineOutput } from '../../audio/output-bus.js';
 import { encodeWav, triggerDownload, EXPORT_SAMPLE_RATE, createBrightShelf } from '../../audio/audio-engine.js';
 import { createLiveTransport, soundKey } from '../../audio/live-transport.js';
 import { createVoiceTremoloEvaluator, tremoloCurveRate } from '../../modules/tremolo.js';
-import { lookupBakedSample } from './vector-field-engine.js';
+import { lookupBakedSample, lookupBakedSampleExt } from './vector-field-engine.js';
 import { getFieldParams, getBakedMap, getActiveParticle, isParticleAudible } from '../field-studio.js';
 
 export { lookupBakedSample };
@@ -52,11 +55,14 @@ export function buildFieldWave(ctx, timbre, brightBoost = 0) {
  */
 export function scheduleBakedVoice(ctx, dest, v, pts, nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null, voiceMod = null) {
   if (v.duration <= 0.02) return false;
-  const vEnd = v.startTime + v.duration;
-  if (vEnd <= cueSec + 1e-4) return false;
-  const delay = Math.max(0, v.startTime - cueSec);
-  const trim = Math.max(0, cueSec - v.startTime);
-  const playDur = vEnd - Math.max(v.startTime, cueSec);
+  // Play range (core/line-clip.js): only [s0, s1] of the trajectory sounds / 재생 구간만 소리
+  const win = clipWindow(v.clip, v.startTime, v.duration);
+  const vStart = win.s0;
+  const vEnd = win.s1;
+  if (vEnd <= cueSec + 1e-4 || vEnd - vStart <= 0.02) return false;
+  const delay = Math.max(0, vStart - cueSec);
+  const trim = Math.max(0, cueSec - vStart);
+  const playDur = vEnd - Math.max(vStart, cueSec);
   if (playDur <= 0.01) return false;
 
   // Per-particle Sampler (tape) / 입자별 샘플러 (테이프)
@@ -80,8 +86,8 @@ export function scheduleBakedVoice(ctx, dest, v, pts, nowTime, cueSec, nodeList,
   const fade = Math.min(0.008, playDur * 0.1);
 
   for (let i = 0; i < samples; i++) {
-    const frac = (trim + (i / (samples - 1)) * playDur) / v.duration;
-    const samp = lookupBakedSample(v, pts, frac);
+    const frac = (vStart - v.startTime + trim + (i / (samples - 1)) * playDur) / v.duration;
+    const samp = lookupBakedSampleExt(v, pts, frac);
     const locSec = (i / (samples - 1)) * playDur;
     const hz0 = f0 * Math.pow(f1 / f0, samp.y);
     const hz = clamp(pitchWarp ? pitchWarp(Math.max(v.startTime, cueSec) + locSec, hz0) : hz0, 20, 18000); // Manager Warp / 매니저 곡률
@@ -97,9 +103,9 @@ export function scheduleBakedVoice(ctx, dest, v, pts, nowTime, cueSec, nodeList,
     filtCurve[i] = clamp(hz * (smp ? 16 : 1) * (1.5 + (v.curvToBright || 0) * 8.0 * samp.curv), 180, 18000);
   }
   if (smp) skipSampleRead(osc, (sec) => {
-    const s = lookupBakedSample(v, pts, clamp((sec - v.startTime) / v.duration, 0, 1));
+    const s = lookupBakedSampleExt(v, pts, (sec - v.startTime) / v.duration);
     return f0 * Math.pow(f1 / f0, s.y);
-  }, v.startTime, Math.max(v.startTime, cueSec));
+  }, vStart, Math.max(vStart, cueSec));
 
   const t0 = nowTime + delay;
   // Per-voice tremolo / vibrato (core/voice-mod.js), in voice time / 보이스별 트레몰로·비브라토
@@ -107,6 +113,7 @@ export function scheduleBakedVoice(ctx, dest, v, pts, nowTime, cueSec, nodeList,
   osc.frequency.setValueCurveAtTime(voiceModFreqCurve(vm, freqCurve, trim, playDur), t0, playDur);
   filter.frequency.setValueCurveAtTime(filtCurve, t0, playDur);
   gainNode.gain.setValueAtTime(0, nowTime);
+  applyAdsrToCurve(timbreSpecAdsr(v.timbre), gainCurve, trim, playDur, vEnd - vStart); // timbre ADSR over the particle / 음색 ADSR
   gainNode.gain.setValueCurveAtTime(voiceModGainCurve(vm, gainCurve, trim, playDur), t0, playDur);
   let tail = osc.connect(filter);
   if (brightWarp) { // Manager Warp brightness / 매니저 곡률 밝기
@@ -124,7 +131,7 @@ export function scheduleBakedVoice(ctx, dest, v, pts, nowTime, cueSec, nodeList,
 /** Audible particles and the end of the field timeline. / 발음 입자와 타임라인 끝 */
 export function getFieldTimeline(params = getFieldParams()) {
   const audible = params.voices.filter((v) => isParticleAudible(v, params));
-  const endSec = audible.reduce((m, v) => Math.max(m, v.startTime + v.duration), 0);
+  const endSec = audible.reduce((m, v) => Math.max(m, clipWindow(v.clip, v.startTime, v.duration).s1), 0);
   return { audible, endSec };
 }
 

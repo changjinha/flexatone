@@ -22,6 +22,13 @@
  *           fade-out swap. Longer than one cycle = the mirror keeps reflecting (backwards, forwards,
  *           backwards …); shorter = only the last part comes back.
  *           완벽한 역행. 음악적임 = 대칭과 종결: 일어난 일이 모두 거꾸로 일어나 처음으로 돌아옴 (팰린드롬).
+ *   mirror  Settings retrograde. Musical = the same palindrome as retro, but read as a score: what
+ *           was set on the timeline (pitch curves, envelopes, entries, automation, masks, Warps)
+ *           runs backwards, while every sound itself plays forwards — an attack stays an attack, a
+ *           release tail still follows its sound (audio/time-mirror.js). Placement and reflection
+ *           as retro.
+ *           설정 역행. 역행과 같은 팰린드롬이지만 악보로 읽음: 타임라인에 설정된 것(음고 곡선·엔벨로프·진입·
+ *           자동화·마스크·곡률)이 거꾸로 진행하고, 소리 자체는 순방향 (어택은 어택, 잔향은 소리 뒤).
  *   canon   Tape canon (parameter interaction: rigid coupling). Musical = imitation in which the
  *           parameters that physically belong together stay locked to one ratio ρ: speed, pitch,
  *           length, tremolo rate and fade times all change by ρ (a just interval), and the level
@@ -60,7 +67,7 @@ import { ensureManager, getInstanceDoc, getFocusedInstance, isFocused, focusInst
 import { createDefaultTake } from './take-config.js';
 
 /** Methods in button order. / 버튼 순서의 방법 목록 */
-export const EXTEND_METHODS = Object.freeze(['retro', 'canon', 'swap', 'arc', 'rondo']);
+export const EXTEND_METHODS = Object.freeze(['retro', 'mirror', 'canon', 'swap', 'arc', 'rondo']);
 /** Methods that need measure.level(inst) → { level, peak } dBFS (the mixer measures it). / 음량 측정이 필요한 방법 */
 export const EXTEND_NEEDS_LEVELS = Object.freeze(['swap']);
 export const EXTEND_MIN_SEC = 0.1;
@@ -123,7 +130,7 @@ function makeTakeTrack(src, opId, take, over, suffix) {
  * ends (segment k of length C: even = backwards, odd = forwards).
  * 완벽한 역행: 연장 시각 τ는 사이클의 C − τ를 읽고 양 끝에서 반사 (짝수 구간 = 역행, 홀수 구간 = 순행).
  */
-function planRetro({ C, X, sources, opId }) {
+function planRetro({ C, X, sources, opId }, mirror = false) {
   const tracks = [];
   let done = 0;
   for (let k = 0; done < X - 1e-6 && k < 64; k++) {
@@ -151,7 +158,8 @@ function planRetro({ C, X, sources, opId }) {
         fadeOut = o1 < b - 1e-6 ? EDGE_FADE : inst.fadeOut;
       }
       if (!(play >= MIN_CLIP)) continue;
-      const track = makeTakeTrack(inst, opId, { rev, at: r3(a), len: r3(L), loop: !!inst.loop }, { start: r3(start), length: r3(play), fadeIn, fadeOut }, rev ? ' ◀' : ' ▶');
+      const back = mirror ? { rev: false, mirror: rev } : { rev }; // settings or tape retrograde / 설정 또는 테이프 역행
+      const track = makeTakeTrack(inst, opId, { ...back, at: r3(a), len: r3(L), loop: !!inst.loop }, { start: r3(start), length: r3(play), fadeIn, fadeOut }, rev ? (mirror ? ' ◁' : ' ◀') : ' ▶');
       tracks.push({ after: inst.id, inst: track });
     }
     done += seg;
@@ -336,7 +344,12 @@ function planRondo({ C, X, sources, opId }) {
   return { tracks, regions: [] };
 }
 
-const PLANNERS = { retro: planRetro, canon: planCanon, swap: planSwap, arc: planArc, rondo: planRondo };
+/** Settings retrograde: placed like planRetro; the reflected takes mirror the score, not the audio. / 설정 역행 */
+function planMirror(args) {
+  return planRetro(args, true);
+}
+
+const PLANNERS = { retro: planRetro, mirror: planMirror, canon: planCanon, swap: planSwap, arc: planArc, rondo: planRondo };
 
 /**
  * What Extend would add right now: { seconds, note }. A method may settle on a slightly different

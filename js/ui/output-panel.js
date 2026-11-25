@@ -12,7 +12,10 @@
  * Imports: core/*, modules/*, audio/output-bus.js.
  */
 
-import { t } from '../core/i18n.js';
+import { t, I18N } from '../core/i18n.js';
+
+Object.assign(I18N.en, { 'out.foldTip': 'Double-click the line to fold / unfold the output controls' });
+Object.assign(I18N.ko, { 'out.foldTip': '줄을 더블클릭하면 출력 컨트롤이 접히고 열립니다' });
 import { appState, setPref, normalizeOutputConfig } from '../core/state.js';
 import { clamp } from '../core/math-utils.js';
 import { createDbTaper } from '../core/units.js';
@@ -169,6 +172,18 @@ export function initOutputPanel() {
     u.limiter,
   ]);
   host.append(row);
+  // Double-click the line (not a control) folds it to the title and the meter; remembered in this browser
+  // 줄(컨트롤 아닌 곳)을 더블클릭하면 제목과 미터만 남기고 접힘 (이 브라우저에 기억)
+  const FOLD_KEY = 'flexatone.outFolded.v1';
+  try { host.classList.toggle('fx-out-folded', globalThis.localStorage?.getItem(FOLD_KEY) === '1'); } catch { /* private mode */ }
+  row.title = t('out.foldTip');
+  row.addEventListener('dblclick', (e) => {
+    if (e.target.closest('input, button, select, textarea')) return;
+    const on = !host.classList.contains('fx-out-folded');
+    host.classList.toggle('fx-out-folded', on);
+    try { globalThis.localStorage?.setItem(FOLD_KEY, on ? '1' : '0'); } catch { /* session only */ }
+    globalThis.dispatchEvent(new Event('resize'));
+  });
   // The band view lives in the page body so the sticky header stays compact. / 대역 뷰는 본문에
   const bandsHost = document.getElementById('outputBandsHost');
   if (bandsHost) {

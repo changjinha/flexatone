@@ -1,9 +1,10 @@
 # Flexatone 업그레이드 계획 (Roadmap)
 
-세 가지 계획을 담았습니다:
+네 가지 계획을 담았습니다:
 - **A.** 리세-셰퍼드 이론(Part 1-1·1-2) 기반 Risset Studio 업그레이드
 - **B.** 세 스튜디오를 제어하는 총 Manager 모듈 설계
 - **C.** 시그널 플로우 마지막 출력 단계 설계 (dB 페이더 테이퍼, Sone·마스킹 엔진)
+- **D.** 음원(Source) 분리: 보이스 생성을 이식 가능한 모듈로 (샘플러를 모든 스튜디오와 Risset 워클릿에, 보이스별 모양)
 
 각 단계는 지금 구조(순수 `core/modules/studios` ↔ `audio`/`ui` 계층, `runSelfCheck`)를 그대로 따릅니다.
 
@@ -251,3 +252,122 @@ studios ──signals()──▶  core/signal-bus  ──▶ modules/mod-matrix 
 | `audio/worklets/loudness-processor.js` | audio (worklet) | FFT → Bark → 마스킹 → Sone |
 | `audio/loudness-meter.js` | audio | 워클릿 노드 래퍼, 스로틀 수신, 오프라인 지원 |
 | `ui/output-panel.js` | ui | 출력 모드 스위치, dB 페이더(테이퍼 B), 24밴드 미터 캔버스 |
+
+---
+
+## D. 음원(Source) 분리 — 보이스 생성을 이식 가능한 모듈로
+
+> **상태: D-1 · D-2 구현 완료 (0.50.0), D-3 이후는 계획.** 2026-11-24 기준 코드에 맞춰 작성. 보이스별 샘플러는 이미 다섯 스튜디오에 있으므로(0.10.0 · 0.11.0 · 0.40.0),
+> 이 계획은 **남은 스튜디오와 워클릿 쪽**을 다룹니다.
+
+### D-0. 지금 상태
+
+| 스튜디오 | 소리 생성 | 샘플러 | 비고 |
+|---|---|---|---|
+| Glissando · Draw · Tempo · Space · Field | 네이티브 노드, `createToneSource()` | ✅ 보이스 단위 | 이식점이 이미 있음 (`audio/sample-voice.js`) |
+| Grid | 네이티브, `createOscillator()` 직접 호출 (`grid-audio.js`) | ❌ | 보이스 자신의 음색 또는 스튜디오 음색 |
+| Cloud · Chaos · Fractal | 네이티브, `createOscillator()` 직접 호출 | ❌ | 스튜디오 전체 음색 하나 (0.10.0에서 일부러 제외) |
+| Wave | 워클릿 뱅크 (`wave-bank.js`) + 오실레이터 | ❌ | 스펙트럼 뱅크 |
+| Risset | 워클릿 `RissetVoiceBank` (+ 오실레이터 대체) | ❌ | 파형 `wave = { morph, duty }`가 **모든 슬롯 공통** |
+
+이미 있는 공용 부품:
+- `core/sample-library.js`: PCM 저장. `appState` 밖에 두고, IndexedDB 자동 저장, 프로젝트 파일에는 base64 16비트로 저장.
+- `modules/sample-source.js`: 순수 함수. 구간, 루프, 엔벨로프, 테이프/음높이만 재생, 그레인 시프트, YIN 루트 추정.
+- `modules/timbre-spec.js`: 음색 스펙 `mode: 'mix' | 'func' | 'sample'`.
+- `audio/studio-fx.js`: `createTimbreWave`.
+
+### D-1. 핵심 구조: 3층 분리
+
+```
+[1] Control (스튜디오 고유)         [2] Source (공용 · 이식)                 [3] Host (공용)
+ 각 스튜디오의 곡선 / 베이크 /  ──▶  음색 스펙 → 소리 생성기          ──▶  네이티브: createToneSource(ctx, spec)
+ 제어 프레임 (hz, amp, mods)         mix · func · sample · pulse               워클릿:  자기완결 커널 클래스
+```
+
+- **Control:** 스튜디오에 남습니다. 각 스튜디오는 "보이스 i가 시각 t에 몇 Hz, 진폭 얼마"만 내놓습니다.
+- **Source:** 음색 스펙 하나로 정의합니다. 같은 스펙이 두 호스트 어디에서나 같은 소리를 냅니다.
+- **Host:** 네이티브와 워클릿 두 가지입니다.
+  - 네이티브 호스트는 이미 있습니다 (`createToneSource`). 남은 일은 직접 `createOscillator()`를 부르는 곳을 이 함수로 바꾸는 것입니다.
+  - 워클릿 호스트는 새로 만듭니다. `modules/sources/`에 import 없는 커널 클래스(`OscKernel`, `PulseKernel`, `SampleKernel`)를 두고, 워클릿 소스는 `buildWorkletSource([RissetVoiceBank, ...kernels])`로 조립합니다. Risset의 `toString()` 규칙을 그대로 따릅니다.
+- **스펙 확장:** `mode`에 `'pulse'`를 추가합니다. 지금 Risset의 `waveMorph` / `waveDuty`가 이 모드로 옮겨옵니다.
+  - 기존 문서는 그대로 열립니다. 이 모드를 모르는 코드는 `'pulse'`를 사인으로 읽습니다.
+
+### D-2. 워클릿 커널 계약
+
+- 커널 인터페이스는 `init(slotState, spec, assets)`와 `sample(slotState, psi, dt)`입니다. 성능이 필요하면 블록 단위 `render(out, len, …)`를 둡니다.
+- 커널은 `phaseKind: 'cycle' | 'free'`를 선언합니다.
+  - 쿠라모토 결합(ψ)은 `cycle` 소스에만 작용합니다. 짧은 루프 샘플은 ψ를 루프 안 재생 위치로 정의합니다.
+  - 긴 텍스처 샘플은 `free`이며 결합에서 빠집니다.
+- PCM 전달: 컨텍스트마다 한 번 `port.postMessage({ type: 'asset', id, data }, [buffer])`로 보냅니다. 제어 프레임에는 `assetId`만 싣습니다.
+  - 오프라인 렌더는 같은 클래스에 같은 배열을 직접 넣습니다. 그래서 "오프라인 = 워클릿" 자가진단(A-1)을 그대로 씁니다.
+- 테이프 모드는 커널 안에서 rate = f/root로 처리합니다. 음높이만 모드는 `renderGrainShift`를 커널로 옮길지 따로 결정합니다(D-6).
+
+### D-3. Risset: 보이스마다 다른 모양
+
+`frame.wave`(전역 하나)를 **소스 팔레트(K개, 예: 최대 4개) + 슬롯별 배정 규칙**으로 바꿉니다.
+
+| 배정 모드 | 의미 | 셰퍼드 착시 |
+|---|---|---|
+| `uniform` (기본) | 지금처럼 모두 같은 소스 | 유지 |
+| `byPhase` | 음색이 위상 p의 함수. 저역은 A, 고역은 B로 섞임 | **유지.** 모든 보이스가 같은 음색 경로를 지남 |
+| `byIndex` / `pattern` | 보이스 i마다 고정 소스 | **깨질 수 있음.** 개별 보이스가 순환하는 게 들림 (예술적 선택) |
+| `random` (시드) | 슬롯이 재활성될 때마다 추첨 | 명멸(A_local)과 어울림 |
+
+- 제어 프레임의 슬롯 레코드를 4개 값(p, ω, g, flags)에서 7개 값(+ `srcA`, `srcB`, `mix`)으로 늘립니다.
+- Risset에 공용 음색 편집기(`ui/timbre-editor.js`)를 팔레트 칸마다 붙입니다. 교차 스튜디오 동일성 규칙에 따라 다른 스튜디오와 같은 편집기를 씁니다.
+- 도움말에 "착시를 유지하려면 `byPhase`"를 명시합니다.
+
+### D-4. 넓은 음고 범위에서의 샘플 품질
+
+Risset 스팬은 기본 96반음(8옥타브)입니다. Space의 도플러, Field의 넓은 스윕도 같은 문제가 있습니다.
+
+- **밉맵:** 라이브러리에 넣을 때 옥타브마다 대역을 제한한 사본을 만들고, 재생 속도에 맞는 레벨을 고릅니다.
+  - 순수 모듈 `modules/sample-prep.js`에 둡니다. 결과는 PCM처럼 `appState` 밖 캐시에 두며, 저장하지 않고 다시 계산합니다.
+  - 지금 Risset의 `nyquistGuard`와 주파수 의존 모핑이 하는 일을 샘플러 쪽에서 맡습니다.
+- **멀티샘플 존:** 샘플 스펙에 `zones: [{ id, root, lo, hi }]`를 추가하고, 경계를 지날 때 크로스페이드합니다. 존이 없으면 지금처럼 파일 하나를 씁니다.
+- 네이티브 호스트(`AudioBufferSourceNode`)는 브라우저 리샘플러에 맡기므로, 밉맵은 레벨 전환 시점에만 적용됩니다. 워클릿 호스트는 샘플 단위로 적용합니다.
+
+### D-5. 스튜디오 전체 음색 스튜디오 (Cloud · Chaos · Fractal · Wave · Grid)
+
+- 직접 `createOscillator()` + `setPeriodicWave()`를 부르는 곳을 `createToneSource(ctx, { sample, wave })`로 바꿉니다. 샘플이 없으면 동작이 그대로라서 회귀 위험이 낮습니다.
+- **기본:** 스튜디오 전체에 샘플 하나를 씁니다 (모든 보이스가 같은 파일). **선택 기능:** 보이스별 팔레트 배정(D-3과 같은 배정 모드)을 고를 수 있게 합니다.
+- Cloud의 그레인은 그레인 하나가 샘플 구간 하나를 재생하는 방식이 자연스럽습니다. 이 경우 위치 스캔 파라미터가 필요합니다.
+- Wave의 스펙트럼 뱅크는 성격이 다릅니다. 부분음마다 샘플을 붙이는 건 의미가 없으므로, 리지 곡선 오실레이터 경로에만 적용합니다.
+- 적용할 수 없는 곳에서는 샘플 탭을 그 자리에 둔 채 끄고 이유를 표시합니다.
+
+### D-6. 단계
+
+각 단계가 끝날 때마다 `runSelfCheck`를 통과해야 합니다.
+
+| 단계 | 내용 | 자가진단 |
+|---|---|---|
+| D-1 ✅ | 남은 직접 `createOscillator()`를 `createToneSource()`로 교체 (Grid, Cloud, Chaos, Fractal, Wave 리지). **소리 변화 없음** | 교체 전후 오프라인 버퍼 차이 ≤ 1e-6 |
+| D-2 ✅ | 스펙에 `'pulse'` 추가, Risset `waveSample`을 `PulseKernel`로 추출. 뱅크는 위상, 포락선, 쿠라모토만 맡고 파형은 커널에 위임 | 리팩터 전후 Risset 렌더 동일, 커널 `toString()` 자기완결 |
+| D-3 | Risset 팔레트 + 배정 모드 (`uniform`, `byPhase`, `byIndex`, `random`). 처음에는 `OscKernel`과 `PulseKernel`만, 샘플 없이 | `uniform` = D-2, `byPhase` 래핑 지점 연속성 |
+| D-4 | `SampleKernel`: 테이프 모드, 루프, 엔벨로프, 큐빅 보간, PCM 전달. Risset에 연결 | 오프라인 = 워클릿, 루프 경계 연속성 |
+| D-5 | `modules/sample-prep.js` 밉맵과 멀티샘플 존 | 8옥타브 스윕에서 나이퀴스트 위 에너지 한계 |
+| D-6 | 스튜디오 전체 음색 스튜디오에 샘플 탭 (기본: 전체 하나, 선택: 보이스별 배정) | 각 스튜디오 첫 보이스 샘플 렌더, 매니저 버퍼 캐시 키에 `assetId` 포함 |
+
+> D-1 · D-2 결과 (0.50.0): 다섯 스튜디오가 `createToneSource`를 거치고, 펄스는 `modules/sources/pulse-kernel.js`의 `PulseKernel` 하나가 워클릿과 네이티브 계수를 모두 맡습니다. 기본 문서 렌더는 전후 동일했습니다. 세부: STUDIO_INTEGRATION_LOG "Voice-source split D-1 · D-2".
+
+D-1과 D-2는 서로 독립이라 같이 진행할 수 있습니다. Risset의 "보이스마다 다른 모양"은 D-3에서 샘플 없이 먼저 동작합니다.
+
+### D-7. 충돌과 미정 사항
+
+1. **Risset 오실레이터 대체 경로.** 워클릿이 없을 때 샘플 소스를 어떻게 처리할지 정해야 합니다. 추천은 사인으로 떨어뜨리고 경고 토스트를 띄우는 것입니다. 대안은 `AudioBufferSourceNode`로 근사하는 것입니다.
+2. **음높이만 모드를 워클릿에서 쓸지.** `renderGrainShift`는 지금 끝 시각을 알고 미리 렌더합니다. Risset은 끝이 없는 실시간 루프라서, 실시간 그레인 커널을 따로 만들어야 합니다. 처음에는 테이프 모드만 지원합니다.
+3. **CPU.** 60 슬롯 × 큐빅 보간 × 크로스페이드(소스 2개)는 지금 PolyBLEP 펄스와 비슷한 비용으로 예상합니다. D-4에서 측정합니다.
+4. **역행(설정) 확장.** 샘플은 앞으로 재생되는 규칙(어택은 어택으로 유지)을 Risset 커널에서도 지켜야 합니다.
+5. **프로젝트 크기.** 밉맵은 저장하지 않고 다시 계산하므로 크기는 늘지 않습니다. 멀티샘플 존은 파일 수만큼 늘어납니다 (초당 약 128 KB).
+
+### D-8. 파일
+
+| 파일 | 계층 | 역할 |
+|---|---|---|
+| `modules/sources/osc-kernel.js`, `pulse-kernel.js`, `sample-kernel.js` | modules (순수, 자기완결) | 워클릿·오프라인 공용 소스 커널 |
+| `modules/sources/build-worklet.js` | modules | 뱅크 + 커널 `toString()` 조립 |
+| `modules/sample-prep.js` | modules (순수) | 밉맵, 존 선택 |
+| `modules/timbre-spec.js` (확장) | modules | `mode: 'pulse'`, 팔레트, 배정 모드 |
+| `audio/sample-voice.js` (확장) | audio | 워클릿용 PCM 전달, 컨텍스트별 캐시 |
+| `studios/risset/risset-voicebank.js`, `risset-audio.js` (변경) | studios / audio | 파형을 커널에 위임, 슬롯 레코드 7개 값 |
+| `studios/{grid,cloud,chaos,fractal,wave}/*-audio.js` (변경) | studios | `createToneSource()`로 교체 |

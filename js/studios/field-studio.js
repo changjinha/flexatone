@@ -16,6 +16,7 @@
  * Imports: core/*, modules/*, studios/registry.js, studios/field/vector-field-engine.js.
  */
 
+import { clipWindow, splitClip, syncLinkedAfterEdit } from '../core/line-clip.js';
 import { clamp, roundTo, deepClone } from '../core/math-utils.js';
 import { midiToFreq } from '../core/units.js';
 import { appState, registerSelfCheck, withIsolatedState } from '../core/state.js';
@@ -52,7 +53,10 @@ export function getFieldParams() {
  */
 export function editField(fn, { history = true, coalesceKey = null } = {}) {
   const draft = getFieldParams();
+  const before = draft.voices.some((v) => v.link?.on) ? deepClone(draft.voices) : null;
   fn(draft);
+  // 🔗 linked pieces of one particle keep one shape (core/line-clip.js) / 링크된 조각은 같은 모양 유지
+  if (before) syncLinkedAfterEdit(before, draft.voices, FIELD_LINK_KEYS, draft.activeVoiceId);
   return StudioRegistry.setParams(FIELD_ID, draft, { history, coalesceKey });
 }
 
@@ -63,6 +67,45 @@ export function getActiveParticle(params = getFieldParams()) {
 export function isParticleAudible(v, params = getFieldParams()) {
   const anySolo = params.voices.some((x) => x.solo);
   return anySolo ? !!v.solo : !v.muted;
+}
+
+/**
+ * Fields linked pieces of a particle share (🔗): its physics and pitch range. Timing, play range, timbre
+ * and gain stay each piece's own. / 링크된 조각이 공유하는 필드: 물리와 음고 범위.
+ */
+export const FIELD_LINK_KEYS = Object.freeze(['f0Midi', 'f1Midi', 'mass', 'drag', 'launchAngle', 'launchSpeed', 'restitution', 'boundaryMode', 'coupling', 'retroMode']);
+
+/** Played window of a particle (its clip on the whole trajectory). / 입자의 재생 창 */
+export function particleWindow(v) {
+  return clipWindow(v.clip, v.startTime, v.duration);
+}
+
+/**
+ * ✂ Cut a particle at `sec` into two linked pieces (Locate double-click). Both keep the whole
+ * trajectory span; their clips split the played part. / 입자를 sec에서 링크된 두 조각으로 자르기
+ */
+export function splitParticle(id, sec) {
+  let ok = false;
+  editField((d) => {
+    const i = d.voices.findIndex((x) => x.id === id);
+    const v = d.voices[i];
+    if (!v) return;
+    const cl = splitClip(v.clip, v.startTime, v.duration, sec);
+    if (!cl) return;
+    const linkId = v.link?.id || `ln_${Math.random().toString(36).slice(2, 8)}`;
+    const b = deepClone(v);
+    b.id = `pv_${Math.random().toString(36).slice(2, 8)}`;
+    b.name = `${String(v.name).replace(/ ✂\d+$/, '')} ✂${Math.max(1, d.voices.filter((x) => x.link?.id === linkId).length) + 1}`.slice(0, 40);
+    b.solo = false;
+    v.link = { id: linkId, on: true };
+    b.link = { id: linkId, on: true };
+    if (cl[0]) v.clip = cl[0]; else delete v.clip;
+    if (cl[1]) b.clip = cl[1]; else delete b.clip;
+    d.voices.splice(i + 1, 0, b);
+    d.activeVoiceId = b.id;
+    ok = true;
+  });
+  return ok;
 }
 
 /** Baked points of every particle for the current document (memoised). / 현재 베이킹 결과 */
@@ -90,13 +133,18 @@ export function particleToGlissandoVoice(v, pts, helpers, index) {
     const x = i / 16;
     gainPoints.push({ x: roundTo(x, 4), y: roundTo(clamp(lookupBakedSample(v, pts, x).gainMod, 0, 1), 4), handles: [] });
   }
+  // A trimmed / extended particle bakes as a Glissando voice with the same play range (core/line-clip.js)
+  // 잘리거나 늘린 입자는 같은 재생 구간을 가진 글리산도 보이스로
+  const win = particleWindow(v);
+  const clip = v.clip ? { clip: { u0: win.u0, u1: win.u1, ext: 'tangent' } } : {};
   return helpers.createDefaultVoice(index, {
+    ...clip,
     name: v.name,
     color: v.color,
     solo: !!v.solo,
     muted: !!v.muted,
-    startTime: v.startTime,
-    duration: v.duration,
+    startTime: v.clip ? win.s0 : v.startTime,
+    duration: v.clip ? win.s1 - win.s0 : v.duration,
     baseGain: v.baseGain,
     f0Hz: roundTo(midiToFreq(v.f0Midi), 2),
     f1Hz: roundTo(midiToFreq(v.f1Midi), 2),

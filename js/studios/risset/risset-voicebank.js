@@ -1,11 +1,14 @@
 /**
  * Flexatone — studios/risset/risset-voicebank.js
  * Risset Studio (pure DSP): sample-accurate voice bank shared by the AudioWorklet (Blob), the
- * offline WAV render and the main-thread self-checks. No imports, no DOM, no Web Audio — the class
- * source is shipped into the worklet with `RissetVoiceBank.toString()`, so it MUST stay
- * self-contained (a self-check asserts this).
+ * offline WAV render and the main-thread self-checks. No DOM, no Web Audio — the class source is
+ * shipped into the worklet with `toString()`, so it MUST stay self-contained (a self-check asserts
+ * this). Its only outside name is the voice-source kernel it delegates the waveform to (PulseKernel,
+ * modules/sources/pulse-kernel.js, ROADMAP D-2): imported here for the main thread, composed into
+ * the worklet source next to the bank (modules/sources/kernel-source.js).
  * 리세 스튜디오 (순수 DSP): 워클릿·오프라인·자가진단이 공유하는 샘플 정확 보이스 뱅크.
- * import 없이 자기완결이어야 함 (toString()으로 워클릿에 들어감).
+ * 자기완결이어야 함 (toString()으로 워클릿에 들어감). 외부 이름은 파형을 맡기는 음원 커널(PulseKernel) 하나:
+ * 메인 스레드는 import, 워클릿은 뱅크 옆에 함께 조립.
  *
  * Per slot s (a sounding point; classic field: slot i = voice i):
  *   S¹ phase      pₛ[n+1] = wrap(pₛ[n] + (ωₛ + corrₛ)/fs)        ω = dp/dt from the control frame
@@ -25,6 +28,9 @@
  *   d = (p − c)/σ_side,  σ_left = σ·(1 − skew), σ_right = σ·(1 + skew)
  *   Bell-Pass 1/(1 + |d|^γ) (γ = 4 default) · Gaussian e^(−d²/2) · Raised Cosine ½ − ½cos(2π·clamp(½ + d/2))
  */
+import { PulseKernel } from '../../modules/sources/pulse-kernel.js';
+import { composeKernelSource } from '../../modules/sources/kernel-source.js';
+
 export class RissetVoiceBank {
   constructor(sampleRate, maxSlots = 128) {
     this.fs = sampleRate;
@@ -52,10 +58,26 @@ export class RissetVoiceBank {
     this.fresh = true;
     // Per-voice tremolo / vibrato (core/voice-mod.js; the hash is repeated here — this class must stay self-contained)
     // 보이스별 트레몰로·비브라토 (core/voice-mod.js와 같은 해시를 여기 다시 둠 — 이 클래스는 자기완결이어야 함)
-    this.mod = null; // { seed, t: [on, rate, depth, spread, track], v: [on, rate, cents, spread, track] }
+    // { seed, t / v: [on, rate, depth|cents, rateSpread, depthK, phaseSpread, dist, drift, —], tE / vE: band table }
+    this.mod = null;
     this.phT = new Float64Array(maxSlots);
     this.phV = new Float64Array(maxSlots);
-    this.ru = new Float64Array(maxSlots * 6);
+    this.ru = new Float64Array(maxSlots * 12); // 12 draws per slot: trem 0 1 2 7 8, vib 3 4 5 10 11 / 슬롯당 난수 12개
+    this.tSec = 0; // bank clock for the slow rate drift / 표류용 시계
+    // per-region modulation: mods[k] for region k, slotReg[i] = region of slot i; ruSlot[i] = seed its draws are for
+    // 영역별 변조: 영역 k의 mods[k], 슬롯 i의 영역 slotReg[i], ruSlot[i] = 난수표의 시드
+    this.mods = null;
+    // per-region waveform / weighting / oscillator sync (null = the shared ones) and the region mean fields
+    // 영역별 파형·가중·발진기 동기화 (null = 공유)와 영역별 평균장
+    this.regWave = null;
+    this.regWeight = null;
+    this.regSync = null;
+    this.zcR = new Float64Array(8);
+    this.zsR = new Float64Array(8);
+    this.cntR = new Float64Array(8);
+    this.wR = new Float64Array(8);
+    this.slotReg = new Uint8Array(maxSlots);
+    this.ruSlot = new Float64Array(maxSlots).fill(NaN);
     this.ruSeed = NaN;
     // 4096-point sine table, linear interpolation (|error| < 3e-7) / 사인 테이블
     this.tab = new Float64Array(4097);
@@ -67,6 +89,20 @@ export class RissetVoiceBank {
     const i = x | 0;
     const t = this.tab;
     return t[i] + (t[i + 1] - t[i]) * (x - i);
+  }
+
+  /** Distribution of the rate draw (core/voice-mod.js distU): 0 uniform, 1 center u³, 2 split ±1. / 분포 */
+  static distU(d, u) {
+    return d === 1 ? u * u * u : d === 2 ? (u < 0 ? -1 : 1) : u;
+  }
+
+  /** Band-follow table at band place b ∈ [0, 1] (core/voice-mod.js envAt01). / 대역 추종 표 */
+  static env01(tab, b) {
+    if (!tab) return 0;
+    const n = tab.length;
+    const x = (b < 0 ? 0 : b > 1 ? 1 : b) * (n - 1);
+    const k = Math.min(n - 2, Math.floor(x));
+    return tab[k] + (tab[k + 1] - tab[k]) * (x - k);
   }
 
   /** u ∈ [−1, 1] for (seed, slot, lane) — identical to voiceRand() in core/voice-mod.js. / 결정적 난수 */
@@ -130,30 +166,16 @@ export class RissetVoiceBank {
   }
 
   static polyBlep(t, dt) {
-    if (t < dt) { const x = t / dt; return x + x - x * x - 1; }
-    if (t > 1 - dt) { const x = (t - 1) / dt; return x * x + x + x + 1; }
-    return 0;
+    return PulseKernel.polyBlep(t, dt);
   }
 
-  /** Waveform: sine → band-limited pulse (duty) morph, PolyBLEP. / 사인 → 펄스 모핑 */
+  /**
+   * Waveform: sine → band-limited pulse (duty) morph, PolyBLEP — delegated to the shared Pulse source
+   * kernel (one implementation for the worklet, the offline render and the native PeriodicWave).
+   * 파형: 공용 펄스 음원 커널에 위임 (워클릿·오프라인·네이티브 PeriodicWave가 같은 구현).
+   */
   static waveSample(wave, psi, dt) {
-    const s = Math.sin(2 * Math.PI * psi);
-    // Frequency-dependent morph (theory: the waveform morph *is* the anti-aliasing): full pulse
-    // while ≥ 20 harmonics fit below Nyquist (H = 1/(2·dt)), pure sine at ≤ 4 harmonics.
-    // 주파수 의존 모핑: 나이퀴스트 아래 배음이 20개 이상이면 펄스, 4개 이하면 사인.
-    const H = 0.5 / Math.max(1e-9, dt);
-    const m = wave.morph * (H >= 20 ? 1 : H <= 4 ? 0 : (H - 4) / 16);
-    if (!(m > 0)) return s;
-    const d = Math.min(0.95, Math.max(0.05, wave.duty));
-    const ddt = Math.min(0.5, dt);
-    // bipolar pulse with DC removed: +1 for ψ < d, −1 otherwise, minus mean (2d − 1)
-    let pulse = psi < d ? 1 : -1;
-    pulse += RissetVoiceBank.polyBlep(psi, ddt);
-    let q = psi - d;
-    if (q < 0) q += 1;
-    pulse -= RissetVoiceBank.polyBlep(q, ddt);
-    pulse -= 2 * d - 1;
-    return s + (pulse * 0.8 - s) * m;
+    return PulseKernel.sample(wave, psi, dt);
   }
 
   /**
@@ -170,13 +192,14 @@ export class RissetVoiceBank {
     if (frame.wave) this.wave = frame.wave;
     if (frame.weight) this.weight = frame.weight;
     if (frame.syncHz !== undefined) this.syncHz = frame.syncHz;
-    if (frame.mod !== undefined) {
-      this.mod = frame.mod || null;
-      if (this.mod && this.mod.seed !== this.ruSeed) {
-        this.ruSeed = this.mod.seed;
-        for (let i = 0; i < this.max; i++) for (let k = 0; k < 6; k++) this.ru[i * 6 + k] = RissetVoiceBank.voiceRand(this.mod.seed, i, k);
-      }
-    }
+    if (frame.mod !== undefined) this.mod = frame.mod || null;
+    this.mods = frame.mods || null;
+    // per-region output tremolo: { rate Hz, tab: 65-point gain table of one cycle } per region / 영역별 출력 트레몰로
+    this.regTrem = frame.regTrem || null;
+    this.regWave = frame.regWave || null;
+    this.regWeight = frame.regWeight || null;
+    this.regSync = frame.regSync || null;
+    if (frame.slotRegion) { const sr = frame.slotRegion; for (let i = 0; i < this.max; i++) this.slotReg[i] = i < sr.length ? sr[i] : 0; }
     this.scale1 = frame.scale;
     if (this.fresh) this.scale0 = frame.scale;
     const sl = frame.slots;
@@ -209,9 +232,6 @@ export class RissetVoiceBank {
     const inv = 1 / fs;
     const n = this.n;
     const env = this.env;
-    const wave = this.wave;
-    const weight = this.weight;
-    const useW = !!(weight.tilt || weight.flutterDb);
     const k = Math.log(2) / 12;
     for (let s = 0; s < len; s++) out[s] = 0;
     const sc0 = this.scale0;
@@ -235,44 +255,89 @@ export class RissetVoiceBank {
     }
     if (wsum > 0) { zc /= wsum; zs /= wsum; }
     this.r = cnt > 1 ? Math.sqrt(zc * zc + zs * zs) : cnt;
-    const kc = cnt > 1 ? this.syncHz * inv : 0;
+    const kc0 = cnt > 1 ? this.syncHz * inv : 0;
+    const zc0 = zc;
+    const zs0 = zs;
+    if (this.regSync) {
+      // each region's own mean field: its slots sync among themselves / 영역마다 자기 슬롯끼리 동기화
+      const zcR = this.zcR;
+      const zsR = this.zsR;
+      const cntR = this.cntR;
+      const wR = this.wR;
+      for (let q = 0; q < 8; q++) { zcR[q] = 0; zsR[q] = 0; cntR[q] = 0; wR[q] = 0; }
+      for (let i = 0; i < n; i++) {
+        const wgt = this.g1[i] * RissetVoiceBank.envelope(env, this.p[i]);
+        if (!(wgt > 1e-4)) continue;
+        const r = this.slotReg[i] & 7;
+        zsR[r] += wgt * this.sin01(this.psi[i]);
+        let c = this.psi[i] + 0.25;
+        if (c >= 1) c -= 1;
+        zcR[r] += wgt * this.sin01(c);
+        wR[r] += wgt;
+        cntR[r] += 1;
+      }
+      for (let q = 0; q < 8; q++) if (wR[q] > 0) { zcR[q] /= wR[q]; zsR[q] /= wR[q]; }
+    }
     const shA = 1 - Math.exp(-len / (0.01 * fs));
-    const mod = this.mod;
-    const tOn = !!(mod && mod.t[0]);
-    const vOn = !!(mod && mod.v[0]);
     const TAU = 2 * Math.PI;
     for (let i = 0; i < n; i++) {
+      // this slot's timbre and sync: its region's, else the shared ones / 이 슬롯의 음색·동기화: 영역 것, 없으면 공유
+      const sr = this.slotReg[i];
+      const wave = this.regWave ? this.regWave[sr] || this.wave : this.wave;
+      const weight = this.regWeight ? this.regWeight[sr] || this.weight : this.weight;
+      const useW = !!(weight.tilt || weight.flutterDb);
+      const zc = this.regSync ? this.zcR[sr & 7] : zc0;
+      const zs = this.regSync ? this.zsR[sr & 7] : zs0;
+      const kc = this.regSync ? (this.cntR[sr & 7] > 1 ? (this.regSync[sr] || 0) * inv : 0) : kc0;
+      // this slot's modulation: its region's, else the shared one / 이 슬롯의 변조: 영역 것, 없으면 공유
+      const mod = this.mods ? this.mods[this.slotReg[i]] || null : this.mod;
+      const rtr = this.regTrem ? this.regTrem[this.slotReg[i]] || null : null; // its region's output tremolo / 영역 출력 트레몰로
+      const tOn = !!(mod && mod.t[0]);
+      const vOn = !!(mod && mod.v[0]);
+      if ((tOn || vOn) && this.ruSlot[i] !== mod.seed) {
+        this.ruSlot[i] = mod.seed;
+        for (let k = 0; k < 12; k++) this.ru[i * 12 + k] = RissetVoiceBank.voiceRand(mod.seed, i, k);
+      }
       const ga = this.g0[i];
       this.sh[i] += (this.shT[i] - this.sh[i]) * shA;
       const base0 = this.base + this.sh[i];
       const gb = this.g1[i];
       // Per-voice modulation of this slot (rate follows the band through p) / 이 슬롯의 보이스별 변조
       let rT = 0; let dT = 0; let oT = 0; let rV = 0; let cV = 0; let oV = 0;
+      let aT = 0; let fT = 0; let pT0 = 0; let aV = 0; let fV = 0; let pV0 = 0; // slow rate drift / 속도 표류
       if (tOn || vOn) {
         const u = this.ru;
-        const j = i * 6;
-        const b = 2 * this.p[i] - 1;
+        const j = i * 12;
+        const b01 = this.p[i];
         if (tOn) {
           const q = mod.t;
-          rT = q[1] * Math.pow(2, q[3] * u[j] + q[4] * b);
-          dT = q[2] * (1 - 0.25 * q[3] * (u[j + 1] + 1));
-          oT = q[3] * 0.5 * (u[j + 2] + 1);
+          rT = q[1] * Math.pow(2, q[3] * RissetVoiceBank.distU(q[6], u[j]) + RissetVoiceBank.env01(mod.tE, b01));
+          dT = q[2] * (1 - q[4] * (u[j + 1] + 1));
+          oT = q[5] * 0.5 * (u[j + 2] + 1);
+          aT = 0.5 * (q[7] || 0);
+          fT = 0.1 * (1 + 0.5 * u[j + 7]);
+          pT0 = 0.5 * (u[j + 8] + 1);
         }
         if (vOn) {
           const q = mod.v;
-          rV = q[1] * Math.pow(2, q[3] * u[j + 3] + q[4] * b);
-          cV = (q[2] / 100) * (1 - 0.25 * q[3] * (u[j + 4] + 1));
-          oV = q[3] * 0.5 * (u[j + 5] + 1);
+          rV = q[1] * Math.pow(2, q[3] * RissetVoiceBank.distU(q[6], u[j + 3]) + RissetVoiceBank.env01(mod.vE, b01));
+          cV = (q[2] / 100) * (1 - q[4] * (u[j + 4] + 1));
+          oV = q[5] * 0.5 * (u[j + 5] + 1);
+          aV = 0.5 * (q[7] || 0);
+          fV = 0.1 * (1 + 0.5 * u[j + 10]);
+          pV0 = 0.5 * (u[j + 11] + 1);
         }
       }
+      const t0s = this.tSec;
       if (ga === 0 && gb === 0) {
         // Silent: keep the S¹ phase moving (no oscillator work) / 무음이어도 위상은 진행
         const used = Math.min(len, this.corrLeft[i]);
         const q = this.p[i] + this.w[i] * inv * len + this.corr[i] * used;
         this.p[i] = q - Math.floor(q);
         this.corrLeft[i] -= used;
-        if (rT) { const x = this.phT[i] + rT * inv * len; this.phT[i] = x - Math.floor(x); }
-        if (rV) { const x = this.phV[i] + rV * inv * len; this.phV[i] = x - Math.floor(x); }
+        const tm = t0s + 0.5 * len * inv;
+        if (rT) { const x = this.phT[i] + rT * (aT ? 1 + aT * Math.sin(TAU * (fT * tm + pT0)) : 1) * inv * len; this.phT[i] = x - Math.floor(x); }
+        if (rV) { const x = this.phV[i] + rV * (aV ? 1 + aV * Math.sin(TAU * (fV * tm + pV0)) : 1) * inv * len; this.phV[i] = x - Math.floor(x); }
         continue;
       }
       let phT = this.phT[i];
@@ -295,8 +360,15 @@ export class RissetVoiceBank {
         // tremolo gain and vibrato shift, held for this sub-block (≤ 16 samples) / 하위 블록 동안 유지
         let tg = 1;
         let base = base0;
-        if (rT) { tg = 1 - dT * (0.5 - 0.5 * Math.cos(TAU * (phT + oT))); phT += rT * inv * m; phT -= Math.floor(phT); }
-        if (rV) { base = base0 + cV * Math.sin(TAU * (phV + oV)); phV += rV * inv * m; phV -= Math.floor(phV); }
+        const tm = t0s + s * inv;
+        if (rtr) {
+          const x = rtr.rate * tm;
+          const u = (x - Math.floor(x)) * 64;
+          const k = u | 0;
+          tg = rtr.tab[k] + (rtr.tab[k + 1] - rtr.tab[k]) * (u - k);
+        }
+        if (rT) { tg *= 1 - dT * (0.5 - 0.5 * Math.cos(TAU * (phT + oT))); phT += rT * (aT ? 1 + aT * Math.sin(TAU * (fT * tm + pT0)) : 1) * inv * m; phT -= Math.floor(phT); }
+        if (rV) { base = base0 + cV * Math.sin(TAU * (phV + oV)); phV += rV * (aV ? 1 + aV * Math.sin(TAU * (fV * tm + pV0)) : 1) * inv * m; phV -= Math.floor(phV); }
         const pEnd = p + inc * m;
         if (pEnd >= 1 || pEnd < 0) {
           for (let q = 0; q < m; q++, s++) {
@@ -361,15 +433,19 @@ export class RissetVoiceBank {
       this.g0[i] = gb;
     }
     for (let i = n; i < this.max; i++) this.g0[i] = this.g1[i];
+    this.tSec += len * inv;
     this.scale0 = this.scale1;
     for (let s = 0; s < len; s++) out[s] = out[s] > 0.98 ? 0.98 : out[s] < -0.98 ? -0.98 : out[s];
   }
 }
 
-/** Worklet source: the bank class + a thin processor (Blob). / 워클릿 소스 */
+/** Classes the worklet needs: the bank + the source kernels it calls. / 워클릿에 필요한 클래스 */
+export const RISSET_KERNELS = Object.freeze([RissetVoiceBank, PulseKernel]);
+
+/** Worklet source: the bank class + its kernels + a thin processor (Blob). / 워클릿 소스 */
 export const RISSET_PROCESSOR = 'fx-risset-bank';
 export function buildRissetWorkletSource() {
-  return `${RissetVoiceBank.toString()}
+  return `${composeKernelSource(RISSET_KERNELS)}
 class FxRissetProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();

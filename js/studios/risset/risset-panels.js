@@ -17,8 +17,10 @@
 import { clamp, roundTo, findSplineSegmentIndex, splitSplineSegmentPreservingShape, elevateSplineSegmentHandles, removeSplinePoint, evalPiecewiseBezierPoints, getSegmentControlArrays, solveSegmentParamS } from '../../core/math-utils.js';
 import { midiToFreq, midiToNoteName } from '../../core/units.js';
 import { t, getLang, I18N } from '../../core/i18n.js';
-import { REGION_OWN_KEYS, evenOffsets } from './risset-core.js';
-import { normalizeVoiceMod, VMOD_RATE_MIN, VMOD_RATE_MAX, VMOD_CENTS_MAX, VMOD_TRACK_MAX } from '../../core/voice-mod.js';
+import { REGION_OWN_KEYS, timeRateOf, evenOffsets, regionAudible, regionOffsets, regionVoicePositions } from './risset-core.js';
+import { createVoiceModRack } from '../../ui/voice-mod-rack.js';
+import { voiceGainControl } from '../../ui/voice-gain.js';
+import { voiceModSampler, normalizeVoiceMod } from '../../core/voice-mod.js';
 import { HELP_DB as VMOD_HELP_DB } from '../../ui/option-inspector.js';
 import { endHistoryGesture } from '../../core/state.js';
 import { getEngineLabel } from '../../modules/curve-engine.js';
@@ -30,7 +32,7 @@ import { RISSET_ID, getRissetParams, editRisset as editRissetDoc } from '../riss
 import { MAX_VOICES, MIN_VOICES, SHAPE_KINDS, SHAPE_ENGINES, voiceColor, computeVoicePhase, envOf, voiceAmplitude, phaseToMidi, shapedTime, regionPhiFn, relOffsets, BASE_MIDI_RANGE, SPAN_RANGE } from './risset-core.js';
 import { DYN_ORDERS, isDynamicsOn, dynHistoryAt, kineticEnergy } from './dynamics.js';
 import { COLOR_TARGETS, COLOR_ACTUATORS, COLOR_HISTORY } from './color-analysis.js';
-import { MAX_REGIONS, REGION_COLORS, createDefaultRegion, screenToSpace, spaceToScreen, edgeFade, regionCenter, formatAngle } from './space-regions.js';
+import { isClassicField, MAX_REGIONS, REGION_COLORS, createDefaultRegion, screenToSpace, spaceToScreen, edgeFade, regionCenter, formatAngle, regionFit, regionY } from './space-regions.js';
 import { GRID_MODES, GRID_PRESETS, RATIO_PRESETS, parseRatioSeq, formatCents, formatClean, absPitchName, offsetsToIntervalText, offsetsToPitchText, parseIntervalSeq, parsePitchSeq, parsePitchToken, normalizePatternText, presetPatch, OFFSET_MIN, OFFSET_MAX } from './harmony-grid.js';
 import { LOCAL_MODES, FADE_DISTS, MIN_M0 } from './local-particles.js';
 import { ENV_SHAPES, EQ_PRESETS, MAX_EQ_NODES, createBellNode, evalGlobalEnvelope, eqChainResponseDb, EQ_LIMITS } from './peq-envelope.js';
@@ -81,13 +83,38 @@ Object.assign(VMOD_TEXT.en, {
   'risset.regionScope': 'Region scope',
   'risset.scopeRegion': (m) => `Toolboxes edit ${m}`,
   'risset.scopeAll': 'Edit all regions',
-  'risset.scopeBanner': 'Toolboxes act on this region: Glissando rate (its own speed), voices, envelope, trajectory shape.',
-  'risset.scopeShared': 'Shared by all regions: pitch range, timbre, color, local particles, dynamics, tremolo.',
+  'risset.scopeBanner': 'Toolboxes act on this region: Glissando rate (its own speed), voices, envelope, parametric EQ, trajectory shape, harmonic offset grid, waveform / tilt / flutter / oscillator sync, local flicker, voice tremolo · vibrato, output tremolo, interaction dynamics, harmonic colour, loop automation.',
+  'risset.scopeShared': 'Shared by all regions: the pitch frame (Base MIDI / Span of the classic field) and the output level.',
+  'risset.timeRate': 'Time speed',
+  'risset.sharedChip': '🌐 shared',
+  'risset.sharedChipTip': 'This toolbox acts on every region (one voice bank) — region scope does not apply here.',
+  'risset.regionSolo': 'Solo this region (only soloed regions sound)',
+  'risset.locate': 'Locate',
+  'risset.regionGrapher': 'Multi-region grapher',
+  'risset.regionTools': 'Toolboxes:',
+  'risset.regionToolTip': 'Acts on the selected region — click to jump there',
+  'risset.regionCount': (n) => `${n} regions`,
+  'risset.layout.pitch': 'Base MIDI / span',
+  'risset.layout.fit': 'Squeezed ring',
+  'risset.layout.window': 'Window on the field',
+  'risset.syncCore': 'Sync the Core\'s Base MIDI / Span',
+  'risset.rangeSynced': (m) => `Base MIDI / Span = region ${m} (synced)`,
+  'risset.rangeLocked': 'Base MIDI / Span locked: the region sets them',
+  'risset.rangeLockTitle': 'Base MIDI and Span are locked',
+  'risset.rangeLockBody': (m) => `Region ${m} uses “Base MIDI / span”: its own range is its base MIDI and span, so the Core's Base MIDI and Span belong to it. Sync is off, so they are locked. To change them, turn on “Sync the Core's Base MIDI / Span” in the region toolbox (they then follow the region and move its edges), or pick another voice layout (Squeezed ring or Window on the field).`,
+  'risset.rangeLockSync': 'Turn on sync',
+  'risset.rangeLockFit': 'Use Squeezed ring',
+  'risset.rangeLockClose': 'Close',
+  'risset.layoutLbl': 'Voice layout',
+  'risset.regionMute': 'Mute this region',
   'risset.regionSpeedNote': (v) => `Speed: Core ▸ Glissando rate (${v})`,
   'risset.regionSpeedLinked': 'linked to global',
   'risset.regionOwn': 'Own',
   'risset.regionOwnNone': 'Uses the global settings',
   'risset.regionOwnReset': '↺ Use global',
+  'risset.ownKey.waveMorph': 'waveform', 'risset.ownKey.waveDuty': 'duty', 'risset.ownKey.spectralTilt': 'tilt', 'risset.ownKey.flutterDb': 'flutter', 'risset.ownKey.oscSyncHz': 'osc sync', 'risset.ownKey.eqNodes': 'EQ', 'risset.ownKey.timeRate': 'time speed',
+  'risset.ownKey.autoLanes': 'automation', 'risset.ownKey.autoLoopSec': 'automation loop', 'risset.ownKey.colorCtl': 'colour',
+  'risset.ownKey.voiceMod': 'voice trem · vib', 'risset.ownKey.dyn': 'dynamics', 'risset.ownKey.tremolo': 'tremolo', 'risset.ownKey.localMode': 'local mode', 'risset.ownKey.localRateHz': 'local rate', 'risset.ownKey.localThreshold': 'local threshold', 'risset.ownKey.fadeMeanMs': 'fade mean', 'risset.ownKey.fadeDevMs': 'fade dev', 'risset.ownKey.fadeCurve': 'fade curve', 'risset.ownKey.fadeDist': 'fade dist', 'risset.ownKey.bandMin': 'local band lo', 'risset.ownKey.bandMax': 'local band hi', 'risset.ownKey.bandMinHz': 'local Hz lo', 'risset.ownKey.bandMaxHz': 'local Hz hi', 'risset.ownKey.gridMode': 'grid', 'risset.ownKey.ratioText': 'grid ratio', 'risset.ownKey.fixedStep': 'grid step', 'risset.ownKey.patternText': 'grid pattern', 'risset.ownKey.patternIntervalMode': 'grid intervals', 'risset.ownKey.pitchText': 'grid pitches', 'risset.ownKey.offsets': 'grid offsets',
   'risset.ownKey.voiceCount': 'voices', 'risset.ownKey.globalEnvEnabled': 'env on', 'risset.ownKey.envShape': 'env shape', 'risset.ownKey.envCenter': 'env c', 'risset.ownKey.envWidth': 'env σ', 'risset.ownKey.envSkew': 'env skew', 'risset.ownKey.envGamma': 'env γ',
   'risset.ownKey.shapeKind': 'shape', 'risset.ownKey.shapePeriodSec': 'shape period', 'risset.ownKey.shapeAmount': 'shape amount', 'risset.ownKey.shapePower': 'shape power',
 });
@@ -95,13 +122,38 @@ Object.assign(VMOD_TEXT.ko, {
   'risset.regionScope': '영역 범위',
   'risset.scopeRegion': (m) => `툴박스 → ${m} 편집`,
   'risset.scopeAll': '모든 영역 편집',
-  'risset.scopeBanner': '툴박스가 이 영역에 작동합니다: 글리산도 속도(영역 자체 속도), 보이스 수, 포락선, 궤적 셰이프.',
-  'risset.scopeShared': '모든 영역 공유: 음고 범위, 음색, 색채, 로컬 입자, 동역학, 트레몰로.',
+  'risset.scopeBanner': '툴박스가 이 영역에 작동합니다: 글리산도 속도(영역 자체 속도), 보이스 수, 포락선, 파라메트릭 EQ, 궤적 셰이프, 화성 오프셋 격자, 파형·기울기·플러터·발진기 동기화, 로컬 명멸, 보이스 트레몰로·비브라토, 출력 트레몰로, 상호작용 동역학, 화성 색채, 루핑 오토메이션.',
+  'risset.scopeShared': '모든 영역 공유: 음고 틀(기존 음장의 기준 MIDI·스팬), 출력 레벨.',
+  'risset.timeRate': '시간 흐름 속도',
+  'risset.sharedChip': '🌐 공유',
+  'risset.sharedChipTip': '이 툴박스는 모든 영역에 작동합니다(보이스 뱅크 하나) — 영역 범위가 적용되지 않습니다.',
+  'risset.regionSolo': '이 영역 솔로 (솔로된 영역만 소리남)',
+  'risset.locate': 'Locate',
+  'risset.regionGrapher': '다중 영역 그래퍼',
+  'risset.regionTools': '툴박스:',
+  'risset.regionToolTip': '선택 영역에 작동 — 클릭하면 그 툴박스로 이동',
+  'risset.regionCount': (n) => `영역 ${n}개`,
+  'risset.layout.pitch': '기준 MIDI·스팬',
+  'risset.layout.fit': '고리 압축',
+  'risset.layout.window': '전체 음장의 창',
+  'risset.syncCore': '코어의 기준 MIDI·스팬 동기화',
+  'risset.rangeSynced': (m) => `기준 MIDI·스팬 = 영역 ${m} (동기화 중)`,
+  'risset.rangeLocked': '기준 MIDI·스팬 잠김: 영역이 정함',
+  'risset.rangeLockTitle': '기준 MIDI와 스팬이 잠겨 있습니다',
+  'risset.rangeLockBody': (m) => `영역 ${m}은 “기준 MIDI·스팬” 배치를 씁니다: 영역 범위 자체가 기준 MIDI와 스팬이므로 코어의 기준 MIDI·스팬은 이 영역의 것입니다. 동기화가 꺼져 있어 잠겨 있습니다. 바꾸려면 영역 툴박스에서 “코어의 기준 MIDI·스팬 동기화”를 켜거나(그러면 영역을 따라가며 영역 끝단을 움직입니다), 다른 보이스 배치(고리 압축 또는 전체 음장의 창)를 고르세요.`,
+  'risset.rangeLockSync': '동기화 켜기',
+  'risset.rangeLockFit': '고리 압축으로',
+  'risset.rangeLockClose': '닫기',
+  'risset.layoutLbl': '보이스 배치',
+  'risset.regionMute': '이 영역 뮤트',
   'risset.regionSpeedNote': (v) => `속도: 코어 ▸ 글리산도 속도 (${v})`,
   'risset.regionSpeedLinked': '전역에 연동',
   'risset.regionOwn': '자체 값',
   'risset.regionOwnNone': '전역 설정 사용',
   'risset.regionOwnReset': '↺ 전역 사용',
+  'risset.ownKey.waveMorph': '파형', 'risset.ownKey.waveDuty': '듀티', 'risset.ownKey.spectralTilt': '기울기', 'risset.ownKey.flutterDb': '플러터', 'risset.ownKey.oscSyncHz': '발진기 동기화', 'risset.ownKey.eqNodes': 'EQ', 'risset.ownKey.timeRate': '시간 속도',
+  'risset.ownKey.autoLanes': '오토메이션', 'risset.ownKey.autoLoopSec': '오토메이션 루프', 'risset.ownKey.colorCtl': '색채',
+  'risset.ownKey.voiceMod': '보이스 트레몰로·비브라토', 'risset.ownKey.dyn': '동역학', 'risset.ownKey.tremolo': '트레몰로', 'risset.ownKey.localMode': '로컬 모드', 'risset.ownKey.localRateHz': '로컬 속도', 'risset.ownKey.localThreshold': '로컬 임계', 'risset.ownKey.fadeMeanMs': '페이드 평균', 'risset.ownKey.fadeDevMs': '페이드 편차', 'risset.ownKey.fadeCurve': '페이드 곡률', 'risset.ownKey.fadeDist': '페이드 분포', 'risset.ownKey.bandMin': '로컬 대역 아래', 'risset.ownKey.bandMax': '로컬 대역 위', 'risset.ownKey.bandMinHz': '로컬 Hz 아래', 'risset.ownKey.bandMaxHz': '로컬 Hz 위', 'risset.ownKey.gridMode': '격자', 'risset.ownKey.ratioText': '격자 비율', 'risset.ownKey.fixedStep': '격자 간격', 'risset.ownKey.patternText': '격자 패턴', 'risset.ownKey.patternIntervalMode': '격자 음정', 'risset.ownKey.pitchText': '격자 피치', 'risset.ownKey.offsets': '격자 오프셋',
   'risset.ownKey.voiceCount': '보이스 수', 'risset.ownKey.globalEnvEnabled': '포락선 켜기', 'risset.ownKey.envShape': '포락선 모양', 'risset.ownKey.envCenter': '포락선 c', 'risset.ownKey.envWidth': '포락선 σ', 'risset.ownKey.envSkew': '포락선 기울기', 'risset.ownKey.envGamma': '포락선 γ',
   'risset.ownKey.shapeKind': '셰이프', 'risset.ownKey.shapePeriodSec': '셰이프 주기', 'risset.ownKey.shapeAmount': '셰이프 양', 'risset.ownKey.shapePower': '셰이프 지수',
 });
@@ -119,6 +171,12 @@ Object.assign(VMOD_HELP_DB, {
   'risset.vmod.vibSpread': vh(['Vibrato randomize', '0 = all voices vibrate together. 1 = rates ±1 octave, phases scattered — a chorus-like spread.', ''], ['비브라토 랜덤화', '0 = 모든 보이스가 함께 떨림. 1 = 속도 ±1옥타브, 위상 분산 — 코러스 같은 퍼짐.']),
   'risset.vmod.vibTrack': vh(['Vibrato band follow (oct)', 'Vibrato rate follows the frequency band: + = higher voices faster.', ''], ['비브라토 대역 추종 (옥타브)', '비브라토 속도가 주파수 대역을 따라감: + = 높은 보이스가 빠르게.']),
   'risset.regionScope': vh(['Region scope (toolboxes → selected region)', 'With two or more region modules, the toolboxes act on the selected region (M1…M6). It keeps its own Glissando rate (= its speed), voice count, envelope and trajectory shape; the list shows which values it owns.', '↺ Use global drops its own values and links its speed again. 🌐 Edit all regions makes the toolboxes edit the shared settings. Pitch range, timbre, color, local particles, dynamics and tremolo are always shared. The former "own speed" slider of this box is the Core Glissando rate now (the same value).'], ['영역 범위 (툴박스 → 선택 영역)', '영역 모듈이 2개 이상이면 툴박스가 선택된 영역(M1…M6)에 작동합니다. 영역은 자체 글리산도 속도(= 속도), 보이스 수, 포락선, 궤적 셰이프를 가지며, 목록에 자체 값이 표시됩니다.', '↺ 전역 사용 = 자체 값을 지우고 속도를 다시 연동. 🌐 모든 영역 편집 = 툴박스가 공유 설정을 편집. 음고 범위·음색·색채·로컬 입자·동역학·트레몰로는 항상 공유. 이 상자의 예전 "자체 속도" 슬라이더는 이제 코어의 글리산도 속도입니다(같은 값).']),
+  'risset.regionGrapher': vh(['Multi-region grapher', 'One row per region module (shown with two or more): click a row to select the region — the toolboxes then act on it. ☑ = on, S = solo, M = mute, Gain = the region\'s level.', 'Like the voice grapher of Glissando. It sits under the monitor; fold it by clicking its title.'], ['다중 영역 그래퍼', '영역 모듈마다 한 줄(2개 이상일 때 표시): 줄을 클릭하면 그 영역이 선택되고 툴박스가 그 영역에 작동합니다. ☑ = 켜기, S = 솔로, M = 뮤트, 게인 = 영역 레벨.', '글리산도의 다중 보이스 그래퍼와 같습니다. 모니터 아래에 있으며 제목을 클릭해 접을 수 있습니다.']),
+  'risset.regionTools': vh(['Toolboxes of the region', 'Every toolbox, by name. 🎯 = acts on the selected region (with two or more regions), 🌐 = shared by all regions (colour, automation). Click a name to jump to that toolbox (a folded one opens) and adjust it right away.', ''], ['영역의 툴박스', '모든 툴박스를 이름으로 나열. 🎯 = 선택 영역에 작동(영역이 2개 이상일 때), 🌐 = 모든 영역 공유(색채·오토메이션). 이름을 클릭하면 그 툴박스로 이동(접혀 있으면 열림)해 바로 조절.', '']),
+  'risset.timeRate': vh(['Time speed (×)', 'How fast the field\'s own time runs, × real time: the glissando, the trajectory shape, loop automation, dynamics and local flicker all run this much faster or slower — the speed of the time axis. 0 = time stands still (the sound holds), 1 = normal.', 'Unlike the Glissando rate (which only sets how fast the voices climb), this scales the whole clock, so the relations between all the moving parts stay the same. The oscillators, tremolos and vibratos keep their own rates. With a region selected (2+ regions) it sets that region\'s own clock: its glissando, shape, rotation, automation, dynamics, flicker and colour run at its own speed while the others keep theirs. Heard live and in WAV export.'], ['시간 흐름 속도 (×)', '음장 자체의 시간이 실제 시간의 몇 배로 흐르는지: 글리산도·궤적 셰이프·루핑 오토메이션·동역학·로컬 명멸이 모두 이만큼 빨라지거나 느려집니다 — 시간축의 속도. 0 = 시간 정지(소리 유지), 1 = 보통.', '글리산도 속도(보이스가 오르는 빠르기만)와 달리 시계 전체를 바꾸므로 움직이는 요소들 사이의 관계는 그대로입니다. 발진기·트레몰로·비브라토는 자기 속도 유지. 영역을 선택하면(영역 2개 이상) 그 영역 자체 시계를 정합니다: 그 영역의 글리산도·셰이프·회전·오토메이션·동역학·명멸·색채만 자기 속도로 흐르고 다른 영역은 그대로. 실시간과 WAV에 적용.']),
+  'risset.locate': vh(['Locate (region edges)', 'While on, drag the edge of a region band on the monitor to move that edge, or drag inside a band to move the whole band. Clicking a band selects its region (M1…).', 'The pointer turns into ↕ over an edge and a hand inside a band. Off: the monitor scrubs the phase as before; Shift-drag still draws a new range for the selected region.'], ['Locate (영역 끝단)', '켜져 있는 동안 모니터에서 영역 띠의 끝단을 끌면 그 끝단이, 띠 안을 끌면 띠 전체가 이동합니다. 띠를 클릭하면 그 영역(M1…)이 선택됩니다.', '끝단 위에서는 ↕, 띠 안에서는 손 모양 커서. 끄면 예전처럼 모니터가 위상을 스크럽하며, Shift-드래그는 여전히 선택 영역의 새 범위를 그립니다.']),
+  'risset.layout': vh(['Voice layout in the region', 'Base MIDI / span (default): the region is a field of its own — its bottom edge is its base MIDI and its height its span; all its voices and the harmonic offset grid are laid out in that span (grid intervals stay in semitones). Squeezed ring: the whole ring of the field squeezed into the region (every offset scaled by the region\'s share). Window on the field: a window onto the one ring over the whole range; only the voices passing through it sound.', 'Why the window bunches: the voices are spaced span ÷ N apart over the whole range (8 voices over 8 octaves = one per octave). A region narrower than that holds at most one or two of them, and they arrive and leave together as one clump. Base MIDI / span and Squeezed ring give the region its own ring, so all N voices are always inside it. With an equal grid the two are the same; with a ratio, fixed-step or pattern grid Base MIDI / span keeps the musical intervals, Squeezed ring shrinks them.'], ['영역 안 보이스 배치', '기준 MIDI·스팬(기본): 영역이 하나의 음장 — 아래 끝 = 기준 MIDI, 높이 = 스팬. 모든 보이스와 화성 오프셋 격자를 그 스팬에 배치(격자 음정은 반음 그대로). 고리 압축: 음장 전체 고리를 영역에 압축(오프셋을 영역 비율만큼 축소). 전체 음장의 창: 전체 범위를 덮는 고리를 들여다보는 창, 지나가는 보이스만 소리남.', '창 모드가 몰리는 이유: 보이스는 전체 범위에 스팬 ÷ N 간격(8보이스·8옥타브 = 옥타브마다 1개). 그보다 좁은 영역에는 한두 개만 들어오고 함께 들어왔다 나가 한 덩어리로 보입니다. 기준 MIDI·스팬과 고리 압축은 영역 자체 고리를 주어 N개가 항상 영역 안에 있습니다. 등간격 격자에서는 둘이 같고, 비율·고정 간격·패턴 격자에서는 기준 MIDI·스팬은 음정을 유지, 고리 압축은 줄입니다.']),
+  'risset.syncCore': vh(['Sync the Core\'s Base MIDI / Span', 'With “Base MIDI / span” the selected region\'s range is its base MIDI and span. On (default): the Core\'s Base MIDI and Span show that range live — move the region and they follow; change them and the region\'s edges move. Off: they are locked; trying to change them explains how to unlock.', 'The whole pitch space the regions sit in stays as it is. In the classic field (one full-range region) the Core\'s Base MIDI and Span are the field\'s own, as always.'], ['코어의 기준 MIDI·스팬 동기화', '“기준 MIDI·스팬” 배치에서 선택 영역의 범위가 그 기준 MIDI와 스팬입니다. 켜짐(기본): 코어의 기준 MIDI·스팬이 그 범위를 실시간으로 보여 줌 — 영역을 움직이면 따라가고, 값을 바꾸면 영역 끝단이 움직입니다. 꺼짐: 잠기며, 바꾸려 하면 푸는 방법을 안내합니다.', '영역들이 놓인 전체 음고 공간은 그대로입니다. 기존 음장(전체 범위 영역 하나)에서는 코어의 기준 MIDI·스팬이 늘 그렇듯 음장 자체의 값입니다.']),
   'risset.vmod.seed': vh(['Randomizer seed', 'Which random set of voice rates / depths / phases is used. 🎲 New random picks another.', ''], ['랜덤 시드', '보이스별 속도·깊이·위상의 어떤 난수 세트를 쓸지. 🎲 새 랜덤으로 다른 세트.']),
 });
 
@@ -138,6 +196,7 @@ export function mountRissetWorkspace(root, hooks) {
   // 글리산도 속도 = 영역 자체 속도(rateHz + linkRate), 나머지는 공유. "모든 영역 편집"으로 되돌림.
   const OWN = new Set(REGION_OWN_KEYS);
   let scopeOn = true;
+  let locateOn = false; // region edge Locate tool on the window / 윈도우의 영역 끝단 Locate 도구
   const scoped = () => scopeOn && getRissetParams().regions.length >= 2;
   const activeOf = (p) => p.regions[p.activeRegion] || p.regions[0];
   const regionView = (p) => {
@@ -156,6 +215,12 @@ export function mountRissetWorkspace(root, hooks) {
         get(tgt, k) {
           if (k === 'rateHz') return r.linkRate ? tgt.rateHz : r.rateHz;
           if (OWN.has(k) && r.own && k in r.own) return r.own[k];
+          // the offsets array is edited in place (d.offsets[i] = …): copy it into the region first, so an
+          // in-place edit never reaches the shared grid / 제자리 편집이 공유 격자에 닿지 않도록 먼저 영역으로 복사
+          if (k === 'offsets') { r.own = { ...(r.own || {}), offsets: [...(tgt.offsets || [])] }; return r.own.offsets; }
+          // nested settings edited in place (d.dyn.K = …, voice mod): copy them into the region first
+          // 제자리 편집되는 중첩 설정(동역학·보이스 변조)도 먼저 영역으로 복사
+          if (k === 'dyn' || k === 'voiceMod' || k === 'tremolo' || k === 'colorCtl' || k === 'autoLanes' || k === 'eqNodes') { r.own = { ...(r.own || {}), [k]: structuredClone(tgt[k]) }; return r.own[k]; }
           return tgt[k];
         },
         set(tgt, k, v) {
@@ -272,6 +337,25 @@ export function mountRissetWorkspace(root, hooks) {
     const hud = el('span', { class: 'font-mono text-[11px] text-slate-400', text: '—' });
     let scrub = null;
     let rangeDrag = null;
+    let edgeDrag = null; // Locate: { field: 'lo' | 'hi' | 'move', p0, lo0, hi0 } / 끝단 드래그
+    // Locate (like Glissando's): grab an edge of a region band to move it, or the band itself to move both
+    // Locate (글리산도처럼): 영역 띠의 끝단을 잡아 이동, 띠 안을 잡으면 통째로 이동
+    const edgeAt = (e) => {
+      const r = c.getBoundingClientRect();
+      const plotH = Math.max(20, r.height - 14 - 20);
+      const y = e.clientY - r.top;
+      const yOf = (p) => 14 + (1 - p) * plotH;
+      const q = P();
+      const order = [q.activeRegion, ...q.regions.map((_, i) => i).filter((i) => i !== q.activeRegion)];
+      for (const i of order) {
+        const rg = q.regions[i];
+        if (!rg) continue;
+        if (Math.abs(y - yOf(rg.hi)) <= 7) return { i, field: 'hi' };
+        if (Math.abs(y - yOf(rg.lo)) <= 7) return { i, field: 'lo' };
+      }
+      for (const i of order) { const rg = q.regions[i]; if (rg && y < yOf(rg.lo) && y > yOf(rg.hi)) return { i, field: 'move' }; }
+      return null;
+    };
     const phaseAtY = (e) => {
       const r = c.getBoundingClientRect();
       const plotH = Math.max(20, r.height - 14 - 20);
@@ -279,15 +363,28 @@ export function mountRissetWorkspace(root, hooks) {
     };
     c.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
+      if (locateOn) {
+        const hit = edgeAt(e);
+        if (hit) {
+          const rg = P().regions[hit.i];
+          edgeDrag = { ...hit, p0: phaseAtY(e), lo0: rg.lo, hi0: rg.hi };
+          if (P().activeRegion !== hit.i) editRisset((d) => { d.activeRegion = hit.i; }, { history: false });
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+          return;
+        }
+      }
       if (e.shiftKey) {
         // Shift-drag: set the active module's pitch range / Shift-드래그: 활성 모듈 범위
         rangeDrag = { p0: phaseAtY(e) };
         try { c.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
         return;
       }
-      const rt = getRissetRuntime();
-      scrub = { x: e.clientX, phase: rt.masterPhase };
+      // Time scrub with the pointer held in place (pointer lock): every movement shifts the field along
+      // the time axis, without the screen edge as a limit. / 포인터 고정 시간 스크럽 (화면 끝 제한 없음)
+      stopInertia();
+      scrub = { x: e.clientX, lastT: performance.now(), vel: 0, total: 0, locked: false };
       setPhaseScrubbing(true);
+      try { if (c.requestPointerLock) { const pr = c.requestPointerLock(); if (pr && pr.catch) pr.catch(() => {}); } } catch { /* not allowed: falls back to clientX */ }
       try { c.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
     });
     c.addEventListener('pointermove', (e) => {
@@ -299,6 +396,21 @@ export function mountRissetWorkspace(root, hooks) {
       const params = P();
       const midi = phaseToMidi(params, p);
       hud.textContent = `${midiToNoteName(midi)} · ${midiToFreq(midi).toFixed(1)} Hz · p ${p.toFixed(3)} · A ${evalGlobalEnvelope(envOf(params, getRissetRuntime().eff), p).toFixed(3)}`;
+      if (locateOn && !edgeDrag) {
+        const hit = edgeAt(e);
+        c.style.cursor = hit ? (hit.field === 'move' ? 'grab' : 'ns-resize') : '';
+      } else if (!locateOn && c.style.cursor) c.style.cursor = '';
+      if (edgeDrag) {
+        const dp = phaseAtY(e) - edgeDrag.p0;
+        const { i, field, lo0, hi0 } = edgeDrag;
+        let lo = lo0;
+        let hi = hi0;
+        if (field === 'lo') lo = clamp(lo0 + dp, 0, hi0 - 0.01);
+        else if (field === 'hi') hi = clamp(hi0 + dp, lo0 + 0.01, 1);
+        else { const d = clamp(dp, -lo0, 1 - hi0); lo = lo0 + d; hi = hi0 + d; }
+        editRissetDoc((d) => { const rg = d.regions[i]; if (rg) { rg.lo = roundTo(lo, 3); rg.hi = roundTo(hi, 3); } }, { coalesceKey: 'risset-region-locate' });
+        return;
+      }
       if (rangeDrag) {
         const p1 = phaseAtY(e);
         const lo = roundTo(Math.min(rangeDrag.p0, p1), 3);
@@ -306,11 +418,80 @@ export function mountRissetWorkspace(root, hooks) {
         if (hi - lo >= 0.01) editRisset((d) => { const rg = d.regions[d.activeRegion]; rg.lo = lo; rg.hi = hi; }, { coalesceKey: 'risset-region-range' });
       }
       if (scrub) {
-        const rt = getRissetRuntime();
-        rt.masterPhase = (((scrub.phase + (e.clientX - scrub.x) / Math.max(120, r.width)) % 1) + 1) % 1;
+        // Drag along the time axis = move the field forward / back in time: drag left = later (the future
+        // comes into view), right = earlier. With the pointer locked the cursor stays put and the motion is
+        // unlimited; the drag speed is kept for the inertia after release.
+        // 시간축 드래그 = 음장을 시간상 앞뒤로 (왼쪽 = 나중). 포인터 고정이면 커서는 그대로, 이동 제한 없음.
+        const locked = document.pointerLockElement === c;
+        const dx = locked ? e.movementX || 0 : e.clientX - scrub.x;
+        scrub.x = e.clientX;
+        const plotW = Math.max(20, r.width - 50 - 56);
+        const dsec = -(dx / plotW) * P().view.timeWindowSec;
+        shiftTime(dsec, dx / Math.max(120, r.width));
+        const now = performance.now();
+        const dtw = Math.max(1, now - scrub.lastT) / 1000;
+        scrub.vel = 0.7 * scrub.vel + 0.3 * (dsec / dtw); // smoothed drag speed (s of field time per s) / 드래그 속도
+        scrub.lastT = now;
+        scrub.total += dsec;
+        hud.textContent = `${scrub.total >= 0 ? '+' : ''}${scrub.total.toFixed(2)} s`;
       }
     });
-    const end = () => { if (rangeDrag) commit(); rangeDrag = null; scrub = null; setPhaseScrubbing(false); };
+    const end = () => {
+      if (rangeDrag || edgeDrag) commit();
+      rangeDrag = null;
+      edgeDrag = null;
+      if (document.pointerLockElement === c) document.exitPointerLock?.();
+      const fling = scrub && performance.now() - scrub.lastT < 90 ? scrub.vel : 0; // released while moving / 움직이며 놓음
+      scrub = null;
+      setPhaseScrubbing(false);
+      if (Math.abs(fling) > 0.05) startInertia(fling);
+    };
+    /**
+     * Shift the field along the time axis by dsec (phase, trajectory shape clock, automation clock and the
+     * unlinked regions together). A frozen field (rate 0) scrubs the phase by dPhase instead.
+     * 음장을 시간축으로 dsec만큼 이동 (위상·셰이프·오토메이션·영역 함께). 정지 상태면 위상 스크럽.
+     */
+    function shiftTime(dsec, dPhase = 0) {
+      const rt = getRissetRuntime();
+      const q = P();
+      const v = rt.eff?.rateHz ?? q.rateHz;
+      if (Math.abs(v) < 1e-6) { rt.masterPhase = (((rt.masterPhase + dPhase) % 1) + 1) % 1; return; }
+      const F = (tt) => shapedTime(q, tt, rt.eff);
+      rt.masterPhase = (((rt.masterPhase + v * (F(rt.shapeTimeSec + dsec) - F(rt.shapeTimeSec))) % 1) + 1) % 1;
+      rt.shapeTimeSec = Math.max(0, rt.shapeTimeSec + dsec);
+      rt.autoTimeSec = Math.max(0, (rt.autoTimeSec || 0) + dsec);
+      const kg = timeRateOf(getRissetParams()); // the shared speed (q may be a region view) / 공유 속도
+      for (const r of getRissetParams().regions || []) {
+        const st = rt.regionStates?.[r.id];
+        if (!st || !Number.isFinite(st.v)) continue;
+        // a region with its own time speed moves by its share of the field time / 자체 시간 속도 영역은 비율만큼
+        const ds = r.own && 'timeRate' in r.own ? dsec * (kg > 1e-6 ? timeRateOf(r.own) / kg : 1) : dsec;
+        st.phase = (((st.phase + st.v * ds) % 1) + 1) % 1;
+        st.shapeTimeSec = Math.max(0, (st.shapeTimeSec || 0) + ds);
+        if (Number.isFinite(st.autoTimeSec)) st.autoTimeSec = Math.max(0, st.autoTimeSec + ds);
+      }
+    }
+    // Inertia: after a fling the field keeps the extra speed, which decays (τ ≈ 0.45 s) to 0, so the
+    // motion settles back to the normal Glissando speed (the field runs on its own meanwhile).
+    // 관성: 놓은 뒤 추가 속도가 τ ≈ 0.45초로 0에 수렴 → 원래 글리산도 속도로 돌아감 (그동안 음장은 계속 진행).
+    let inertia = null;
+    function stopInertia() { if (inertia) cancelAnimationFrame(inertia.raf); inertia = null; }
+    function startInertia(vel) {
+      stopInertia();
+      inertia = { vel, last: performance.now(), raf: 0 };
+      const tick = (now) => {
+        if (!inertia) return;
+        const dt = Math.min(0.05, (now - inertia.last) / 1000);
+        inertia.last = now;
+        shiftTime(inertia.vel * dt, 0);
+        inertia.vel *= Math.exp(-dt / 0.45);
+        if (Math.abs(inertia.vel) < 0.01) { inertia = null; return; }
+        inertia.raf = requestAnimationFrame(tick);
+      };
+      inertia.raf = requestAnimationFrame(tick);
+    }
+    const locateBtn = el('button', { class: `fx-toggle ${BTN}`, dataset: { help: 'risset.locate' }, text: `📍 ${t('risset.locate')}`, on: { click: () => { locateOn = !locateOn; setToggle(locateBtn, locateOn); } } });
+    syncers.push(() => setToggle(locateBtn, locateOn));
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
     const winSel = el('select', { class: 'bg-slate-950 border border-slate-700 rounded px-1 py-0.5 text-[11px]', on: { change: (e) => editRisset((d) => { d.view.timeWindowSec = Number(e.target.value) || 16; }, { history: false }) } },
@@ -324,6 +505,7 @@ export function mountRissetWorkspace(root, hooks) {
     return el('section', { class: SECTION }, [
       el('div', { class: 'flex flex-wrap items-center gap-1.5', dataset: { help: 'risset.viewOpts' } }, [
         seg(['piano', 'phase'], 'risset.view', () => P().view.viewMode, (v) => editRisset((d) => { d.view.viewMode = v; }, { history: false })),
+        locateBtn,
         viewToggle('risset.trails', 'showTrails'),
         viewToggle('risset.maskBand', 'showMaskBand'),
         el('label', { class: 'flex items-center gap-1 text-[11px] text-slate-400' }, [t('risset.window'), winSel]),
@@ -392,6 +574,19 @@ export function mountRissetWorkspace(root, hooks) {
     const nowX = pad.left + plotW * 0.78;
     const winSec = params.view.timeWindowSec;
     const histSec = winSec * 0.78;
+    // Per-voice tremolo → dot brightness, vibrato → dot position (core/voice-mod.js). The vibrato is shown
+    // at least ±5 px at full depth (a few cents would otherwise be under a pixel).
+    // 보이스 트레몰로 → 점 밝기, 비브라토 → 점 위치 (최대 깊이를 최소 ±5px로 확대 표시).
+    const vms = voiceModSampler(params.voiceMod);
+    const vmT = performance.now() / 1000;
+    const vmCents = vms ? normalizeVoiceMod(params.voiceMod).vib : null;
+    const vmPx = vmCents && vmCents.on ? ((vmCents.cents / 100) / Math.max(1, params.spanSemitones)) * plotH : 0;
+    const vmGain = vmPx > 0 && vmPx < 5 ? 5 / vmPx : 1;
+    const vmDot = (j, p) => {
+      if (!vms) return { a: 1, p };
+      const q = vms(j, ((p % 1) + 1) % 1, vmT);
+      return { a: q.gain, p: p + (vmGain * q.semis) / Math.max(1, params.spanSemitones) };
+    };
     ctx.strokeStyle = '#10b981';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -399,7 +594,7 @@ export function mountRissetWorkspace(root, hooks) {
     ctx.lineTo(nowX, pad.top + plotH);
     ctx.stroke();
     if (!rt.classic) {
-      drawRegionSpace(ctx, rt, params, { pad, plotW, plotH, pToY, nowX, winSec, histSec, env });
+      drawRegionSpace(ctx, rt, params, { pad, plotW, plotH, pToY, nowX, winSec, histSec, env, vmDot });
       ctx.restore();
       drawMainAxes(ctx, params, env, { pad, plotW, plotH, pToY, minMidi, maxMidi });
       return;
@@ -436,12 +631,12 @@ export function mountRissetWorkspace(root, hooks) {
         }
         ctx.globalAlpha = 1;
       }
-      const pNow = rt.phases[i];
       const comb = voiceAmplitude(params, rt, i);
+      const vd = vmDot(i, rt.phases[i]);
       ctx.fillStyle = color;
-      ctx.globalAlpha = clamp(0.15 + comb * 0.85, 0.15, 1);
+      ctx.globalAlpha = clamp((0.15 + comb * 0.85) * vd.a * vd.a, 0.06, 1);
       ctx.beginPath();
-      ctx.arc(nowX, pToY(pNow), 1.8 + comb * 3.8, 0, Math.PI * 2);
+      ctx.arc(nowX, pToY(vd.p), 1.8 + comb * 3.8, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -481,8 +676,7 @@ export function mountRissetWorkspace(root, hooks) {
    * Region modules: tinted range bands, rotated trail space per module, sounding points on the
    * green line (rt.slots). / 영역 모듈: 범위 띠, 회전된 궤적 공간, 초록 선 위 발음점.
    */
-  function drawRegionSpace(ctx, rt, params, { pad, plotW, pToY, nowX, winSec, histSec, env }) {
-    const offs = relOffsets(params, rt);
+  function drawRegionSpace(ctx, rt, params, { pad, plotW, pToY, nowX, winSec, histSec, env, vmDot = (j, p) => ({ a: 1, p }) }) {
     const N = params.voiceCount;
     const steps = N > 24 ? 60 : 90;
     const pxPerSec = plotW / winSec;
@@ -493,10 +687,11 @@ export function mountRissetWorkspace(root, hooks) {
       const yTop = pToY(r.hi);
       const yBot = pToY(r.lo);
       const active = ri === params.activeRegion;
-      ctx.globalAlpha = r.enabled ? (active ? 0.09 : 0.05) : 0.025;
+      const audible = regionAudible(r, params.regions); // S / M / 솔로·뮤트
+      ctx.globalAlpha = audible ? (active ? 0.09 : 0.05) : 0.02;
       ctx.fillStyle = color;
       ctx.fillRect(pad.left, yTop, plotW, yBot - yTop);
-      ctx.globalAlpha = r.enabled ? 0.8 : 0.3;
+      ctx.globalAlpha = audible ? 0.8 : 0.25;
       ctx.strokeStyle = color;
       ctx.lineWidth = active ? 1.4 : 1;
       ctx.setLineDash([5, 4]);
@@ -512,6 +707,7 @@ export function mountRissetWorkspace(root, hooks) {
       const st = rt.regionStates[r.id];
       if (!r.enabled || !st) return;
       const ang = st.angleDeg;
+      const offs = regionVoicePositions(params, rt, r); // this region's own voice layout (and dynamics) / 이 영역의 보이스 배치(동역학 포함)
       if (params.view.showTrails) {
         ctx.save();
         ctx.beginPath();
@@ -535,14 +731,17 @@ export function mountRissetWorkspace(root, hooks) {
         }
         const xs = new Float64Array(steps + 1);
         const sv = new Float64Array(steps + 1);
-        for (let i = 0; i < N; i++) {
+        for (let i = 0; i < offs.length; i++) {
           const aLoc = rt.particles[i]?.aLocal ?? 1;
           ctx.strokeStyle = voiceColor(i);
-          const nLo = Math.floor(yLo - phMax - offs[i]);
-          const nHi = Math.min(nLo + 16, Math.ceil(yHi - phMin - offs[i]));
+          // fit: voice lines live in the region's own normalized space / fit: 영역 자체 정규화 공간
+          const fitW = regionFit(r) ? Math.max(1e-6, r.hi - r.lo) : 1;
+          const fitLo = regionFit(r) ? r.lo : 0;
+          const nLo = Math.floor((yLo - fitLo) / fitW - phMax - offs[i]);
+          const nHi = Math.min(nLo + 16, Math.ceil((yHi - fitLo) / fitW - phMin - offs[i]));
           for (let n = nLo; n <= nHi; n++) {
             for (let k = 0; k <= steps; k++) {
-              const sc = spaceToScreen(r, ang, taus[k], phis[k] + offs[i] + n);
+              const sc = spaceToScreen(r, ang, taus[k], regionY(r, phis[k] + offs[i] + n));
               xs[k] = nowX + sc.tau * pxPerSec;
               sv[k] = sc.s;
             }
@@ -585,14 +784,15 @@ export function mountRissetWorkspace(root, hooks) {
       }
     });
     // Sounding points on the green line / 초록 선 위 발음점
-    for (const sl of rt.slots) {
-      if (!sl.active) continue;
+    rt.slots.forEach((sl, j) => {
+      if (!sl.active) return;
+      const vd = vmDot(j, sl.s); // slot j = voice-bank slot j / 뱅크 슬롯 j
       ctx.fillStyle = voiceColor(sl.voice);
-      ctx.globalAlpha = clamp(0.2 + sl.amp * 0.8, 0.2, 1);
+      ctx.globalAlpha = clamp((0.2 + sl.amp * 0.8) * vd.a * vd.a, 0.06, 1);
       ctx.beginPath();
-      ctx.arc(nowX, pToY(sl.s), 1.8 + sl.amp * 3.8, 0, Math.PI * 2);
+      ctx.arc(nowX, pToY(vd.p), 1.8 + sl.amp * 3.8, 0, Math.PI * 2);
       ctx.fill();
-    }
+    });
     ctx.globalAlpha = 1;
   }
 
@@ -637,38 +837,14 @@ export function mountRissetWorkspace(root, hooks) {
     return section;
   }
 
-  /** Per-voice tremolo + vibrato with randomizer and band follow (core/voice-mod.js). / 보이스별 트레몰로·비브라토 */
+  /**
+   * Per-voice tremolo + vibrato: the shared block (ui/voice-mod-rack.js), the same in every studio.
+   * 보이스별 트레몰로·비브라토: 모든 스튜디오와 같은 공용 블록.
+   */
   function buildVoiceMod() {
-    const V = () => normalizeVoiceMod(P().voiceMod);
-    const editV = (fn, ck = null) => editRisset((d) => { d.voiceMod = normalizeVoiceMod(d.voiceMod); fn(d.voiceMod); }, { coalesceKey: ck });
-    const setL = (laneKey, k) => (val, ck) => editV((m) => { m[laneKey][k] = val; }, ck);
-    const onBtn = (laneKey) => {
-      const b = el('button', { class: BTN, dataset: { help: 'risset.vmod' }, on: { click: () => { editV((m) => { m[laneKey].on = !m[laneKey].on; }); commit(); } } });
-      syncers.push(() => { const on = V()[laneKey].on; b.textContent = `${on ? '●' : '○'} ${t(`risset.vmod.${laneKey}`)}`; b.classList.toggle('bg-cyan-700', on); b.classList.toggle('border-cyan-400', on); });
-      return b;
-    };
-    const lane = (laneKey, depthKey, depthMax, depthStep, accent) => {
-      const box = el('div', { class: 'flex flex-col gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 p-2' }, [
-        onBtn(laneKey),
-        slider('risset.vmod.rate', `risset.vmod.${laneKey}Rate`, () => V()[laneKey].rate, setL(laneKey, 'rate'), { min: VMOD_RATE_MIN, max: Math.min(20, VMOD_RATE_MAX), step: 0.05, unit: 'Hz', accent }),
-        slider(`risset.vmod.${depthKey}`, `risset.vmod.${laneKey}${depthKey === 'depth' ? 'Depth' : 'Cents'}`, () => V()[laneKey][depthKey], setL(laneKey, depthKey), { min: 0, max: depthMax, step: depthStep, unit: depthKey === 'cents' ? '¢' : '', accent }),
-        slider('risset.vmod.spread', `risset.vmod.${laneKey}Spread`, () => V()[laneKey].spread, setL(laneKey, 'spread'), { min: 0, max: 1, step: 0.01, accent }),
-        slider('risset.vmod.track', `risset.vmod.${laneKey}Track`, () => V()[laneKey].track, setL(laneKey, 'track'), { min: -VMOD_TRACK_MAX, max: VMOD_TRACK_MAX, step: 0.05, unit: 'oct', accent }),
-      ]);
-      syncers.push(() => box.classList.toggle('opacity-60', !V()[laneKey].on));
-      return box;
-    };
-    const seedLbl = el('span', { class: 'font-mono text-[10px] text-slate-400', dataset: { help: 'risset.vmod.seed' } });
-    syncers.push(() => { seedLbl.textContent = `${t('risset.vmod.seed')} ${V().seed}`; });
-    const reroll = el('button', { class: BTN, dataset: { help: 'risset.vmod.seed' }, text: t('risset.vmod.reroll'), on: { click: () => { editV((m) => { m.seed = (m.seed * 7919 + 104729) % 99991 || 1; }); commit(); } } });
-    return el('section', { class: SECTION, dataset: { help: 'risset.vmod', rack: 'risset-voice-mod' } }, [
-      el('div', { class: 'flex items-center justify-between gap-2' }, [
-        el('h3', { class: 'text-xs font-bold uppercase tracking-wider text-cyan-300', text: t('risset.vmod.title') }),
-        el('div', { class: 'flex items-center gap-2' }, [seedLbl, reroll]),
-      ]),
-      el('p', { class: 'text-[10.5px] text-slate-400 leading-snug', text: t('risset.vmod.hint') }),
-      el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-2' }, [lane('trem', 'depth', 1, 0.01, 'accent-cyan'), lane('vib', 'cents', VMOD_CENTS_MAX, 1, 'accent-violet')]),
-    ]);
+    const rack = createVoiceModRack({ get: () => P(), edit: (fn, opts) => editRisset(fn, opts), studio: 'risset', rack: 'risset-voice-mod', help: 'risset.vmod' });
+    syncers.push(rack.sync);
+    return rack.root;
   }
 
   function buildDynamics() {
@@ -683,7 +859,7 @@ export function mountRissetWorkspace(root, hooks) {
       for (let i = 0; i < rt.dyn.N; i++) mu += Math.abs(rt.dyn.u[i]);
       readout.textContent = `E ${kineticEnergy(rt.dyn, q.massM0, rt.sig.mass).toExponential(2)} · ⟨|ẋ|⟩ ${(mu / rt.dyn.N).toFixed(4)} · t ${rt.dyn.t.toFixed(1)} s`;
     });
-    const resetBtn = el('button', { class: BTN, text: t('risset.dynReset'), on: { click: () => { getRissetRuntime().dynKey = ''; } } });
+    const resetBtn = el('button', { class: BTN, text: t('risset.dynReset'), on: { click: () => { const rt = getRissetRuntime(); rt.dynKey = ''; rt.regionDyn = {}; } } }); // regions too / 영역 포함
     return el('section', { class: SECTION, dataset: { help: 'risset.dynamics' } }, [
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
         el('h3', { class: 'text-xs font-bold uppercase tracking-wider text-rose-300', text: t('risset.dynTitle') }),
@@ -714,7 +890,19 @@ export function mountRissetWorkspace(root, hooks) {
   }
 
   // ---------------------------------------------------------------- region modules & rotation
+  /** Add a region module (region toolbox and multi-region grapher). / 영역 모듈 추가 (영역 툴박스·다중 영역 그래퍼) */
+  function addRegionModule() {
+        scopeOn = true;
+        editRisset((d) => {
+          d.regions.push(createDefaultRegion({ lo: 0.3, hi: 0.7, linkRate: false, rateHz: -(Math.abs(d.rateHz) > 1e-5 ? d.rateHz : 0.03) }));
+          d.activeRegion = d.regions.length - 1;
+        });
+        commit();
+      
+  }
+
   function buildRegions() {
+    const showWhen = (node, fn) => { syncers.push(() => node.classList.toggle('hidden', !fn())); return node; };
     const p = P();
     const ai = p.activeRegion;
     const R = () => { const q = P(); return q.regions[q.activeRegion] || q.regions[0]; };
@@ -728,7 +916,8 @@ export function mountRissetWorkspace(root, hooks) {
     };
     const tabs = el('div', { class: 'flex flex-wrap items-center gap-1' }, [
       ...p.regions.map((r, i) => {
-        const b = el('button', { class: 'px-2 py-0.5 rounded text-[11px] font-mono font-semibold border transition', text: `M${i + 1}`, on: { click: () => editRisset((d) => { d.activeRegion = i; }, { history: false }) } });
+        // picking a region always points the toolboxes at it (region scope on) / 영역 선택 = 툴박스가 그 영역에 작동
+        const b = el('button', { class: 'px-2 py-0.5 rounded text-[11px] font-mono font-semibold border transition', text: `M${i + 1}`, on: { click: () => { if (!scopeOn) { scopeOn = true; key = ''; } editRissetDoc((d) => { d.activeRegion = i; }, { history: false }); } } });
         syncers.push(() => {
           const q = P();
           const rg = q.regions[i];
@@ -738,15 +927,9 @@ export function mountRissetWorkspace(root, hooks) {
           b.style.color = on ? '#020617' : REGION_COLORS[i % REGION_COLORS.length];
           b.style.opacity = rg?.enabled ? '1' : '0.45';
         });
-        return b;
+        return b; // S / M live in the multi-region grapher / S·M은 다중 영역 그래퍼에
       }),
-      p.regions.length < MAX_REGIONS && el('button', { class: BTN, text: t('risset.regionAdd'), on: { click: () => {
-        editRisset((d) => {
-          d.regions.push(createDefaultRegion({ lo: 0.3, hi: 0.7, linkRate: false, rateHz: -(Math.abs(d.rateHz) > 1e-5 ? d.rateHz : 0.03) }));
-          d.activeRegion = d.regions.length - 1;
-        });
-        commit();
-      } } }),
+      p.regions.length < MAX_REGIONS && el('button', { class: BTN, text: t('risset.regionAdd'), on: { click: addRegionModule } }),
       p.regions.length > 1 && el('button', { class: `${BTN} hover:bg-rose-600`, text: t('risset.regionRemove'), on: { click: () => editR((r, d) => { d.regions.splice(d.activeRegion, 1); d.activeRegion = Math.max(0, d.activeRegion - 1); }) } }),
     ].filter(Boolean));
     const rangeTag = el('span', { class: 'font-mono text-[10px] text-emerald-300' });
@@ -776,33 +959,75 @@ export function mountRissetWorkspace(root, hooks) {
     const scopeBtn = el('button', { class: BTN, dataset: { help: 'risset.regionScope' }, on: { click: () => { scopeOn = !scopeOn; key = ''; renderNow(); } } });
     syncers.push(() => { scopeBtn.textContent = scopeOn ? `🎯 ${t('risset.scopeRegion', `M${P().activeRegion + 1}`)}` : `🌐 ${t('risset.scopeAll')}`; scopeBtn.classList.toggle('bg-teal-700', scopeOn); });
     const angPresets = presetBtns([-90, -45, 0, 45, 90, 180].map((a) => [`${a}°`, () => editRisset((d) => { const r = d.regions[d.activeRegion]; r.rotOn = true; r.rotAngleDeg = a; })]));
+    // Every toolbox that acts on the selected region, by name: 🎯 = this region (its own values when it has
+    // any), 🌐 = shared by all regions. A click points the toolboxes at the region and jumps to that toolbox.
+    // 선택 영역에 작동하는 모든 툴박스 이름: 🎯 = 이 영역, 🌐 = 공유. 클릭 = 그 툴박스로 이동.
+    const toolList = el('div', { class: 'flex flex-wrap items-center gap-1', dataset: { help: 'risset.regionTools' } });
+    let toolSig = '';
+    const refreshTools = () => {
+      const me = toolList.closest('section');
+      const titleEl = (sec) => sec.querySelector('h3') || sec.querySelector('span.font-bold'); // the tremolo block titles with a span / 트레몰로는 span 제목
+      const secs = [...root.querySelectorAll('section')].filter((sec) => sec !== me && !sec.contains(cv.main || null) && sec.dataset.rack !== 'risset-region-grapher' && titleEl(sec));
+      const items = secs.map((sec) => ({ sec, name: (titleEl(sec).textContent || '').replace(/🌐.*$/, '').replace(/^\d+\.\s*/, '').trim(), shared: sec.dataset.shared === '1' }));
+      const sig = items.map((x) => `${x.name}:${x.shared}`).join('|');
+      if (sig === toolSig) return;
+      toolSig = sig;
+      toolList.replaceChildren(el('span', { class: 'text-[10px] text-slate-400 mr-0.5', text: t('risset.regionTools') }), ...items.map(({ sec, name, shared }) => el('button', {
+        class: `px-1.5 py-0.5 rounded-full border text-[10px] whitespace-nowrap ${shared ? 'border-slate-700 text-slate-400 hover:text-white' : 'border-teal-700 text-teal-200 hover:bg-teal-900/60'}`,
+        text: `${shared ? '🌐' : '🎯'} ${name.length > 22 ? `${name.slice(0, 21)}…` : name}`,
+        title: t(shared ? 'risset.sharedChipTip' : 'risset.regionToolTip'),
+        on: { click: () => {
+          if (!scopeOn) { scopeOn = true; key = ''; renderNow(); }
+          const target = [...root.querySelectorAll('section')].find((x) => (x.querySelector('h3') || x.querySelector('span.font-bold'))?.textContent.replace(/🌐.*$/, '').replace(/^\d+\.\s*/, '').trim() === name) || sec;
+          if (target.classList.contains('fx-rack-collapsed')) target.querySelector(':scope > .fx-rack-head')?.click();
+          target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          target.classList.remove('fx-rack-flash');
+          void target.offsetWidth;
+          target.classList.add('fx-rack-flash');
+        } },
+      })));
+    };
+    // once now and once after the frame (some blocks fill themselves in after the first sync) / 지금 한 번, 다음 프레임에 한 번
+    syncers.push(() => { refreshTools(); requestAnimationFrame(refreshTools); setTimeout(refreshTools, 400); });
+    toolList.addEventListener('pointerenter', refreshTools);
     return el('section', { class: SECTION, dataset: { help: 'risset.regions' } }, [
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
         el('h3', { class: 'text-xs font-bold uppercase tracking-wider text-teal-300', text: t('risset.regionTitle') }),
         tabs,
       ]),
       el('p', { class: 'text-[10px] text-slate-500', text: t('risset.regionDesc') }),
+      toolList,
       p.regions.length >= 2 && el('div', { class: 'flex flex-wrap items-center gap-2 rounded-lg border border-teal-800/70 bg-teal-950/30 px-2 py-1', dataset: { help: 'risset.regionScope' } }, [scopeBtn, ownList, resetOwn]),
       el('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3' }, [
         // Range & speed / 범위와 속도
         el('div', { class: 'flex flex-col gap-1.5', dataset: { help: 'risset.regions' } }, [
           el('div', { class: 'flex items-center justify-between gap-2' }, [el('span', { class: 'text-[11px] font-semibold text-slate-300', text: t('risset.regionRange') }), rangeTag, check('risset.regionOn', 'enabled')]),
-          slider('risset.regionLo', 'risset.regions', () => R().lo, setR('lo'), { min: 0, max: 1, step: 0.005, accent: 'accent-teal' }),
-          slider('risset.regionHi', 'risset.regions', () => R().hi, setR('hi'), { min: 0, max: 1, step: 0.005, accent: 'accent-teal' }),
-          presetBtns([rangePreset(t('risset.regionFull'), 0, 1), rangePreset('↓ ½', 0, 0.5), rangePreset('↑ ½', 0.5, 1), rangePreset('⅓', 1 / 3, 2 / 3), rangePreset('¼', 0.375, 0.625)]),
-          slider('risset.regionEdge', 'risset.regions', () => R().edge, setR('edge'), { min: 0, max: 0.5, step: 0.005, accent: 'accent-teal' }),
-          slider('risset.regionGain', 'risset.regions', () => R().gain, setR('gain'), { min: 0, max: 2, step: 0.01, accent: 'accent-teal' }),
-          el('div', { class: 'border-t border-slate-800 pt-1.5 flex flex-col gap-1' }, [
-            check('risset.regionLink', 'linkRate', 'risset.regions'),
-            // The region's own speed is the Core "Glissando rate" while this region is selected (no second slider)
-            // 영역 자체 속도 = 이 영역 선택 중 코어 "글리산도 속도" (중복 슬라이더 없음)
-            speedNote,
-          ]),
-          el('p', { class: 'text-[10px] text-slate-500', text: t('risset.regionHint') }),
+          // range variables only while the region is on / 범위 변수는 영역이 켜져 있을 때만
+          showWhen(el('div', { class: 'flex flex-col gap-1.5' }, [
+            el('div', { class: 'flex flex-col gap-0.5', dataset: { help: 'risset.layout' } }, [
+              el('span', { class: 'text-[11px] text-slate-300', text: t('risset.layoutLbl') }),
+              seg(['pitch', 'fit', 'window'], 'risset.layout', () => R().layout || 'pitch', (v) => editRissetDoc((d) => { d.regions[d.activeRegion].layout = v; }), 'teal', 'risset.layout'),
+              showWhen(check('risset.syncCore', 'syncCore', 'risset.syncCore'), () => (R().layout || 'pitch') === 'pitch'),
+            ]),
+            slider('risset.regionLo', 'risset.regions', () => R().lo, setR('lo'), { min: 0, max: 1, step: 0.005, accent: 'accent-teal' }),
+            slider('risset.regionHi', 'risset.regions', () => R().hi, setR('hi'), { min: 0, max: 1, step: 0.005, accent: 'accent-teal' }),
+            presetBtns([rangePreset(t('risset.regionFull'), 0, 1), rangePreset('↓ ½', 0, 0.5), rangePreset('↑ ½', 0.5, 1), rangePreset('⅓', 1 / 3, 2 / 3), rangePreset('¼', 0.375, 0.625)]),
+            slider('risset.regionEdge', 'risset.regions', () => R().edge, setR('edge'), { min: 0, max: 0.5, step: 0.005, accent: 'accent-teal' }),
+            slider('risset.regionGain', 'risset.regions', () => R().gain, setR('gain'), { min: 0, max: 2, step: 0.01, accent: 'accent-teal' }),
+            el('div', { class: 'border-t border-slate-800 pt-1.5 flex flex-col gap-1' }, [
+              check('risset.regionLink', 'linkRate', 'risset.regions'),
+              // The region's own speed is the Core "Glissando rate" while this region is selected (no second slider)
+              // 영역 자체 속도 = 이 영역 선택 중 코어 "글리산도 속도" (중복 슬라이더 없음)
+              speedNote,
+            ]),
+            el('p', { class: 'text-[10px] text-slate-500', text: t('risset.regionHint') }),
+          ]), () => !!R().enabled),
         ]),
         // Rotation / 회전
         el('div', { class: 'flex flex-col gap-1.5', dataset: { help: 'risset.rotation' } }, [
           el('div', { class: 'flex items-center justify-between gap-2' }, [check('risset.rotOn', 'rotOn', 'risset.rotation'), el('div', { class: 'flex gap-1' }, [resetRot])]),
+          // rotation variables only while rotation is on / 회전 변수는 공간 회전이 켜져 있을 때만
+          showWhen(el('div', { class: 'flex flex-col gap-1.5' }, [
           slider('risset.rotAngle', 'risset.rotation', () => R().rotAngleDeg, setR('rotAngleDeg'), { min: -180, max: 180, step: 0.5, unit: '°', accent: 'accent-teal' }),
           angPresets,
           slider('risset.rotSpin', 'risset.rotation', () => R().rotSpinDegPerSec, setR('rotSpinDegPerSec'), { min: -90, max: 90, step: 0.1, unit: '°/s', accent: 'accent-teal' }),
@@ -816,6 +1041,7 @@ export function mountRissetWorkspace(root, hooks) {
               fitBtn,
             ]),
           ]),
+          ]), () => !!R().rotOn),
         ]),
       ]),
     ].filter(Boolean));
@@ -829,8 +1055,12 @@ export function mountRissetWorkspace(root, hooks) {
     syncers.push(() => { chk.checked = !!C().enabled; });
     const readout = el('div', { class: 'font-mono text-[10px] text-slate-400' });
     frameSyncers.push((rt) => {
-      const m = rt.color.last;
-      const o = rt.color.out;
+      // in region scope: that region's own colour analysis when it has one / 영역 범위: 영역 자체 분석
+      const g = getRissetParams();
+      const rid = scoped() ? (g.regions[g.activeRegion] || g.regions[0]).id : null;
+      const cs = (rid && rt.regionColor?.[rid]) || rt.color;
+      const m = cs.last || rt.color.last;
+      const o = cs.out;
       readout.textContent = `R ${m.R.toFixed(4)} · H ${m.H.toFixed(4)} · C ${m.Chz ? m.Chz.toFixed(0) : '—'} Hz${o ? ` · ${o.key} → ${o.value.toFixed(3)}` : ''}`;
     });
     const grab = el('button', { class: BTN, text: t('risset.colorGrab'), on: { click: () => {
@@ -979,23 +1209,91 @@ export function mountRissetWorkspace(root, hooks) {
     ]);
   }
 
+  /**
+   * Base MIDI / Span are locked (region = base MIDI / span, not synced): explain and offer the two ways out.
+   * 기준 MIDI·스팬 잠금 안내: 동기화 켜기 또는 다른 분포 옵션.
+   */
+  function showRangeLock() {
+    if (document.getElementById('rissetRangeLock')) return;
+    const g = getRissetParams();
+    const i = g.activeRegion;
+    const close = () => box.remove();
+    const btn = (text, cls, fn) => el('button', { class: `px-2.5 py-1 rounded-lg text-xs font-semibold border ${cls}`, text, on: { click: () => { fn(); close(); } } });
+    const box = el('div', { id: 'rissetRangeLock', class: 'fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4', on: { click: (e) => { if (e.target === box) close(); } } }, [
+      el('div', { class: 'max-w-md rounded-xl border border-amber-700/70 bg-slate-900 p-4 text-slate-200 shadow-2xl flex flex-col gap-2', role: 'dialog' }, [
+        el('h3', { class: 'text-sm font-bold text-amber-200', text: `🔒 ${t('risset.rangeLockTitle')}` }),
+        el('p', { class: 'text-[12px] leading-relaxed', text: t('risset.rangeLockBody', `M${i + 1}`) }),
+        el('div', { class: 'flex flex-wrap gap-1.5 justify-end' }, [
+          btn(`↔ ${t('risset.rangeLockSync')}`, 'bg-teal-700 border-teal-500 text-white hover:bg-teal-600', () => { editRissetDoc((d) => { const r = d.regions[i]; if (r) r.syncCore = true; }); commit(); }),
+          btn(t('risset.rangeLockFit'), 'bg-slate-800 border-slate-600 hover:bg-slate-700', () => { editRissetDoc((d) => { const r = d.regions[i]; if (r) r.layout = 'fit'; }); commit(); }),
+          btn(t('risset.rangeLockClose'), 'bg-slate-800 border-slate-700 hover:bg-slate-700', () => {}),
+        ]),
+      ]),
+    ]);
+    document.body.append(box);
+  }
+
   // ---------------------------------------------------------------- core section
   function buildCore() {
     const p = P();
+    // Region = base MIDI / span (layout 'pitch', outside the classic field): the Core's Base MIDI and Span
+    // are those of the selected region. Synced: they show it live and edit its edges; not synced: locked.
+    // 영역 = 기준 MIDI·스팬: 코어의 기준 MIDI·스팬 = 선택 영역. 동기화면 실시간 표시·편집, 아니면 잠금.
+    const regionPitch = () => {
+      const g = getRissetParams();
+      if (isClassicField(g.regions)) return null;
+      const r = g.regions[g.activeRegion] || g.regions[0];
+      return r && r.layout === 'pitch' ? { g, r, i: g.regions.indexOf(r) } : null;
+    };
+    const spanGet = () => { const q = regionPitch(); return q && q.r.syncCore ? roundTo((q.r.hi - q.r.lo) * q.g.spanSemitones, 4) : P().spanSemitones; };
+    const baseGet = () => { const q = regionPitch(); return q && q.r.syncCore ? roundTo(q.g.baseMidi + q.r.lo * q.g.spanSemitones, 2) : P().baseMidi; };
+    const spanSet = (v, ck) => {
+      const q = regionPitch();
+      if (!q) { editRisset((d) => { d.spanSemitones = roundTo(v, 4); }, { coalesceKey: ck }); return; }
+      if (!q.r.syncCore) { showRangeLock(); return; }
+      editRissetDoc((d) => { const r = d.regions[q.i]; r.hi = roundTo(clamp(r.lo + v / d.spanSemitones, r.lo + 0.01, 1), 4); }, { coalesceKey: ck });
+    };
+    const baseSet = (v, ck) => {
+      const q = regionPitch();
+      if (!q) { editRisset((d) => { d.baseMidi = roundTo(v, 2); }, { coalesceKey: ck }); return; }
+      if (!q.r.syncCore) { showRangeLock(); return; }
+      editRissetDoc((d) => { const r = d.regions[q.i]; const w = r.hi - r.lo; r.lo = roundTo(clamp((v - d.baseMidi) / d.spanSemitones, 0, 1 - w), 4); r.hi = roundTo(r.lo + w, 4); }, { coalesceKey: ck });
+    };
+    /** Span / ratio / base MIDI block: a note when it follows a region, a veil when it is locked. / 범위 블록 */
+    const rangeBlock = (children) => {
+      const note = el('div', { class: 'text-[10px] font-mono rounded px-1.5 py-0.5', dataset: { help: 'risset.syncCore' } });
+      const veil = el('div', { class: 'absolute inset-0 z-[3] cursor-not-allowed rounded-lg bg-slate-950/55 hidden', title: t('risset.rangeLocked'), on: { pointerdown: (e) => { e.preventDefault(); e.stopPropagation(); showRangeLock(); } } });
+      syncers.push(() => {
+        const q = regionPitch();
+        note.classList.toggle('hidden', !q);
+        veil.classList.toggle('hidden', !q || q.r.syncCore);
+        if (q) {
+          const tag = `M${q.i + 1}`;
+          note.textContent = q.r.syncCore ? `↔ ${t('risset.rangeSynced', tag)}` : `🔒 ${t('risset.rangeLocked')}`;
+          note.className = `text-[10px] font-mono rounded px-1.5 py-0.5 ${q.r.syncCore ? 'bg-teal-950/60 text-teal-200 border border-teal-800/70' : 'bg-amber-950/50 text-amber-200 border border-amber-800/60'}`;
+        }
+      });
+      return el('div', { class: 'flex flex-col gap-1.5' }, [note, el('div', { class: 'relative flex flex-col gap-1.5' }, [...children, veil])]);
+    };
     return el('section', { class: SECTION }, [
       el('h3', { class: 'text-xs font-bold uppercase tracking-wider text-sky-300', text: t('risset.coreTitle') }),
       slider('risset.rate', 'risset.rate', () => P().rateHz, (v, ck) => editRisset((d) => { d.rateHz = v; if (Math.abs(v) > 1e-5) d.lastNonZeroRate = v; }, { coalesceKey: ck }), { min: -1, max: 1, step: 0.001, autoKey: 'rateHz', unit: 'Hz' }),
       presetBtns([['0', 0], ['−0.1', -0.1], ['−0.03', -0.03], ['+0.03', 0.03], ['+0.1', 0.1], ['+0.5', 0.5]].map(([l, v]) => [l, () => editRisset((d) => { d.rateHz = v; }), 'risset.rate'])),
+      // Time speed (× real time) — the speed of the time axis; per region while a region is selected
+      // 시간 흐름 속도 — 영역 선택 중이면 그 영역의 시계
+      slider('risset.timeRate', 'risset.timeRate', () => P().timeRate ?? 1, (v, ck) => editRisset((d) => { d.timeRate = roundTo(v, 3); }, { coalesceKey: ck }), { min: 0, max: 4, step: 0.01, unit: '×' }),
+      presetBtns([['×0', 0], ['×0.25', 0.25], ['×0.5', 0.5], ['×1', 1], ['×2', 2], ['×4', 4]].map(([l, v]) => [l, () => editRisset((d) => { d.timeRate = v; }), 'risset.timeRate'])),
       slider('risset.voices', 'risset.voices', () => P().voiceCount, (v, ck) => editRisset((d) => { d.voiceCount = Math.round(v); }, { coalesceKey: ck }), { min: MIN_VOICES, max: MAX_VOICES, step: 1 }),
       presetBtns([8, 12, 16, 24, 36, 48, 60].map((n) => [String(n), () => editRisset((d) => { d.voiceCount = n; }), 'risset.voices'])),
-      slider('risset.span', 'risset.span', () => P().spanSemitones, (v, ck) => editRisset((d) => { d.spanSemitones = roundTo(v, 4); }, { coalesceKey: ck }), { min: SPAN_RANGE[0], max: SPAN_RANGE[1], step: 0.01, unit: 'st' }),
+      rangeBlock([
+      slider('risset.span', 'risset.span', spanGet, spanSet, { min: SPAN_RANGE[0], max: SPAN_RANGE[1], step: 0.01, unit: 'st' }),
       (() => {
         // Stretched (non-octave) cycle: span = 12·log₂(R) / 비옥타브 스팬
         const i = el('input', { type: 'number', min: 1.06, max: 4096, step: 0.001, class: 'w-24 px-1 py-0.5 rounded bg-slate-950 border border-slate-700 text-right font-mono text-[11px] text-amber-200' });
         const info = el('span', { class: 'font-mono text-[10px] text-slate-400' });
-        i.addEventListener('change', () => { const R = num(i.value, 0); if (R > 1) { editRisset((d) => { d.spanSemitones = clamp(roundTo(12 * Math.log2(R), 4), SPAN_RANGE[0], SPAN_RANGE[1]); }); commit(); } });
+        i.addEventListener('change', () => { const R = num(i.value, 0); if (R > 1) { spanSet(clamp(roundTo(12 * Math.log2(R), 4), SPAN_RANGE[0], SPAN_RANGE[1]), null); commit(); } });
         syncers.push(() => {
-          const sp = P().spanSemitones;
+          const sp = spanGet();
           if (document.activeElement !== i) i.value = String(roundTo(2 ** (sp / 12), 4));
           const oct = sp / 12;
           info.textContent = `${roundTo(oct, 3)} oct · ${formatCents(sp * 100)}`;
@@ -1004,12 +1302,13 @@ export function mountRissetWorkspace(root, hooks) {
       })(),
       (() => {
         const tag = el('span', { class: 'font-mono text-[11px] text-emerald-300' });
-        syncers.push(() => { const b = P().baseMidi; tag.textContent = `${midiToNoteName(Math.round(b))} (${roundTo(b, 2)}) · ${fmtHz(midiToFreq(b))}`; });
+        syncers.push(() => { const b = baseGet(); tag.textContent = `${midiToNoteName(Math.round(b))} (${roundTo(b, 2)}) · ${fmtHz(midiToFreq(b))}`; });
         return el('div', { class: 'flex flex-col gap-1' }, [
-          slider('risset.baseMidi', 'risset.span', () => P().baseMidi, (v, ck) => editRisset((d) => { d.baseMidi = roundTo(v, 2); }, { coalesceKey: ck }), { min: BASE_MIDI_RANGE[0], max: BASE_MIDI_RANGE[1], step: 0.01 }),
+          slider('risset.baseMidi', 'risset.span', baseGet, baseSet, { min: BASE_MIDI_RANGE[0], max: BASE_MIDI_RANGE[1], step: 0.01 }),
           tag,
         ]);
       })(),
+      ]),
       slider('risset.masterGain', 'risset.voices', () => P().masterGain, (v, ck) => editRisset((d) => { d.masterGain = v; }, { coalesceKey: ck }), { min: 0, max: 1.5, step: 0.01, autoKey: 'masterGain', accent: 'accent-emerald' }),
       el('div', { class: 'border-t border-slate-800 pt-2 flex flex-col gap-1.5', dataset: { help: 'risset.shape' } }, [
         el('span', { class: 'text-[11px] font-semibold text-slate-300', text: t('risset.shapeTitle') }),
@@ -1563,6 +1862,76 @@ export function mountRissetWorkspace(root, hooks) {
   };
   root.addEventListener('pointerdown', onSelectCapture, true);
 
+  /**
+   * Multi-region grapher (2+ regions), under the window like Glissando's voice grapher: one row per
+   * region module — select, range, on, S / M, gain. / 다중 영역 그래퍼 (영역 2개 이상, 윈도우 아래)
+   */
+  function buildRegionGrapher() {
+    const p0 = P();
+    if (p0.regions.length < 2) return null;
+    const rows = p0.regions.map((rg0, i) => {
+      const color = REGION_COLORS[i % REGION_COLORS.length];
+      const G = () => P().regions[i];
+      const sm = (field, label, onCls, tip) => {
+        const x = el('button', { class: 'px-1.5 py-0.5 rounded text-[10px] font-bold border', text: label, title: t(tip), dataset: { help: 'risset.regions' }, on: { click: (e) => { e.stopPropagation(); editRissetDoc((d) => { const rg = d.regions[i]; if (rg) rg[field] = !rg[field]; }); commit(); } } });
+        syncers.push(() => { x.className = `px-1.5 py-0.5 rounded text-[10px] font-bold border ${G()?.[field] ? onCls : 'bg-slate-900 border-slate-700 text-slate-400'}`; });
+        return x;
+      };
+      const on = el('input', { type: 'checkbox', class: 'accent-emerald-500', title: t('risset.regionOn'), on: { click: (e) => e.stopPropagation(), change: (e) => { editRissetDoc((d) => { d.regions[i].enabled = e.target.checked; }); commit(); } } });
+      syncers.push(() => { on.checked = !!G()?.enabled; });
+      const info = el('span', { class: 'font-mono text-[10px] text-slate-400 truncate flex-1' });
+      syncers.push(() => {
+        const q = P();
+        const rg = G();
+        if (!rg) return;
+        info.textContent = `${midiToNoteName(phaseToMidi(q, rg.lo))}–${midiToNoteName(phaseToMidi(q, rg.hi))} · ${rg.linkRate ? '↔' : `${roundTo(rg.rateHz, 3)} Hz`}${rg.rotOn ? ` · ⟳${Math.round(rg.rotAngleDeg)}°` : ''}`;
+      });
+      const row = el('div', { class: 'flex items-center gap-1.5 rounded-lg px-1.5 py-1 border cursor-pointer', dataset: { help: 'risset.regionGrapher' }, on: { click: () => { if (!scopeOn) { scopeOn = true; key = ''; } editRissetDoc((d) => { d.activeRegion = i; }, { history: false }); } } }, [
+        on,
+        el('span', { class: 'px-1.5 rounded font-mono text-[11px] font-bold', style: `background:${color};color:#020617`, text: `M${i + 1}` }),
+        info,
+        voiceGainControl({ get: () => G()?.gain ?? 1, set: (val, ck) => editRissetDoc((d) => { const rg = d.regions[i]; if (rg) rg.gain = val; }, { coalesceKey: `${ck}:${rg0.id}` }), commit, push: (fn) => syncers.push(fn), def: 1, max: 2 }),
+        sm('solo', 'S', 'bg-amber-500 text-slate-950 border-amber-400', 'risset.regionSolo'),
+        sm('mute', 'M', 'bg-rose-600 text-white border-rose-500', 'risset.regionMute'),
+      ]);
+      syncers.push(() => {
+        const q = P();
+        const act = q.activeRegion === i;
+        row.className = `flex items-center gap-1.5 rounded-lg px-1.5 py-1 border cursor-pointer transition-opacity ${act ? 'bg-slate-950' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'}`;
+        row.style.borderColor = act ? color : '';
+        // a region that does not sound (muted, or another one soloed, or off) is drawn dim / 소리 나지 않는 영역은 어둡게
+        row.style.opacity = G() && regionAudible(G(), q.regions) ? '1' : '0.42';
+      });
+      return row;
+    });
+    return el('section', { class: SECTION, dataset: { window: 'list', rack: 'risset-region-grapher', help: 'risset.regionGrapher' } }, [
+      el('div', { class: 'flex items-center justify-between gap-2' }, [
+        el('h3', { class: 'text-xs font-bold uppercase tracking-wider text-teal-300', text: t('risset.regionGrapher') }),
+        el('div', { class: 'flex items-center gap-1.5' }, [
+          el('span', { class: 'text-[10px] text-slate-500', text: t('risset.regionCount', p0.regions.length) }),
+          // the same add / remove as the region toolbox / 영역 툴박스와 같은 추가·삭제
+          p0.regions.length < MAX_REGIONS && el('button', { class: BTN, text: t('risset.regionAdd'), dataset: { help: 'risset.regionGrapher' }, on: { click: addRegionModule } }),
+          el('button', { class: `${BTN} hover:bg-rose-600`, text: t('risset.regionRemove'), dataset: { help: 'risset.regionGrapher' }, on: { click: () => { editRissetDoc((d) => { if (d.regions.length > 1) { d.regions.splice(d.activeRegion, 1); d.activeRegion = Math.max(0, d.activeRegion - 1); } }); commit(); } } }),
+        ].filter(Boolean)),
+      ]),
+      el('div', { class: 'flex flex-col gap-1' }, rows),
+    ]);
+  }
+
+  /**
+   * In region scope, mark a toolbox that acts on every region (it drives the one voice bank) with 🌐.
+   * 영역 범위에서 모든 영역에 작동하는 툴박스(보이스 뱅크 하나)에 🌐 표시.
+   */
+  function shared(section) {
+    if (section) section.dataset.shared = '1'; // acts on every region (read by the region toolbox list) / 모든 영역에 작동
+    if (!section || !scoped()) return section;
+    const head = [...section.children].find((c) => c.tagName !== 'P') || section.firstElementChild;
+    const chip = el('span', { class: 'ml-auto px-1.5 py-0.5 rounded border border-slate-600 bg-slate-800 text-[10px] text-slate-300 whitespace-nowrap', text: t('risset.sharedChip'), title: t('risset.sharedChipTip'), dataset: { help: 'risset.regionScope' } });
+    if (head && head.tagName !== 'H3') head.append(chip);
+    else section.prepend(chip);
+    return section;
+  }
+
   /** "Toolboxes act on region Mk" banner (only with 2+ regions in region scope). / 영역 범위 배너 */
   function buildScopeBanner() {
     if (!scoped()) return null;
@@ -1585,7 +1954,7 @@ export function mountRissetWorkspace(root, hooks) {
     root.replaceChildren(
       buildHeader(),
       el('div', { class: 'grid grid-cols-1 lg:grid-cols-12 gap-3' }, [
-        el('div', { class: 'lg:col-span-7 flex flex-col gap-3 min-w-0' }, [buildMain(), buildRegions(), buildDynamics(), buildGrid(), buildAutomation()]),
+        el('div', { class: 'lg:col-span-7 flex flex-col gap-3 min-w-0' }, [buildMain(), buildRegionGrapher(), buildRegions(), buildGrid(), buildDynamics(), buildAutomation()]),
         el('div', { class: 'lg:col-span-5 flex flex-col gap-3 min-w-0' }, [buildScopeBanner(), buildCore(), buildRhythm(), buildLocal(), buildEnvPeq(), buildVoiceMod(), buildTremolo(), buildColor()]),
       ]),
     );

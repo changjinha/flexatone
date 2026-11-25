@@ -45,10 +45,10 @@ Object.assign(I18N.en, {
   'traj.master': 'Master (every studio)',
   'traj.masterShort': 'Master',
   'traj.sourceEditor': 'editor',
-  'traj.window': 'Window',
+  'traj.window': 'Monitor',
   'traj.grapher': 'Lines',
   'traj.mean': 'Mean of all lines',
-  'traj.pickHint': 'Pick a line (card or click it in the window). Double-click sends it. Order of several sends: ⇄ Sends in the header.',
+  'traj.pickHint': 'Pick a line (card or click it in the monitor). Double-click sends it. Order of several sends: ⇄ Sends in the header.',
   'traj.confirm': 'Send',
   'traj.cancel': 'Cancel',
   'traj.none': 'This studio has no line to send.',
@@ -95,10 +95,10 @@ Object.assign(I18N.ko, {
   'traj.master': '마스터 (모든 스튜디오)',
   'traj.masterShort': '마스터',
   'traj.sourceEditor': '에디터',
-  'traj.window': '윈도우',
+  'traj.window': '모니터',
   'traj.grapher': '선 목록',
   'traj.mean': '모든 선의 평균',
-  'traj.pickHint': '선을 고르세요 (카드 또는 윈도우에서 클릭). 더블클릭하면 바로 보냅니다. 여러 보내기의 순서는 헤더의 ⇄ 보내기에서.',
+  'traj.pickHint': '선을 고르세요 (카드 또는 모니터에서 클릭). 더블클릭하면 바로 보냅니다. 여러 보내기의 순서는 헤더의 ⇄ 보내기에서.',
   'traj.confirm': '보내기',
   'traj.cancel': '취소',
   'traj.none': '이 스튜디오에는 보낼 선이 없습니다.',
@@ -130,8 +130,8 @@ Object.assign(I18N.ko, {
 });
 
 HELP_DB['app.trajImport'] = {
-  en: { title: 'Send / Receive trajectory', summary: 'Use a pitch line of one studio as the base line of another — or of every studio (Master).', detail: 'Receive: pick the source studio (and instance) and one of its lines; the line is highlighted in the window. Send: the same window, starting from this studio. To: one studio, or Master = every studio that can receive (except the source). Combine: Replace (the receiving line becomes this line) or Add (this line’s motion — its pitch minus its first pitch — is added on top). What each studio does with it — Cloud: the pitch-centre curve and the length. Tempo: the subject. Fractal: the FIF base line, range and length. Draw: a stroke. Field: the active particle and the guiding curve. Space: the pitch curve of the active source. Glissando: one voice written by the sends. The receiving studio follows its sources from then on; a Glissando voice that is sent is locked 🔒. The chip shows what this studio receives (× stops receiving). When several sends meet, their order is set in ⇄ Sends (header).', formula: '' },
-  ko: { title: '궤적 보내기 / 받기', summary: '한 스튜디오의 음고 선을 다른 스튜디오(또는 마스터 = 모든 스튜디오)의 기본 선으로 씁니다.', detail: '받기: 보내는 스튜디오(와 인스턴스), 그리고 그 선 하나를 고르면 윈도우에서 강조됩니다. 보내기: 같은 창을 이 스튜디오에서 시작합니다. 받는 곳: 스튜디오 하나 또는 마스터 = 받을 수 있는 모든 스튜디오(보내는 스튜디오 제외). 합치는 방식: 교체(받는 선이 이 선이 됨) 또는 윤곽 더하기(이 선의 움직임을 위에 더함). 스튜디오별 의미 — 클라우드: 음고 중심 곡선과 길이. 템포: 주제. 프랙탈: FIF 기준선·음역·길이. 드로잉: 스트로크. 필드: 활성 입자와 가이드 곡선. 스페이스: 활성 음원의 음고 곡선. 글리산도: 보내기가 쓰는 보이스 하나. 이후에도 받는 스튜디오가 원본을 따라가며, 보내진 글리산도 보이스는 잠금 🔒 상태가 됩니다. 칩은 이 스튜디오가 받는 것을 보여 줍니다 (×로 해제). 여러 보내기가 만나면 순서는 헤더의 ⇄ 보내기에서 정합니다.', formula: '' },
+  en: { title: 'Send / Receive trajectory', summary: 'Use a pitch line of one studio as the base line of another — or of every studio (Master).', detail: 'Receive: pick the source studio (and instance) and one of its lines; the line is highlighted in the monitor. Send: the same window, starting from this studio. To: one studio, or Master = every studio that can receive (except the source). Combine: Replace (the receiving line becomes this line) or Add (this line’s motion — its pitch minus its first pitch — is added on top). What each studio does with it — Cloud: the pitch-centre curve and the length. Tempo: the subject. Fractal: the FIF base line, range and length. Draw: a stroke. Field: the active particle and the guiding curve. Space: the pitch curve of the active source. Glissando: one voice written by the sends. The receiving studio follows its sources from then on; a Glissando voice that is sent is locked 🔒. The chip shows what this studio receives (× stops receiving). When several sends meet, their order is set in ⇄ Sends (header).', formula: '' },
+  ko: { title: '궤적 보내기 / 받기', summary: '한 스튜디오의 음고 선을 다른 스튜디오(또는 마스터 = 모든 스튜디오)의 기본 선으로 씁니다.', detail: '받기: 보내는 스튜디오(와 인스턴스), 그리고 그 선 하나를 고르면 모니터에서 강조됩니다. 보내기: 같은 창을 이 스튜디오에서 시작합니다. 받는 곳: 스튜디오 하나 또는 마스터 = 받을 수 있는 모든 스튜디오(보내는 스튜디오 제외). 합치는 방식: 교체(받는 선이 이 선이 됨) 또는 윤곽 더하기(이 선의 움직임을 위에 더함). 스튜디오별 의미 — 클라우드: 음고 중심 곡선과 길이. 템포: 주제. 프랙탈: FIF 기준선·음역·길이. 드로잉: 스트로크. 필드: 활성 입자와 가이드 곡선. 스페이스: 활성 음원의 음고 곡선. 글리산도: 보내기가 쓰는 보이스 하나. 이후에도 받는 스튜디오가 원본을 따라가며, 보내진 글리산도 보이스는 잠금 🔒 상태가 됩니다. 칩은 이 스튜디오가 받는 것을 보여 줍니다 (×로 해제). 여러 보내기가 만나면 순서는 헤더의 ⇄ 보내기에서 정합니다.', formula: '' },
 };
 HELP_DB['gliss.trajLock'] = {
   en: { title: 'Sent trajectory lock', summary: 'This voice is sent to another studio. 🔒 protects its shape; 🔓 lets you edit it and the other studio follows.', detail: 'While locked, an edit of the curve, the pitch ends or the timing is taken back and you are asked: Copy (edit a duplicate), Change without copying (switch to linked editing) or Cancel. Name, colour, gain, timbre and tremolo are never locked.', formula: '' },

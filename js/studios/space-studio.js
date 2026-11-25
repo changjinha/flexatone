@@ -21,6 +21,7 @@ import { appState, registerSelfCheck, withIsolatedState } from '../core/state.js
 import { captureCurveToCustomPoints, evaluateCurveObjectY } from '../modules/curve-engine.js';
 import { StudioRegistry } from './registry.js';
 import './space/space-i18n.js'; // merges EN/KO strings before the tabs are drawn / 탭 렌더 전 문자열 병합
+import './space/space-i18n-ext.js'; // extension strings: splines, lanes, views / 확장 문자열
 import {
   createDefaultSpaceParams,
   normalizeSpaceDoc,
@@ -34,6 +35,8 @@ import {
   createSource,
   effectiveC,
   SUPERSONIC_FRACTION,
+  rankineSpeed,
+  createSpacePreset,
 } from './space/space-engine.js';
 import { timbreSpecToVoiceFields } from '../modules/timbre-spec.js';
 
@@ -91,6 +94,9 @@ export function sourceToGlissandoVoice(src, b, helpers, index) {
   let lo = Infinity;
   let hi = -Infinity;
   let gMax = 0;
+  // Gain lane (if on) rides on the distance law in the baked voice too / 게인 레인은 베이킹 보이스에도 반영
+  const g = b.gainLane ? Float64Array.from(b.gain, (v, i) => v * b.gainLane[i]) : b.gain;
+  b = { ...b, gain: g };
   for (let i = 0; i < b.n; i++) {
     lo = Math.min(lo, b.fObs[i]);
     hi = Math.max(hi, b.fObs[i]);
@@ -122,8 +128,10 @@ export function sourceToGlissandoVoice(src, b, helpers, index) {
     color: src.color,
     solo: !!src.solo,
     muted: !!src.muted,
-    startTime: roundTo(b.t0, 4),
-    duration: roundTo(b.t1 - b.t0, 4),
+    // a trimmed source bakes with the same play range (core/line-clip.js) / 잘린 음원은 같은 재생 구간으로
+    ...(src.clip ? { clip: { u0: clamp(src.clip.u0, 0, 1), u1: clamp(src.clip.u1, 0, 1), ext: 'tangent' } } : {}),
+    startTime: roundTo(src.clip ? b.t0 + clamp(src.clip.u0, 0, 1) * (b.t1 - b.t0) : b.t0, 4),
+    duration: roundTo(src.clip ? (clamp(src.clip.u1, 0, 1) - clamp(src.clip.u0, 0, 1)) * (b.t1 - b.t0) : b.t1 - b.t0, 4),
     baseGain: roundTo(clamp(src.baseGain * gMax, 0, 2), 4),
     f0Hz: f0,
     f1Hz: f1,
@@ -153,11 +161,14 @@ export const SpaceStudio = {
   generateVoices(params, helpers) {
     const doc = normalizeSpaceDoc(params);
     const baked = bakeSpace(doc);
-    return doc.sources.slice(0, 64).map((s, i) => sourceToGlissandoVoice(s, baked.sources.get(s.id), helpers, helpers.startIndex + i));
+    // Imported sounds are audio, not pitch lines: they cannot become voices / 가져온 소리는 보이스가 될 수 없음
+    return doc.sources.filter((s) => s.input?.kind !== 'import').slice(0, 64).map((s, i) => sourceToGlissandoVoice(s, baked.sources.get(s.id), helpers, helpers.startIndex + i));
   },
 };
 
 StudioRegistry.register(SpaceStudio);
+import './space/space-checks-a.js'; // self-checks of the extension (splines, lanes, views) / 확장 자가진단
+import './space/space-checks-c.js'; // moving listener, time pins, Space Master document / 움직이는 청취자·시각 핀·스페이스 마스터 문서
 
 // ==========================================================================
 // Self-checks / 자가진단
@@ -290,4 +301,26 @@ registerSelfCheck('Space studio: bake cache signature & Glissando voices', (a) =
       a.ok(worst < 0.003, `f_obs samples match (worst ${(worst * 100).toFixed(3)}%)`);
     }
   });
+}, { group: 'studio' });
+
+registerSelfCheck('Space studio: Rankine vortex — core is rigid, outside is 1/r, kinematics follow the profile', (a) => {
+  const G = 3500;
+  const core = 14;
+  a.near(rankineSpeed(core, G, core), G / (2 * Math.PI * core), 1e-9, 'v(a) = Γ/2πa');
+  a.near(rankineSpeed(core - 1e-9, G, core), rankineSpeed(core + 1e-9, G, core), 1e-6, 'continuous at the core edge');
+  const w = (r) => rankineSpeed(r, G, core) / r;
+  a.near(w(3), w(9), 1e-9, 'rigid core: same ω at every radius');
+  a.near(w(30) / w(60), 4, 1e-9, 'outside: ω ∝ 1/r²');
+  a.near(rankineSpeed(0, G, core), 0, 1e-12, 'zero on the axis');
+  const doc = createSpacePreset('vortex');
+  a.equal(doc.sources.length, 6, 'vortex preset has six tracers');
+  for (const s of doc.sources) {
+    const k = getKinematics(s, doc);
+    const r = s.path.rx;
+    a.near(k.speedAt(1), Math.min(rankineSpeed(r, G, core), k.vMax), 1e-9, `kinematic speed at r = ${r}`);
+  }
+  const n = normalizeSpaceDoc(JSON.parse(JSON.stringify(doc)));
+  a.equal(JSON.stringify(normalizeSpaceDoc(n)), JSON.stringify(n), 'normalize is idempotent');
+  const b = bakeSource(n.sources[0], n);
+  a.ok(Array.from(b.fObs).every((f) => Number.isFinite(f)), 'finite bake');
 }, { group: 'studio' });

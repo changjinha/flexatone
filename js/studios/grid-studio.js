@@ -22,6 +22,7 @@ import { appState } from '../core/state.js';
 import { captureCurveToCustomPoints, evaluateCurveObjectY } from '../modules/curve-engine.js';
 import { timbreSpecToVoiceFields } from '../modules/timbre-spec.js';
 import { evaluateVoiceAmplitudeAtTime } from '../modules/gain-bus.js';
+import { createWarpStage, WARP_MAX_STACK, RESTORE_MAX_OPS, PULL_MAX_OPS } from '../modules/space-warp.js';
 import { StudioRegistry, MAX_GENERATED_VOICES } from './registry.js';
 import { registerTrajectorySource, listSourceLines, listSendSources, MEAN_LINE } from './trajectory-link.js';
 import './grid/grid-i18n.js'; // merges the EN/KO keys before any tab is drawn / 탭 표시 전에 번역 키 병합
@@ -64,6 +65,72 @@ export function applyGridPreset(id) {
   const space = gridPresetSpace(id);
   if (!space) return null;
   return editGrid((d) => { d.space = space; d.preset = id; });
+}
+
+/** The selection as a region (cells, original space) with the current soft edge, or null. / 선택 영역 (부드러운 가장자리 포함) */
+export function gridSelectionRegion(params = getGridParams()) {
+  const s = params.tool.sel;
+  return s ? { poly: s.poly.map((q) => [q[0], q[1]]), feather: params.tool.feather } : null;
+}
+
+/**
+ * Restore the space. Without a selection: back to the flat, undeformed space (every effect removed).
+ * With one: a Restore stage at the END of the stack undoes everything above it inside the selection.
+ * Undoable. / 공간 복원: 선택 없음 = 완전히 평평한 원래 공간 (모든 효과 제거), 선택 있음 = 스택 끝의
+ * 복원 단계가 그 영역 안에서 위의 모든 변형을 되돌림. 실행 취소 가능.
+ * @returns {{ ok: boolean, scope: 'all'|'selection', reason?: string }}
+ */
+export function restoreGridSpace({ region = gridSelectionRegion() } = {}) {
+  const p = getGridParams();
+  if (!region) {
+    if (!p.space.length) return { ok: false, scope: 'all', reason: 'flat' };
+    editGrid((d) => { d.space = []; d.preset = 'flat'; });
+    return { ok: true, scope: 'all' };
+  }
+  if (!p.space.some((it) => it.type !== 'restore')) return { ok: false, scope: 'selection', reason: 'flat' };
+  const has = p.space.some((it) => it.type === 'restore');
+  if (!has && p.space.length >= WARP_MAX_STACK) return { ok: false, scope: 'selection', reason: 'full' };
+  editGrid((d) => {
+    const i = d.space.findIndex((x) => x.type === 'restore');
+    const it = i >= 0 ? d.space.splice(i, 1)[0] : createWarpStage('restore', { id: 'w-restore' });
+    it.on = true;
+    it.mix = 1;
+    it.params.ops.push({ region: deepClone(region) });
+    if (it.params.ops.length > RESTORE_MAX_OPS) it.params.ops.shift();
+    d.space.push(it); // last: it restores everything above it / 마지막: 위의 모든 것을 복원
+    d.preset = '';
+  });
+  return { ok: true, scope: 'selection' };
+}
+
+/**
+ * Pull the selected part of the space by (dx, dy) cells. `opIndex` = the op a drag keeps updating
+ * (null = a new op, or the last one when it is the same region and mode — re-grabbing continues it).
+ * 선택한 공간을 (dx, dy) 셀만큼 당김. opIndex = 드래그가 계속 갱신하는 연산.
+ * @returns {{ ok: boolean, opIndex?: number, base?: [number, number], reason?: string }}
+ */
+export function beginGridPull(grab, { region = gridSelectionRegion(), mode = getGridParams().tool.pullMode } = {}) {
+  if (!region) return { ok: false, reason: 'nosel' };
+  const p = getGridParams();
+  const st = p.space.find((x) => x.type === 'pull');
+  if (!st && p.space.length >= WARP_MAX_STACK) return { ok: false, reason: 'full' };
+  const ops = st?.params.ops || [];
+  const lastOp = ops[ops.length - 1];
+  if (lastOp && mode === 'move' && lastOp.mode === 'move' && JSON.stringify(lastOp.region) === JSON.stringify(region)) return { ok: true, opIndex: ops.length - 1, base: [lastOp.dx, lastOp.dy], region, mode, grab };
+  if (ops.length >= PULL_MAX_OPS) return { ok: false, reason: 'ops' };
+  return { ok: true, opIndex: ops.length, base: [0, 0], region, mode, grab };
+}
+
+/** Write the pull of a drag (coalesced into one undo step by the caller's gesture). / 드래그의 당기기 기록 */
+export function writeGridPull(session, dx, dy) {
+  return editGrid((d) => {
+    let it = d.space.find((x) => x.type === 'pull');
+    if (!it) { it = createWarpStage('pull', { id: 'w-pull' }); d.space.unshift(it); }
+    it.on = true;
+    const op = { region: deepClone(session.region), mode: session.mode, dx: session.base[0] + dx, dy: session.base[1] + dy, gx: session.grab[0], gy: session.grab[1] };
+    if (session.opIndex < it.params.ops.length) it.params.ops[session.opIndex] = op; else it.params.ops.push(op);
+    d.preset = '';
+  }, { coalesceKey: 'grid-pull' });
 }
 
 /** Studios whose lines the Grid can carry (every trajectory source except itself) + its own demo lines. */

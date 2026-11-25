@@ -65,6 +65,8 @@ import { createDefaultTake, normalizeTake } from './take-config.js';
 import { normalizeMods } from './mod-config.js';
 import { normalizeScenes, SCENE_QUANT, SCENE_FOLLOW } from './scene-config.js';
 import { serializeSamples, loadSamples, referencedSampleIds } from './sample-library.js';
+import { normalizeClip, normalizeLink, splitLineAt, syncLinkedShapes, shapeSignature, linkedPeers } from './line-clip.js';
+import { createDefaultAdsr, normalizeAdsr } from './adsr.js';
 
 // ==========================================================================
 // Constants / 상수
@@ -78,8 +80,10 @@ export const VOICE_COLORS = Object.freeze([
 export const ENGINE_IDS = Object.freeze([
   'harmonic', 'damped', 'anticipation', 'ratchet', 'chirp', 'bounce',
   'bezier', 'plateau', 'polynomial', 'morph', 'custom',
-  'expo', 'trig', 'formula',
+  'expo', 'trig', 'formula', 'flow',
 ]);
+/** Fluid-profile kinds of engine 15 (Flow). / 15번 유체 프로파일 엔진의 종류 */
+export const FLOW_KINDS = Object.freeze(['poiseuille', 'blasius', 'rankine', 'stokes']);
 /** Functions available to engine 13 (Trig). / 13번 삼각함수 엔진의 함수 */
 export const TRIG_FNS = Object.freeze(['sin', 'cos', 'tan', 'asin', 'acos', 'atan']);
 /** Region edge ramp policy. / 구간 경계 램프 정책 */
@@ -136,6 +140,11 @@ export function createDefaultCurveParams() {
     formulaExpr: 'a*t^b + (1 - a)*sin(pi*t/2)',
     formulaVars: [{ name: 'a', value: 0.5, min: -2, max: 2 }, { name: 'b', value: 2, min: 0.1, max: 8 }],
     formulaNorm: true,
+    // 15. Fluid profile (Poiseuille · Blasius · Rankine · Stokes' 2nd problem)
+    flowKind: 'poiseuille', flowP: 2, flowCouette: 0, flowSlip: 0,
+    flowEta: 5, flowBlaWarp: 1, flowBlaInt: false,
+    flowCore: 0.5, flowDecay: 1, flowSmooth: 0,
+    flowStokesEta: 5, flowPhase: 0, flowWaveK: 1, flowDamp: 1,
   };
 }
 
@@ -281,7 +290,10 @@ export function createDefaultVoice(index = 0, overrides = {}) {
     ],
     gainEngineObj: createDefaultGainEngineObj(),
     tremolo: createDefaultTremolo(), // periodic amplitude modulation (off by default) / 트레몰로
+    adsr: createDefaultAdsr(), // timbre toolbox ADSR (off by default, core/adsr.js) / 음색 ADSR
     regions: [],
+    // optional: clip = play range on the curve, link = pieces cut from one line (core/line-clip.js)
+    // 선택: clip = 곡선 위 재생 구간, link = 한 선에서 잘린 조각 (core/line-clip.js)
   };
   return Object.assign(voice, overrides);
 }
@@ -377,6 +389,7 @@ function normalizeCurveConfig(target, defaults) {
   if (!MORPH_MODES.includes(target.morphMode)) target.morphMode = 'blend';
   if (!['exp', 'log'].includes(target.expMode)) target.expMode = 'exp';
   if (!TRIG_FNS.includes(target.trigFn)) target.trigFn = 'sin';
+  if (!FLOW_KINDS.includes(target.flowKind)) target.flowKind = 'poiseuille';
   target.formulaVars = (Array.isArray(target.formulaVars) ? target.formulaVars : [])
     .filter((fv) => fv && /^[a-z]$/.test(fv.name) && !['t', 'x', 'e'].includes(fv.name))
     .slice(0, 12)
@@ -427,6 +440,11 @@ export function normalizeVoice(raw = {}, index = 0) {
   v.gainEngineObj = normalizeCurveConfig({ ...createDefaultGainEngineObj(), ...gSrc }, createDefaultGainEngineObj());
   delete v.ampCurve;
   v.tremolo = normalizeTremolo(src.tremolo);
+  v.adsr = normalizeAdsr(src.adsr);
+  const clip = normalizeClip(src.clip);
+  if (clip) v.clip = clip; else delete v.clip;
+  const link = normalizeLink(src.link);
+  if (link) v.link = link; else delete v.link;
   v.gainPoints = ensurePoints(v.gainPoints, d.gainPoints);
   v.regions = (Array.isArray(src.regions) ? src.regions : []).map(normalizeRegion).filter(Boolean).slice(0, MAX_REGIONS_PER_VOICE);
   if (v.gainMode !== 'points' && v.gainMode !== 'engine') v.gainMode = 'points';
@@ -566,8 +584,14 @@ export function createInitialState() {
     engineTarget: 'curve', // 'curve' | 'amp'  (which curve config the engine rack edits)
     durEditMode: 'duration', // 'duration' | 'end'
     groupApplyMode: false, // apply edits to all selected voices
+    // How a group edit reaches the other selected voices: 'sync' (same value), 'ratio' (same factor),
+    // 'offset' (same amount added). / 그룹 편집 방식: 동기화 · 비율 · 덧셈
+    groupEditMode: 'sync',
+    multiSelectMode: false, // a plain click on a voice card adds / removes it from the selection / 다중 선택
     legatoJoin: true, // back-to-back voices share one phase-continuous oscillator / 레가토 연결
+    sampleJoin: 'pitch', // back-to-back Sampler voices: 'pitch' (continue when pitches meet, default) | 'always' | 'restart' (new read, crossfaded) / 샘플러 잇기
     joinGlideMs: 12, // pitch-slope smoothing window around a junction (0 = off) / 경계 글라이드
+    clipGhost: true, // unplayed parts of a trimmed line: faint in the monitor (false = hidden) / 재생하지 않는 부분: 연하게 (false = 숨김)
     output: createDefaultOutputConfig(), // end-of-chain output stage (fader, meters, loudness) / 출력 단계
     matrixOpen: false,
 
@@ -763,6 +787,16 @@ export function dispatch(opts = {}) {
 // Undo / Redo / 실행 취소 · 다시 실행
 // ==========================================================================
 
+let historyMuted = 0;
+/**
+ * Run `fn` without recording undo steps (timeline automation writing values during playback).
+ * 실행 취소 기록 없이 fn 실행 (재생 중 오토메이션이 값을 쓸 때)
+ */
+export function withoutHistory(fn) {
+  historyMuted++;
+  try { return fn(); } finally { historyMuted--; }
+}
+
 function documentSnapshot() {
   return JSON.stringify({
     voices: appState.voices,
@@ -780,6 +814,7 @@ function documentSnapshot() {
  * @returns {boolean} whether the stack changed
  */
 export function pushHistory({ coalesceKey = null } = {}) {
+  if (historyMuted > 0) return false;
   const h = appState.history;
   const snap = documentSnapshot();
   if (h.index >= 0 && h.stack[h.index] === snap) return false;
@@ -807,6 +842,7 @@ export function resetHistory() {
 /** End a coalescing gesture so the next push starts a new entry (call on pointerup). */
 export function endHistoryGesture() {
   appState.history.lastCoalesceKey = null;
+  groupGesture = null;
 }
 
 export function canUndo() {
@@ -892,12 +928,14 @@ export function setTransport(patch) {
  * Select a voice. additive = toggle in selection (Ctrl/⌘), range = extend (Shift).
  * 보이스 선택. additive=토글, range=범위 선택.
  */
-export function selectVoice(id, { additive = false, range = false } = {}) {
+export function selectVoice(id, { additive = false, range = false, keep = false } = {}) {
   return dispatch({
     type: 'voice/select',
     scope: ['selection', 'panels', 'canvas', 'gain', 'matrix', 'timbre'],
     mutate: (s) => {
       if (!getVoiceById(id)) return;
+      // keep: make a voice of the selection the active one, selection unchanged / 선택은 그대로, 활성만 변경
+      if (keep && s.selectedVoiceIds.includes(id)) { s.activeVoiceId = id; return; }
       if (range && s.activeVoiceId) {
         const ids = s.voices.map((v) => v.id);
         const a = ids.indexOf(s.activeVoiceId);
@@ -913,6 +951,18 @@ export function selectVoice(id, { additive = false, range = false } = {}) {
         s.selectedVoiceIds = [id];
       }
       s.activeVoiceId = s.selectedVoiceIds.includes(id) ? id : s.selectedVoiceIds[0];
+    },
+  });
+}
+
+/** Select every voice (the active voice stays active). / 모든 보이스 선택 */
+export function selectAllVoices() {
+  return dispatch({
+    type: 'voice/select',
+    scope: ['selection', 'panels', 'canvas', 'gain', 'matrix', 'timbre'],
+    mutate: (s) => {
+      s.selectedVoiceIds = s.voices.map((v) => v.id);
+      if (!s.selectedVoiceIds.includes(s.activeVoiceId)) s.activeVoiceId = s.selectedVoiceIds[0];
     },
   });
 }
@@ -952,12 +1002,73 @@ export function duplicateVoice(id = appState.activeVoiceId, { afterEnd = false }
       copy.color = nextVoiceColor(s.voices);
       copy.solo = false;
       if (afterEnd) copy.startTime = clamp(getVoiceEnd(s.voices[idx]), 0, MAX_TIME);
+      delete copy.link; // a copy is a line of its own / 복제본은 별개의 선
       for (const n of copy.morphNodes || []) n.id = uid('mn_', 6);
       for (const n of copy.gainEngineObj?.morphNodes || []) n.id = uid('mn_', 6);
       s.voices.splice(idx + 1, 0, copy);
       s.activeVoiceId = copy.id;
       s.selectedVoiceIds = [copy.id];
       return copy;
+    },
+  });
+}
+
+/**
+ * Fields that make up a line's curve shape — what linked pieces (🔗) share. Timing, play range,
+ * timbre, gain, name and colour stay each piece's own. / 링크된 조각이 공유하는 곡선 모양 필드.
+ */
+export const LINK_SHAPE_KEYS = Object.freeze([
+  ...Object.keys(createDefaultCurveConfig()),
+  'f0Hz', 'f0Midi', 'f0Fine', 'f1Hz', 'f1Midi', 'f1Fine', 'logScale', 'audioTarget', 'regions',
+]);
+
+/**
+ * Cut a voice at `sec` into two linked pieces (✂ — Locate double-click on a line, or the grapher's
+ * Split at cue). Together they play exactly what the voice played. / 보이스를 sec에서 링크된 두 조각으로 자름.
+ * @returns {object} event; `result` = the new second piece, or null when `sec` is too close to an end
+ */
+export function splitVoice(id = appState.activeVoiceId, sec = appState.transport.cueSec) {
+  return dispatch({
+    type: 'voice/split',
+    history: true,
+    scope: 'all',
+    mutate: (s) => {
+      const idx = s.voices.findIndex((v) => v.id === id);
+      if (idx < 0) return null;
+      const pieces = splitLineAt(s.voices[idx], sec, { newId: () => uid('v_', 7), linkId: () => uid('ln_', 6), minDur: MIN_DURATION });
+      if (!pieces) return null;
+      const [a, b] = pieces;
+      b.name = `${String(a.name).replace(/ ✂\d+$/, '')} ✂${Math.max(1, s.voices.filter((v) => v.link?.id === a.link.id).length) + 1}`.slice(0, 40);
+      b.solo = false;
+      for (const n of b.morphNodes || []) n.id = uid('mn_', 6);
+      for (const n of b.gainEngineObj?.morphNodes || []) n.id = uid('mn_', 6);
+      for (const r of b.regions || []) r.id = uid('rg_', 6);
+      s.voices.splice(idx, 1, a, b);
+      s.activeVoiceId = b.id;
+      s.selectedVoiceIds = [b.id];
+      return b;
+    },
+  });
+}
+
+/**
+ * 🔗 checkbox of a voice card: off = a separate line from now on; on again = take the shape of the
+ * other linked pieces. / 🔗 체크박스: 끄면 별개의 선, 다시 켜면 다른 링크 조각의 모양을 따름.
+ */
+export function setVoiceLink(id, on) {
+  return dispatch({
+    type: 'voice/link',
+    history: true,
+    scope: ['canvas', 'gain', 'panels', 'matrix'],
+    mutate: (s) => {
+      const v = s.voices.find((x) => x.id === id);
+      if (!v?.link) return false;
+      v.link.on = !!on;
+      if (on) {
+        const src = linkedPeers(s.voices, v)[0];
+        if (src) for (const k of LINK_SHAPE_KEYS) { if (src[k] === undefined) delete v[k]; else v[k] = deepClone(src[k]); }
+      }
+      return true;
     },
   });
 }
@@ -1020,13 +1131,88 @@ export function updateVoices(edit, opts = {}) {
     scope,
     mutate: () => {
       const targets = ids ? ids.map(getVoiceById).filter(Boolean) : getTargetVoices();
-      for (const v of targets) {
+      const apply = (v) => {
         if (typeof edit === 'function') edit(v);
         else Object.assign(v, deepClone(edit));
-      }
+      };
+      // Linked pieces (🔗): note their shape before the edit / 링크된 조각: 편집 전 모양 기록
+      const linked = targets.filter((v) => v.link?.on);
+      const before = linked.length ? new Map(linked.map((v) => [v.id, shapeSignature(v, LINK_SHAPE_KEYS)])) : null;
+      const lead = getActiveVoice();
+      const mode = appState.groupEditMode;
+      const relative = !ids && appState.groupApplyMode && (mode === 'ratio' || mode === 'offset') && targets.length > 1 && targets.includes(lead);
+      if (relative) applyGroupRelative(targets, lead, apply, mode, coalesceKey);
+      else for (const v of targets) apply(v);
+      // the active voice leads when several pieces of one line were edited / 여러 조각 편집 시 활성 보이스 우선
+      if (before) syncLinkedShapes(appState.voices, [...linked].sort((a, b) => (b === lead) - (a === lead)), before, LINK_SHAPE_KEYS);
       return targets.length;
     },
   });
+}
+
+// ---- Group edit: ratio / offset / 그룹 편집: 비율 · 덧셈 ---------------------
+// 'sync' runs the edit on every selected voice, so they all get the same value. 'ratio' and
+// 'offset' keep the voices different: the edit is measured on the active voice (before → after)
+// and every other voice gets the same factor / the same amount on its own value. Values are
+// measured from the start of the gesture (one slider drag), so a drag never drifts and going
+// back to the start restores every voice. Settings that are not plain numbers (engine, modes,
+// point lists) are synced. Pitch is moved in semitones — in both modes a transposition.
+// 'sync'는 모든 선택 보이스에 같은 값을 넣는다. 'ratio'·'offset'은 활성 보이스의 변화(전 → 후)를
+// 재서, 다른 보이스의 자기 값에 같은 배율 / 같은 양을 적용한다. 제스처 시작 시점 기준이라 드래그가
+// 누적 오차 없이 되돌아온다. 숫자가 아닌 설정(엔진·모드·점 목록)은 동기화. 음고는 반음 단위 이조.
+
+let groupGesture = null; // { key, sig, base: Map(id → voice clone at the start of the gesture) }
+const GROUP_PITCH_KEYS = new Set(['f0Midi', 'f0Hz', 'f0Fine', 'f1Midi', 'f1Hz', 'f1Fine']);
+const isPlainObject = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+
+/** One value of another voice after the active voice went a0 → a1. / 다른 보이스의 값 */
+export function groupRelativeValue(mode, b0, a0, a1) {
+  if (a1 === a0) return b0;
+  const out = mode === 'ratio' && Math.abs(a0) > 1e-9 ? b0 * (a1 / a0) : b0 + (a1 - a0);
+  return Number.isFinite(out) ? out : b0;
+}
+
+function groupRelativeWalk(mode, v, v0, a0, a1, top = false) {
+  for (const k of Object.keys(v0)) {
+    if (top && GROUP_PITCH_KEYS.has(k)) continue;
+    const b0 = v0[k];
+    if (typeof b0 === 'number') {
+      if (typeof a0[k] === 'number' && typeof a1[k] === 'number' && typeof v[k] === 'number') v[k] = groupRelativeValue(mode, b0, a0[k], a1[k]);
+    } else if (isPlainObject(b0) && isPlainObject(a0[k]) && isPlainObject(a1[k]) && isPlainObject(v[k])) {
+      groupRelativeWalk(mode, v[k], b0, a0[k], a1[k]);
+    }
+  }
+}
+
+function applyGroupRelative(targets, lead, apply, mode, coalesceKey) {
+  const sig = `${mode}|${lead.id}|${targets.map((v) => v.id).join(',')}`;
+  if (!coalesceKey || !groupGesture || groupGesture.key !== coalesceKey || groupGesture.sig !== sig) {
+    groupGesture = { key: coalesceKey, sig, base: new Map(targets.map((v) => [v.id, deepClone(v)])) };
+  }
+  const { base } = groupGesture;
+  for (const v of targets) apply(v);
+  const lead0 = base.get(lead.id);
+  for (const v of targets) {
+    if (v === lead) continue;
+    const v0 = base.get(v.id);
+    groupRelativeWalk(mode, v, v0, lead0, lead, true);
+    for (const side of ['f0', 'f1']) {
+      const d = getVoiceMidi(lead, side) - getVoiceMidi(lead0, side);
+      for (const f of ['Hz', 'Midi', 'Fine']) v[`${side}${f}`] = v0[`${side}${f}`];
+      if (Math.abs(d) > 1e-9) setVoicePitch(v, side, { hz: v0[`${side}Hz`] * 2 ** (d / 12) });
+    }
+    // Keep the result inside the hard ranges / 하드 범위 안으로
+    v.startTime = clamp(v.startTime, 0, MAX_TIME);
+    v.duration = clamp(v.duration, MIN_DURATION, MAX_TIME);
+    v.baseGain = clampBaseGain(v.baseGain);
+    for (const w of TIMBRE_WAVES) v.timbre[w] = clamp(Number(v.timbre[w]) || 0, 0, 1);
+    v.dbMin = Math.min(-12, Math.max(-120, Math.round(v.dbMin)));
+    if (v.gainEngineObj) {
+      v.gainEngineObj.ampMin = clamp(Number(v.gainEngineObj.ampMin) || 0, 0, 1);
+      v.gainEngineObj.ampMax = clamp(Number.isFinite(v.gainEngineObj.ampMax) ? v.gainEngineObj.ampMax : 1, 0, 1);
+    }
+    v.tremolo = normalizeTremolo(v.tremolo);
+  }
 }
 
 // ---- Versions / 버전 -------------------------------------------------------
@@ -1099,7 +1285,7 @@ export function clearVersions() {
 // Project (de)serialisation / 프로젝트 저장·불러오기
 // ==========================================================================
 
-const SERIALIZED_PREFS = ['lang', 'studio', 'layout', 'uiZoom', 'viewMode', 'gridSub', 'showDeriv', 'locateSnap', 'durEditMode', 'groupApplyMode', 'legatoJoin', 'joinGlideMs', 'screenshotMode', 'screenshotSvg', 'output'];
+const SERIALIZED_PREFS = ['lang', 'studio', 'layout', 'uiZoom', 'viewMode', 'gridSub', 'showDeriv', 'locateSnap', 'durEditMode', 'groupApplyMode', 'groupEditMode', 'legatoJoin', 'sampleJoin', 'joinGlideMs', 'clipGhost', 'screenshotMode', 'screenshotSvg', 'output'];
 
 /**
  * Plain JSON-safe project object (caller stringifies / downloads).
@@ -1184,6 +1370,110 @@ export function loadProjectData(data) {
     },
   });
   return { ok: true };
+}
+
+/** Parse a project file's JSON text (or pass an object through); null when it is not JSON. / 프로젝트 JSON 파싱 */
+export function parseProjectData(data) {
+  if (typeof data !== 'string') return data && typeof data === 'object' ? data : null;
+  try { return JSON.parse(data); } catch (e) { return null; }
+}
+
+/**
+ * Studios that hold content in a project file, in Manager order. Glissando counts whenever the file has
+ * voices (every project does). / 프로젝트 파일에 내용이 있는 스튜디오 (매니저 순서)
+ * @returns {string[]}
+ */
+export function listProjectStudios(obj) {
+  if (!obj || typeof obj !== 'object') return [];
+  const found = new Set();
+  if (Array.isArray(obj.voices) && obj.voices.length) found.add('glissando');
+  const sp = obj.studioParams;
+  if (sp && typeof sp === 'object' && !Array.isArray(sp)) for (const k of Object.keys(sp)) if (isValidStudioId(k)) found.add(k);
+  for (const i of Array.isArray(obj.manager?.instances) ? obj.manager.instances : []) if (i && isValidStudioId(i.studio)) found.add(i.studio);
+  const order = ['glissando', 'risset', 'field', 'draw', 'chaos', 'cloud', 'tempo', 'space', 'fractal', 'wave', 'grid'];
+  return [...found].sort((a, b) => {
+    const ia = order.indexOf(a); const ib = order.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a < b ? -1 : 1);
+  });
+}
+
+/**
+ * Copy of a project object that keeps only the chosen studios. A studio left out comes back at its
+ * defaults: its instances, saved document and (Glissando) voices and Versions are dropped, and the
+ * active studio moves to the first chosen one. The project-wide parts (output, tempo, regions of the
+ * Manager, samples) stay. / 선택한 스튜디오만 남긴 프로젝트 복사본 (제외한 스튜디오는 기본값)
+ * @param {object} obj parsed project
+ * @param {string[]} keep studio ids to keep
+ */
+export function filterProjectStudios(obj, keep) {
+  const keepSet = new Set(keep);
+  const out = { ...obj };
+  if (!keepSet.has('glissando')) {
+    out.voices = [{}]; // normalizeVoice fills in the defaults / 기본 보이스
+    delete out.activeVoiceId;
+    out.versions = [];
+    delete out.snapshots;
+  }
+  if (obj.studioParams && typeof obj.studioParams === 'object' && !Array.isArray(obj.studioParams)) {
+    out.studioParams = Object.fromEntries(Object.entries(obj.studioParams).filter(([k]) => keepSet.has(k)));
+  }
+  if (obj.manager && typeof obj.manager === 'object') {
+    const m = { ...obj.manager };
+    m.instances = (Array.isArray(m.instances) ? m.instances : []).filter((i) => i && keepSet.has(i.studio));
+    if (m.focus && typeof m.focus === 'object') m.focus = Object.fromEntries(Object.entries(m.focus).filter(([k]) => keepSet.has(k)));
+    out.manager = m;
+  }
+  const cur = obj.prefs?.studio;
+  if (!keepSet.has(cur)) {
+    const first = keep[0];
+    out.prefs = { ...(obj.prefs || {}), studio: first || 'glissando' };
+  }
+  return out;
+}
+
+/**
+ * Short preview line for one studio of a project object, e.g. "3 voices" or "2 instances".
+ * 프로젝트의 한 스튜디오 내용 요약 (미리보기용)
+ * @returns {{ count: number, kind: 'voices'|'instances', names: string[] }}
+ */
+export function summarizeProjectStudio(obj, studio) {
+  const inst = (Array.isArray(obj?.manager?.instances) ? obj.manager.instances : []).filter((i) => i && i.studio === studio);
+  const names = inst.map((i) => String(i.name || studio)).slice(0, 4);
+  if (studio === 'glissando' && Array.isArray(obj?.voices)) return { count: obj.voices.length, kind: 'voices', names };
+  return { count: inst.length || (obj?.studioParams?.[studio] ? 1 : 0), kind: 'instances', names };
+}
+
+/**
+ * Current project with the chosen studios replaced by their versions from `prev` (the other studios
+ * stay as they are now). Used to go back to earlier work studio by studio.
+ * 선택한 스튜디오만 이전 작업으로 바꾼 프로젝트 (나머지는 현재 그대로)
+ * @param {object} cur  serializeProject() of the current work
+ * @param {object} prev serializeProject() of the earlier work
+ * @param {string[]} keep studio ids taken from prev
+ */
+export function mergeProjectStudios(cur, prev, keep) {
+  const keepSet = new Set(keep);
+  const out = { ...cur };
+  if (keepSet.has('glissando')) {
+    out.voices = prev.voices;
+    out.activeVoiceId = prev.activeVoiceId;
+    out.versions = prev.versions || [];
+  }
+  const sp = { ...(cur.studioParams || {}) };
+  for (const k of keepSet) {
+    if (prev.studioParams && k in prev.studioParams) sp[k] = prev.studioParams[k];
+    else delete sp[k];
+  }
+  out.studioParams = sp;
+  const pm = prev.manager || {};
+  const cm = cur.manager || {};
+  const prevInst = (Array.isArray(pm.instances) ? pm.instances : []).filter((i) => i && keepSet.has(i.studio));
+  const prevIds = new Set(prevInst.map((i) => i.id));
+  const rest = (Array.isArray(cm.instances) ? cm.instances : []).filter((i) => i && !keepSet.has(i.studio) && !prevIds.has(i.id));
+  const focus = { ...(cm.focus || {}) };
+  for (const k of keepSet) { if (pm.focus && pm.focus[k]) focus[k] = pm.focus[k]; else delete focus[k]; }
+  out.manager = { ...cm, instances: [...rest, ...prevInst], focus };
+  return out;
 }
 
 /** Saved instance document; Glissando voices are normalized like top-level voices. / 인스턴스 문서 정규화 */
@@ -1656,6 +1946,26 @@ registerSelfCheck('Selection, group apply, delete guard', (a) => {
     updateVoices((v) => { v.muted = true; });
     a.ok([v1, v2, v3].every((id) => getVoiceById(id).muted), 'group on → all selected');
     a.equal(getAudibleVoices().length, 0);
+    // Group edit modes: ratio / offset keep the voices different / 그룹 편집 방식
+    getVoiceById(v1).duration = 4; getVoiceById(v2).duration = 1; getVoiceById(v3).duration = 2;
+    appState.groupEditMode = 'offset';
+    updateVoices({ duration: 2.5 }, { coalesceKey: 'g' });
+    updateVoices({ duration: 3 }, { coalesceKey: 'g' });
+    a.equal([v1, v2, v3].map((id) => getVoiceById(id).duration).join(), '5,2,3', 'offset: same amount, measured from the gesture start');
+    updateVoices({ duration: 2 }, { coalesceKey: 'g' });
+    a.equal([v1, v2, v3].map((id) => getVoiceById(id).duration).join(), '4,1,2', 'back to the start restores every voice');
+    endHistoryGesture();
+    appState.groupEditMode = 'ratio';
+    updateVoices({ duration: 3 });
+    a.equal([v1, v2, v3].map((id) => getVoiceById(id).duration).join(), '6,1.5,3', 'ratio: same factor');
+    setVoicePitch(getVoiceById(v1), 'f0', { midi: 60 });
+    updateVoices((v) => { setVoicePitch(v, 'f0', { midi: 50 }); v.audioTarget = 'vel'; });
+    a.near(getVoiceMidi(getVoiceById(v1), 'f0'), 62, 1e-3, 'pitch moves by the same interval');
+    a.equal(getVoiceById(v1).audioTarget, 'vel', 'non-numeric settings are synced');
+    appState.groupEditMode = 'sync';
+    selectVoice(v1, { keep: true });
+    a.ok(appState.activeVoiceId === v1 && appState.selectedVoiceIds.length === 3, 'keep: active changes, selection stays');
+    selectVoice(v3, { keep: true });
     a.equal(deleteVoices([v1, v2, v3]).result, false, 'cannot delete all');
     deleteVoices([v2]);
     a.equal(appState.voices.length, 2);

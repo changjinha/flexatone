@@ -1,14 +1,15 @@
 /**
  * Flexatone — audio/studio-clips.js
  * Layer 3 (audio): Manager adapters for the studios that are played as rendered clips but have no
- * Manager-specific path of their own (Draw, Chaos, Cloud, Tempo, Space, Fractal, Wave).
+ * Manager-specific path of their own (Draw, Chaos, Cloud, Tempo, Space, Fractal, Wave, Grid).
  * Glissando / Field / Risset keep their dedicated paths in manager-mixer.js.
  * 계층 3 (audio): 전용 경로가 없는 스튜디오(드로잉·카오스·클라우드·템포·스페이스·프랙탈·웨이브)를
  * 매니저에서 렌더된 클립으로 재생하기 위한 어댑터.
  *
  * Each adapter: resolve(doc) → full params, length(params) → seconds, render(params, sr) → AudioBuffer.
  * Optional capabilities (a studio opts in; without them the behaviour below applies):
- *   masks: true + render(params, sr, { ampMask }) → Manager shape masks only (tempo stays varispeed)
+ *   masks: true + render(params, sr, { ampMask }) → Manager shape masks only (tempo stays varispeed;
+ *       no studio uses this any more — kept for a future studio that cannot scale its time)
  *   scalesTime: true + render(params, sr, { rate, ampMask }) → pitch-preserving tempo (the doc part of
  *       the channel rate is rendered, only the tape part is varispeed) and Manager shape masks
  *   key(params) → string the rendered sound depends on (view-only edits do not re-render)
@@ -18,12 +19,13 @@
  * swapping it in for the duration of the (synchronous) getter call.
  * 스튜디오 getter는 appState.studioParams를 읽으므로, 인스턴스 문서는 동기 호출 동안만 잠시 교체해 해석.
  *
- * Tempo Manager: these studios have no pitch-preserving time scaling, so the whole channel rate
- * (master × instance) is applied as varispeed (AudioBufferSourceNode.playbackRate).
- * 템포 매니저: 음고 유지 재스케일이 없으므로 전체 배속을 varispeed(playbackRate)로 적용.
+ * Tempo Manager: every studio renders the document part of the channel rate itself (pitch kept);
+ * only the Tape part is varispeed (AudioBufferSourceNode.playbackRate). A studio without
+ * scalesTime would fall back to whole-rate varispeed.
+ * 템포 매니저: 모든 스튜디오가 문서 배속을 직접 렌더 (음고 유지), 테이프 부분만 varispeed.
  */
 
-import { appState } from '../core/state.js';
+import { appState, registerSelfCheck } from '../core/state.js';
 import { freqToMidi } from '../core/units.js';
 import { getDrawParams } from '../studios/draw-studio.js';
 import { piecePitchAt } from '../studios/draw/draw-engine.js';
@@ -39,7 +41,7 @@ import { renderCloudBuffer } from '../studios/cloud/cloud-audio.js';
 import { getTempoParams } from '../studios/tempo-studio.js';
 import { getTempoTimeline, renderTempoBuffer } from '../studios/tempo/tempo-audio.js';
 import { getSpaceParams } from '../studios/space-studio.js';
-import { getSpaceTimeline, renderSpaceBuffer } from '../studios/space/space-audio.js';
+import { getSpaceTimeline, renderSpaceBuffer, spaceRenderKey } from '../studios/space/space-audio.js';
 import { getFractalParams, getFractalBake } from '../studios/fractal-studio.js';
 import { renderFractalBuffer } from '../studios/fractal/fractal-audio.js';
 import { getWaveParams, waveMasterLines } from '../studios/wave-studio.js';
@@ -131,43 +133,46 @@ const ADAPTERS = {
   draw: {
     get: getDrawParams,
     length: (p) => getDrawTimeline(p).endSec,
-    render: (p, sampleRate, o = {}) => renderDrawBuffer({ params: p, sampleRate, outputStage: false, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
-    masks: true,
+    scalesTime: true, // pitch-preserving tempo / 음고 유지 템포
+    render: (p, sampleRate, o = {}) => renderDrawBuffer({ params: p, sampleRate, outputStage: false, timeScale: o.rate || 1, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
     lines: drawLines,
   },
   chaos: {
     get: getChaosParams,
     length: (p) => getChaosBake(p).A.duration,
-    render: (p, sampleRate, o = {}) => renderChaosBuffer({ doc: p, sampleRate, outputStage: false, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
-    masks: true,
+    scalesTime: true, // pitch-preserving tempo / 음고 유지 템포
+    render: (p, sampleRate, o = {}) => renderChaosBuffer({ doc: p, sampleRate, outputStage: false, timeScale: o.rate || 1, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
     lines: chaosLines,
   },
   cloud: {
     get: getCloudParams,
     length: (p) => p.length,
-    render: (p, sampleRate, o = {}) => renderCloudBuffer({ params: p, sampleRate, outputStage: false, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
-    masks: true,
+    scalesTime: true, // pitch-preserving tempo / 음고 유지 템포
+    render: (p, sampleRate, o = {}) => renderCloudBuffer({ params: p, sampleRate, outputStage: false, timeScale: o.rate || 1, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
     lines: cloudLines,
   },
   tempo: {
     get: getTempoParams,
     length: (p) => getTempoTimeline(p).endSec,
-    render: (p, sampleRate, o = {}) => renderTempoBuffer({ doc: p, sampleRate, outputStage: false, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
-    masks: true,
+    scalesTime: true, // pitch-preserving tempo / 음고 유지 템포
+    render: (p, sampleRate, o = {}) => renderTempoBuffer({ doc: p, sampleRate, outputStage: false, timeScale: o.rate || 1, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
     lines: tempoLines,
   },
   space: {
     get: getSpaceParams,
     length: (p) => getSpaceTimeline(p).endSec,
-    render: (p, sampleRate, o = {}) => renderSpaceBuffer({ params: p, sampleRate, outputStage: false, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
-    masks: true,
+    scalesTime: true, // pitch-preserving tempo (an imported sound keeps its own speed) / 음고 유지 템포 (가져온 소리는 자기 속도)
+    render: (p, sampleRate, o = {}) => renderSpaceBuffer({ params: p, sampleRate, outputStage: false, timeScale: o.rate || 1, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null, importChain: o.importChain || [] }),
+    key: (p) => spaceRenderKey(p), // physics + sound + the sounds it imports (view edits do not re-render) / 뷰 편집은 재렌더하지 않음
     lines: spaceLines,
   },
   fractal: {
     get: getFractalParams,
     length: (p) => getFractalBake(p).endSec,
-    render: (p, sampleRate, o = {}) => renderFractalBuffer({ params: p, sampleRate, outputStage: false, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
-    masks: true,
+    // Pitch-preserving tempo: the bake is read faster / slower (fractal-engine retimeFractalBake).
+    // 음고 유지 템포: 베이크를 빠르게/느리게 읽음
+    scalesTime: true,
+    render: (p, sampleRate, o = {}) => renderFractalBuffer({ params: p, sampleRate, outputStage: false, timeScale: o.rate || 1, ampMask: o.ampMask || null, pitchWarp: o.pitchWarp || null, brightWarp: o.brightWarp || null }),
     lines: fractalLines,
   },
   // Wave opts into the optional capabilities below: its baked field can be read at any speed
@@ -251,9 +256,10 @@ export async function renderClipStudio(studio, params, sampleRate, opts = {}) {
       ampMask: !mask ? null : v === 1 ? mask : (sec, hz) => mask(sec / v, hz * v),
       pitchWarp: !warp ? null : v === 1 ? warp : (sec, hz) => warp(sec / v, hz * v) / v,
       brightWarp: !bright ? null : v === 1 ? bright : (sec, hz) => bright(sec / v, hz * v),
+      importChain: opts.importChain,
     });
   }
-  return a.render(params, sampleRate, {});
+  return a.render(params, sampleRate, { importChain: opts.importChain });
 }
 
 /** True when the studio renders the pitch-preserving part of the tempo itself. / 음고 유지 템포를 직접 렌더하는가 */
@@ -284,3 +290,37 @@ export function clipStudioLines(studio, params) {
     return null;
   }
 }
+
+/** Zero crossings per second over the samples that sound (a pitch proxy). / 발음 구간의 초당 영교차 (음고 지표) */
+function crossingRate(buf) {
+  const d = buf.getChannelData(0);
+  let peak = 0;
+  for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+  const floor = peak * 0.02;
+  let zc = 0;
+  let live = 0;
+  for (let i = 1; i < d.length; i++) {
+    if (Math.abs(d[i]) < floor && Math.abs(d[i - 1]) < floor) continue;
+    live++;
+    if ((d[i - 1] < 0) !== (d[i] < 0)) zc++;
+  }
+  return live ? (zc * buf.sampleRate) / live : 0;
+}
+
+registerSelfCheck('Clip studios: tempo ×2 halves the clip at the same pitch (Draw, Chaos, Cloud, Tempo, Space)', async (a) => {
+  const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+  if (!Offline) { a.ok(true, 'OfflineAudioContext unavailable — skipped'); return; }
+  const fs = 22050;
+  for (const studio of ['draw', 'chaos', 'cloud', 'tempo', 'space']) {
+    a.ok(clipStudioScalesTime(studio), `${studio}: renders the tempo itself`);
+    const params = resolveClipParams(studio, null);
+    const one = await renderClipStudio(studio, params, fs, { rate: 1 });
+    if (!one) { a.ok(true, `${studio}: no sound in the current document — skipped`); continue; }
+    const two = await renderClipStudio(studio, params, fs, { rate: 2 });
+    const len = (b) => b.length / fs;
+    a.ok(two && len(two) < 0.6 * len(one) + 0.1, `${studio}: ×2 is about half as long (${len(one).toFixed(2)} → ${len(two).toFixed(2)} s)`);
+    const z1 = crossingRate(one);
+    const z2 = crossingRate(two);
+    a.ok(z1 > 0 && z2 / z1 > 0.75 && z2 / z1 < 1.33, `${studio}: same pitch at ×2 (crossings ${z1.toFixed(0)} → ${z2.toFixed(0)} /s)`);
+  }
+}, { group: 'audio' });

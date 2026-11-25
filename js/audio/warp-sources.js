@@ -150,7 +150,7 @@ function cloudTable(params, warp, duration) {
 
 function waveTable(params, warp, duration) {
   const bake = getWaveBake(params);
-  const mode = warp.mode === 'auto' || !warp.mode ? (bake.eq === 'gs' ? 'energy' : 'disp') : warp.mode;
+  const mode = warp.mode === 'auto' || !warp.mode ? (bake.eq === 'gs' || bake.eq === 'schrod' || bake.eq === 'diffusion' ? 'energy' : 'disp') : warp.mode;
   const arr = mode === 'energy' ? bake.W : bake.U;
   const table = buildGridWarpTable({
     duration, frames: bake.frames, frameRate: bake.rate, N: bake.N, pLo: bake.pLo, dp: bake.dp,

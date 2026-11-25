@@ -19,6 +19,8 @@
  * 실시간: 정렬된 t0 배열을 커서로 훑는 룩어헤드 창 (틱당 창 안의 이벤트만 처리).
  */
 
+import { applyAdsrToCurve } from '../../core/adsr.js';
+import { timbreSpecAdsr } from '../../modules/timbre-spec.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -30,6 +32,7 @@ import { encodeWav, triggerDownload, measurePeak, EXPORT_SAMPLE_RATE, createBrig
 import { createLiveTransport } from '../../audio/live-transport.js';
 import { lowerBound, envelopeAt } from './cloud-engine.js';
 import { getCloudParams, getCloudEvents } from '../cloud-studio.js';
+import { createToneSource } from '../../audio/sample-voice.js'; // the shared voice-source seam (D-1) / 공용 음원 이식점
 
 const LIVE_MASTER = 0.6;
 const OFFLINE_MASTER = 0.6;
@@ -45,9 +48,11 @@ export function buildCloudWave(ctx, timbre) {
 }
 
 /** Fresh scheduling state for one context (pool, counters). / 스케줄 상태 */
-function createPlayer(ctx, master, { ev, params, maxStrips, ampMask = null, pitchWarp = null, brightWarp = null }) {
+function createPlayer(ctx, master, { ev, params, maxStrips, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 }) {
   return {
     ctx, master, ev, params, ampMask, pitchWarp, brightWarp,
+    // Tempo Manager rate (pitch kept): document second s sounds at s / ts / 템포 배속 (음고 유지)
+    ts: Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1,
     wave: buildCloudWave(ctx, params.timbre),
     wKey: timbreKey(params.timbre),
     strips: [],
@@ -75,32 +80,33 @@ function takeStrip(pl, at) {
  * event). Frequencies stay strictly positive for exponentialRamp. / 이벤트 하나 스케줄
  */
 function playEvent(pl, i, at, offset = 0) {
-  const { ev, ctx } = pl;
+  const { ev, ctx, ts } = pl;
   const dur = ev.dur[i];
-  const rem = dur - offset;
+  const docRem = dur - offset;
+  const rem = docRem / ts; // real seconds / 실제 초
   if (rem < 0.01) return false;
   const strip = takeStrip(pl, at);
   if (!strip) { pl.stats.skipped++; return false; }
   const u0 = offset / dur;
   const hzLin = (u) => midiToFreq(ev.p0[i] + (ev.p1[i] - ev.p0[i]) * u);
   // Manager Warp: the grain glide follows the bent space (then it is a curve) / 매니저 곡률: 그레인 글리산도가 휜 공간을 따름
-  const hzAt = pl.pitchWarp ? (u) => clamp(pl.pitchWarp(ev.t0[i] + u * dur, hzLin(u)), 20, 18000) : (u) => clamp(hzLin(u), 20, 18000);
+  const hzAt = pl.pitchWarp ? (u) => clamp(pl.pitchWarp((ev.t0[i] + u * dur) / ts, hzLin(u)), 20, 18000) : (u) => clamp(hzLin(u), 20, 18000);
   const n = clamp(Math.ceil(rem * 200), 16, 256);
   let curve = new Float32Array(n);
   const amp = ev.gain[i];
   for (let k = 0; k < n; k++) curve[k] = amp * envelopeAt(ev.envelope, u0 + ((1 - u0) * k) / (n - 1), dur, ev.attack);
   if (pl.ampMask) {
-    // Manager shape mask (document sec, Hz) / 매니저 모양 마스크
-    for (let k = 0; k < n; k++) { const u = u0 + ((1 - u0) * k) / (n - 1); curve[k] *= pl.ampMask(ev.t0[i] + u * dur, hzAt(u)); }
+    // Manager shape mask (real sec, Hz) / 매니저 모양 마스크 (실제 시간)
+    for (let k = 0; k < n; k++) { const u = u0 + ((1 - u0) * k) / (n - 1); curve[k] *= pl.ampMask((ev.t0[i] + u * dur) / ts, hzAt(u)); }
   }
   // Per-voice (per-grain) tremolo / vibrato (core/voice-mod.js), on grain time / 그레인별 트레몰로·비브라토
   const vm = createVoiceModEvaluator(pl.params.voiceMod, i, ev.p0[i]);
-  curve = voiceModGainCurve(vm, curve, offset, rem);
+  applyAdsrToCurve(timbreSpecAdsr(pl.params.timbre), curve, offset, docRem, dur); // timbre ADSR per grain / 그레인별 음색 ADSR
+  curve = voiceModGainCurve(vm, curve, offset, docRem); // grain time (document), like Fractal / 그레인 시간 (문서)
   curve[curve.length - 1] = 0;
   if (offset > 0) curve[0] = 0; // join mid-event without a click / 중간 진입도 0에서 시작
-  const osc = ctx.createOscillator();
-  osc.setPeriodicWave(pl.wave);
-  const vib = voiceModCentsCurve(vm, new Float32Array(2), offset, rem);
+  const osc = createToneSource(ctx, { wave: pl.wave });
+  const vib = voiceModCentsCurve(vm, new Float32Array(2), offset, docRem);
   if (vib.length > 2) osc.detune.setValueCurveAtTime(vib, at, rem);
   if (pl.pitchWarp) {
     const fc = new Float32Array(n);
@@ -116,7 +122,7 @@ function playEvent(pl, i, at, offset = 0) {
   if (pl.brightWarp) { // Manager Warp brightness / 매니저 곡률 밝기
     const fq = new Float32Array(n);
     for (let k = 0; k < n; k++) fq[k] = hzAt(u0 + ((1 - u0) * k) / (n - 1));
-    const sh = createBrightShelf(ctx, fq, (k) => ev.t0[i] + (u0 + ((1 - u0) * k) / (n - 1)) * dur, pl.brightWarp, at, rem);
+    const sh = createBrightShelf(ctx, fq, (k) => (ev.t0[i] + (u0 + ((1 - u0) * k) / (n - 1)) * dur) / ts, pl.brightWarp, at, rem);
     osc.connect(sh).connect(strip.gain);
     osc.onended = () => { try { sh.disconnect(); } catch { /* ignore */ } };
   } else osc.connect(strip.gain);
@@ -177,7 +183,7 @@ const transport = createLiveTransport({
   masterGain: ({ ev }) => LIVE_MASTER * ev.levelScale,
   output: (ctx) => studioLiveOutput(ctx, 'cloud', () => getCloudParams().tremolo, getOutputBus(ctx)), // → studio output tremolo → bus / 스튜디오 출력 트레몰로 경유
   schedule: (ctx, master, { params, ev }, { when, fromSec }) => {
-    const pl = createPlayer(ctx, master, { ev, params, maxStrips: params.maxPolyphony + 8 });
+    const pl = createPlayer(ctx, master, { ev, params, maxStrips: Math.max(params.maxPolyphony, ev.polyCap || 0) + 8 });
     return { pl, cursor: scheduleOngoing(pl, fromSec, when), horizonSec: fromSec, dynamicNodes: () => [...pl.oscs, ...pl.strips.flatMap((s) => [s.gain, s.pan])] };
   },
   onPass: (pass) => {
@@ -237,7 +243,7 @@ export function syncCloudLive(ev, params) {
     } catch { /* ignore */ }
   }
   pl.params = params;
-  pl.maxStrips = params.maxPolyphony + 8;
+  pl.maxStrips = Math.max(params.maxPolyphony, ev.polyCap || 0) + 8;
   const k = timbreKey(params.timbre);
   if (k !== pl.wKey) { pl.wave = buildCloudWave(pl.ctx, params.timbre); pl.wKey = k; }
   live.endSec = params.length;
@@ -264,19 +270,20 @@ function setProgress(active, frac) {
  * 2-second chunks at ctx.suspend() points (bounded node count + progress callbacks).
  * 동일한 스케줄러로 오프라인 렌더링 (2초 단위 suspend로 노드 수 제한 + 진행률).
  */
-export async function renderCloudBuffer({ params = getCloudParams(), sampleRate = EXPORT_SAMPLE_RATE, outputStage = true, onProgress = null, ampMask = null, pitchWarp = null, brightWarp = null } = {}) {
+export async function renderCloudBuffer({ params = getCloudParams(), sampleRate = EXPORT_SAMPLE_RATE, outputStage = true, onProgress = null, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 } = {}) {
   const ev = getCloudEvents(params);
   if (!ev.n) return null;
-  const T = params.length + 0.1;
+  const ts = Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1; // Tempo Manager rate (pitch kept) / 템포 배속 (음고 유지)
+  const T = params.length / ts + 0.1;
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
   const ctx = new Offline(2, Math.ceil(T * sampleRate), sampleRate);
   const master = ctx.createGain();
   master.gain.value = OFFLINE_MASTER * ev.levelScale;
   connectStudioOutput(ctx, master, outputStage ? createOfflineOutput(ctx) : ctx.destination, params.tremolo); // same tremolo as live / 실시간과 같은 트레몰로
-  const pl = createPlayer(ctx, master, { ev, params, maxStrips: params.maxPolyphony + 8, ampMask, pitchWarp, brightWarp });
+  const pl = createPlayer(ctx, master, { ev, params, maxStrips: Math.max(params.maxPolyphony, ev.polyCap || 0) + 8, ampMask, pitchWarp, brightWarp, timeScale: ts });
   let cursor = 0;
-  const feed = (untilSec) => {
-    while (cursor < ev.n && ev.t0[cursor] < untilSec) { playEvent(pl, cursor, ev.t0[cursor]); cursor++; }
+  const feed = (untilSec) => { // untilSec in real time / 실제 시간
+    while (cursor < ev.n && ev.t0[cursor] / ts < untilSec) { playEvent(pl, cursor, ev.t0[cursor] / ts); cursor++; }
   };
   feed(OFFLINE_CHUNK_SEC + 0.25);
   const canSuspend = typeof ctx.suspend === 'function';

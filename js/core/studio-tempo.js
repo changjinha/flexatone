@@ -93,8 +93,8 @@ registerSelfCheck('Studio tempo: own × Manager, length lock solves the heard le
     a.near(12 / r.rate, 4, 1e-9, 'length lock: 12 s plays in 4 s including the Manager levels');
     setStudioTempo('draw', { mode: 'rate', tape: true, rate: 2, follow: false });
     const t = studioRates('draw');
-    a.near(t.tape, 2, 1e-9, 'tape part');
-    a.near(t.doc, 1, 1e-9, 'no pitch-preserving part left');
+    a.near(t.tape, 1, 1e-9, 'tape is retired: pitch kept');
+    a.near(t.doc, 2, 1e-9, 'the whole rate is pitch-preserving');
     a.equal(getStudioTempo('glissando').follow, true, 'default follows');
     a.near(studioRates('glissando').rate, 2, 1e-9, 'a following studio without a focused track hears the master');
     appState.manager.tempo = { mode: 'rate', rate: 1 };

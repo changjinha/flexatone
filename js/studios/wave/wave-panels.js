@@ -26,7 +26,7 @@ import { createTimbreEditor } from '../../ui/timbre-editor.js';
 import { HELP_DB } from '../../ui/option-inspector.js';
 import { createSendButton, createReceiveUnavailable } from '../../ui/trajectory-ui.js';
 import {
-  WAVE_EQS, WAVE_BOUNDARIES, WAVE_INIT_KINDS, WAVE_SOURCES, WAVE_COLORS, WAVE_ENGINES, WAVE_NX, WAVE_PRESET_IDS, WAVE_MAX_INIT, WAVE_MAX_DRIVERS, WAVE_MAX_TRACKS, createWaveInit, createWaveDriver, getWaveBakeCount,
+  WAVE_EQS, WAVE_POTENTIALS, harmonicLength, WAVE_BOUNDARIES, WAVE_INIT_KINDS, WAVE_SOURCES, WAVE_COLORS, WAVE_ENGINES, WAVE_NX, WAVE_PRESET_IDS, WAVE_MAX_INIT, WAVE_MAX_DRIVERS, WAVE_MAX_TRACKS, createWaveInit, createWaveDriver, getWaveBakeCount,
 } from './wave-engine.js';
 import { WAVE_ID, getWaveParams, editWave, getWaveBake, getWaveRidges, fitWaveView, applyWavePreset } from '../wave-studio.js';
 import { WAVE_HELP } from './wave-i18n.js';
@@ -198,7 +198,25 @@ export function mountWaveWorkspace(root, hooks) {
 
   function buildEquationRack(p) {
     const gs = p.eq === 'gs';
-    const physics = gs ? [
+    const sub = (grp, k, label, min, max, step, unit, accent) =>
+      slider(`wave.${grp}.${k}`, `wave.${grp}.${k}`, () => num(P()[grp][k]), (val, ck) => editWave((d) => { d[grp][k] = val; }, { coalesceKey: ck }), { min, max, step, unit, accent });
+    const physics = p.eq === 'schrod' ? [
+      el('h3', { class: `${H3} text-fuchsia-300 pt-1`, text: t('wave.qmTitle') }),
+      labelled('wave.qm.V', select('wave.qm.V', WAVE_POTENTIALS.map((v) => [v, t(`wave.qm.V.${v}`)]), () => P().qm.V, (val) => editWave((d) => { d.qm.V = val; })), 'wave.qm.V'),
+      sub('qm', 'D', '', 0.05, 400, 0.05, 'st²/s', 'accent-fuchsia'),
+      sub('qm', 'vmax', '', 0.5, 20, 0.5, 'st/s', 'accent-fuchsia'),
+      p.qm.V === 'harmonic' ? sub('qm', 'omega', '', 0.05, 20, 0.05, 'rad/s', 'accent-fuchsia') : null,
+      p.qm.V === 'harmonic' ? el('div', { class: 'text-[10px] font-mono text-slate-400', dataset: { help: 'wave.qm.omega' }, text: t('wave.qm.ell', harmonicLength(p.qm).toFixed(2)) }) : null,
+      p.qm.V === 'barrier' || p.qm.V === 'curve' ? sub('qm', 'V0', '', 0, 60, 0.05, '1/s', 'accent-fuchsia') : null,
+      p.qm.V === 'barrier' ? sub('qm', 'vx', '', 0, 1, 0.005, '', 'accent-fuchsia') : null,
+      p.qm.V === 'barrier' ? sub('qm', 'vw', '', 0.005, 0.6, 0.005, '', 'accent-fuchsia') : null,
+    ] : p.eq === 'diffusion' ? [
+      el('h3', { class: `${H3} text-cyan-300 pt-1`, text: t('wave.difTitle') }),
+      sub('dif', 'nu', '', 0.05, 400, 0.05, 'st²/s', 'accent-cyan'),
+      sub('dif', 'wallHz', '', 0.05, 20, 0.05, 'Hz', 'accent-cyan'),
+      sub('dif', 'wallAmp', '', 0, 1, 0.01, '', 'accent-cyan'),
+      sub('dif', 'force', '', -0.5, 0.5, 0.001, '1/s', 'accent-cyan'),
+    ] : gs ? [
       el('h3', { class: `${H3} text-rose-300 pt-1`, text: t('wave.gsTitle') }),
       ...[['Du', 'wave.gs.diff', 0.002, 0.2, 0.001], ['Dv', 'wave.gs.diff', 0.002, 0.2, 0.001], ['F', 'wave.gs.F', 0.005, 0.08, 0.0005], ['k', 'wave.gs.k', 0.03, 0.075, 0.0005]].map(([k, help, min, max, step]) =>
         slider(`wave.gs.${k}`, help, () => num(P().gs[k]), (val, ck) => editWave((d) => { d.gs[k] = val; }, { coalesceKey: ck }), { min, max, step, accent: 'accent-rose' })),
@@ -252,7 +270,7 @@ export function mountWaveWorkspace(root, hooks) {
         body.push(sl('x', 'wave.init.x', 0, 1, 0.005));
         if (!(it.kind === 'kink' && p.eq === 'sg')) body.push(sl('width', 'wave.init.width', 0.25, 24, 0.25, 'st'));
         body.push(sl('amp', 'wave.init.amp', -1, 1, 0.01));
-        if (p.eq !== 'gs') body.push(sl('velocity', 'wave.init.velocity', -1, 1, 0.05));
+        if (p.eq !== 'gs' && p.eq !== 'diffusion') body.push(sl('velocity', 'wave.init.velocity', -1, 1, 0.05));
       }
       return el('div', { class: 'flex flex-col gap-1 bg-slate-950 border border-slate-800 rounded-lg p-1.5', dataset: { help: 'wave.init' } }, [
         el('div', { class: 'flex items-center justify-between gap-2 text-[11px]' }, [
@@ -373,7 +391,7 @@ export function mountWaveWorkspace(root, hooks) {
 
   const structureKey = () => {
     const p = P();
-    return [p.eq, p.init.map((it) => it.kind).join(','), p.drivers.length].join('|');
+    return [p.eq, p.qm?.V, p.init.map((it) => it.kind).join(','), p.drivers.length].join('|');
   };
 
   return {

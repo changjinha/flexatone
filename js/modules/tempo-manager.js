@@ -91,15 +91,15 @@ registerSelfCheck('Tempo Manager: config, rate maths, document scaling', (a) => 
   a.near(fp.voices[0].duration, 0.8, 1e-12, 'field duration / 4');
   a.equal(fp.x, 1, 'other params kept');
   a.near(runtimeStepScale(0.025, 3), 0.075, 1e-12, 'risset clock × rate');
-  // Tape mode / 테이프 모드
+  // Tape mode is retired: a stored tape: true keeps pitch / 테이프 모드 폐지: 저장된 tape: true도 음고 유지
   const sp = splitRates({ rate: 0.5, tape: true, glideSec: 2 }, { rate: 2 });
   a.near(sp.rate, 1, 1e-12, 'total rate');
-  a.near(sp.tape, 0.5, 1e-12, 'only the tape level moves pitch');
-  a.near(sp.doc, 2, 1e-12, 'rest is rendered into the document');
-  a.equal(sp.glide, 2, 'glide of the tape level');
+  a.near(sp.tape, 1, 1e-12, 'old tape level no longer moves pitch');
+  a.near(sp.doc, 1, 1e-12, 'all of the rate is rendered into the document');
+  a.equal(sp.glide, 0, 'no glide');
   a.near(tapeSemitones(0.5), -12, 1e-9, '0.5× tape = −1 octave');
   a.near(tapeSemitones(2), 12, 1e-9, '2× tape = +1 octave');
   a.equal(splitRates({ rate: 3 }).tape, 1, 'no tape → pitch kept');
-  a.equal(patchTempo({ rate: 1.5 }, { tape: true }).tape, true, 'patch sets tape');
-  a.equal(normalizeTempoConfig({ tape: 'yes' }).tape, false, 'tape must be boolean true');
+  a.equal(normalizeTempoConfig({ tape: true, glideSec: 3 }).tape, false, 'tape: true loads as pitch kept');
+  a.equal(normalizeTempoConfig({ tape: true, glideSec: 3 }).glideSec, 0, 'glide dropped');
 }, { group: 'studio' });

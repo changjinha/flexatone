@@ -204,8 +204,17 @@ in new code prefer `curveEngine…` / `studioEngine…` / `audioEngine…`.
 
 - A voice may play a region of a sound file instead of the additive wave: Glissando `voice.timbreMode = 'sample'` +
   `voice.timbreSample`; voice-based studios `voice.timbre.mode = 'sample'` + `voice.timbre.sample` (same spec,
-  `modules/sample-source.js`). Tape model: playbackRate = f(t) / root. **Always per voice** — never offered where one timbre
-  serves a whole studio (Cloud, Chaos, Fractal, Wave), never joined into Glissando legato chains.
+  `modules/sample-source.js`). Tape model: playbackRate = speed · f(t) / root. **Always per voice** — never offered where one timbre
+  serves a whole studio (Cloud, Chaos, Fractal, Wave). Glissando chains Sampler voices only with Sampler voices.
+  Each chain carries `chain.reads[k]`: voices with the same read index are one `SampleTone` (one group in
+  `sampleChainCurves`) and the file reads on. A voice continues the read when it has the same `sampleSpecKey` and
+  `appState.sampleJoin` allows it ('pitch' default = end pitches within 0.3 st, 'always', 'restart' = never); otherwise,
+  with Legato Join on, it joins as a fresh read — a new source from `group.readStart`, crossfaded by `chainJoinFades`
+  (equal-power, spanning the region's own fade-in). `sampleReadSecAt(voiceId, sec)` gives the read position for the
+  Sampler monitor's transport playhead (`binding.readPos`, Glissando only).
+  Envelope (`envOn`, `fadeInMs`, `fadeOutMs`, `loopOverlap`) is baked into the region buffer (`renderSampleRegion`), so it is
+  part of `sampleRegionKey`. Timbre Group Apply (`ui/timbre-group-dialog.js`) copies one voice's timbre fields onto the
+  selection.
   `spec.play = 'pitch'` (pitch only): granular shift (`renderGrainShift`) with the read pointer at `speed` × real time;
   the `SampleTone` records `frequency` / `detune` calls and renders when `stop()` gives the end time — so every source must
   call `stop()` after `start()` (open-ended sources pass `{ tape: true }` to `createToneSource`).
@@ -215,6 +224,20 @@ in new code prefer `curveEngine…` / `studioEngine…` / `audioEngine…`.
   shared timbre editor shows it with `binding.sample: true`).
 - A new voice-based renderer: create its source with `createToneSource(ctx, { sample, wave })` and call `skipSampleRead`
   when it starts inside a voice; code that only knows Mix / ƒ(x) reads `'sample'` as the Mix.
+
+### Monitor
+
+- **Monitor** = the rack that holds a studio's main canvas (the largest canvas on screen), or a rack marked `data-window="1"`
+  (a second view, e.g. the Glissando gain envelope, the Space timeline); `data-window="list"` = a voice list attached under it.
+  UI text and docs say **monitor** (KO **모니터**), never "window" (KO "윈도우"); "window" stays only for real windows / dialogs
+  (Manager window, Send window) and for signal windows (STFT, look-ahead). Code identifiers keep `win` / `data-window`.
+- Shared by every studio in `ui/rack-layout.js`: split-layout column (`fx-win`), corner resize, and the **⛶ full-screen button**
+  at the lower-right (`fx-mon-full`). Full screen uses the Fullscreen API on the monitor rack, falling back to a viewport overlay
+  (`fx-mon-fs-css`) when the API is refused or does not answer within 0.5 s; the element that sets the canvas height (a fixed
+  `h-[…]` canvas, else its host) grows to the screen, and its inline sizes are restored on leave (Esc or ⛶).
+  A double-click on a free part of a monitor toggles it too (`onMonitorDbl`): never on or over a canvas (its double-click
+  sets the cue / paints), a control, the fold title row, grip or resize handle, or an event already `preventDefault`-ed;
+  `data-no-fs` opts an element out.
 
 ### Screenshot & Version
 

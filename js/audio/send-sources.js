@@ -17,6 +17,9 @@
 
 import { appState } from '../core/state.js';
 import { registerTrajectorySource } from '../studios/trajectory-link.js';
+import '../studios/projections.js'; // own projections (Risset phase space) / 자체 투영
+import './clip-projections.js'; // clip studios' projections / 클립 스튜디오 투영
+import './projection-parity.js'; // projection ↔ audio self-checks
 import { clipStudioLines, resolveClipParams } from './studio-clips.js';
 import { lookupBakedSample } from '../studios/field/field-audio.js';
 import { getBakedMap, isParticleAudible, getFieldParams } from '../studios/field-studio.js';

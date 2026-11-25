@@ -19,6 +19,13 @@ import { getInstance, listInstances, channelRates } from '../core/manager-state.
 import { MOD_TARGETS, MEAN_KEY, usesSound, followEnvelope, dbToUnit, findPeaks, findCrossings, pulseTrain, frameAt } from '../core/mod-config.js';
 import { listModStatuses } from '../core/manager-mods.js';
 import { listSourceLines } from '../studios/trajectory-link.js';
+import { spaceSignalLines, applySpaceDocMods } from './space-mod.js';
+import { getInstanceDoc } from '../core/manager-state.js';
+import { resolveClipParams } from './studio-clips.js';
+import { bakeSpace } from '../studios/space/space-engine.js';
+import { isSourceAudible } from '../studios/space/space-doc.js';
+import { compileLane, normalizeLane } from '../studios/space/space-lanes.js';
+import { t } from '../core/i18n.js';
 import './send-sources.js'; // registers the line sources of every studio / 스튜디오별 선 등록
 
 const ENV_SR = 22050;
@@ -78,7 +85,17 @@ function eventTimes(pl, docTimes) {
 /** Lines a track offers (its studio's send lines, plus 'mean'). / 트랙이 내놓는 선 */
 export function modLinesOf(inst) {
   if (!inst || inst.studio === 'risset') return [];
-  return listSourceLines(inst.studio, inst.id);
+  const lines = listSourceLines(inst.studio, inst.id);
+  if (inst.studio !== 'space') return lines;
+  // Space: distance, radial speed, direction, Doppler shift and the approach gate of every source (space-mod.js)
+  // 스페이스: 음원마다 거리·시선 속도·방향·도플러 편이·접근 게이트
+  try {
+    const p = resolveClipParams('space', getInstanceDoc(inst));
+    return [...lines, ...spaceSignalLines(p.sources.filter((s) => isSourceAudible(s, p)), bakeSpace(p), (k) => t(`space.sig.${k}`))];
+  } catch (err) {
+    console.error('[Flexatone] space signals failed:', err);
+    return lines;
+  }
 }
 
 function pickLine(inst, key) {
@@ -333,6 +350,11 @@ const CLOUD_RANGE = { density: [0.2, 200], width: [0, 48], collapse: [0, 1], cen
  */
 export function applyDocMods(inst, params, start, rate, evalCurve) {
   const m = modOfTrack(inst);
+  if (m?.doc && inst.studio === 'space' && params) {
+    // a Space lane at x ∈ 0…1 of its range / 스페이스 레인의 x ∈ 0…1 값
+    const laneAt = (lane, kind, x) => compileLane(kind === 'yaw' ? { ...lane, dom: null } : normalizeLane(kind, { ...lane, dom: null }), [0, 1])(x);
+    return applySpaceDocMods(m.doc, params, start, rate, laneAt);
+  }
   if (!m?.doc || inst.studio !== 'cloud' || !params || !evalCurve) return params;
   const out = { ...params, pitch: { ...params.pitch }, glide: { ...params.glide } };
   const L = Math.max(0.05, Number(params.length) || 1);

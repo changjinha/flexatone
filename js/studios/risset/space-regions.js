@@ -30,6 +30,9 @@ const MATCH_DIST = 0.12;
 const SLOT_COOLDOWN = 0.06;
 const DEG = Math.PI / 180;
 
+/** Voice layouts of a region (first = default). / 영역 보이스 배치 */
+export const REGION_LAYOUTS = Object.freeze(['pitch', 'fit', 'window']);
+
 export const REGION_COLORS = Object.freeze(['#34d399', '#f472b6', '#60a5fa', '#fbbf24', '#a78bfa', '#f87171']);
 
 let regionSeq = 0;
@@ -44,6 +47,16 @@ export function createDefaultRegion(patch = {}) {
     hi: 1,
     edge: 0.04,
     gain: 1,
+    // voice layout / 보이스 배치:
+    //   'pitch' (default) = the region is its own field: base MIDI = its bottom, span = its height in semitones;
+    //           the voices and the harmonic grid are laid out in that span (intervals stay in semitones)
+    //   'fit'   = the whole ring squeezed into lo…hi (every offset scaled by the region's share of the span)
+    //   'window'= a window onto the shared ring over the whole range (only the voices passing through sound)
+    //   'pitch'(기본) = 영역 자체가 음장: 기준 MIDI = 아래 끝, 스팬 = 높이(반음); 보이스·화성 격자를 그 스팬에 배치
+    //   'fit' = 전체 고리를 lo…hi에 압축, 'window' = 전체 고리를 보는 창
+    layout: 'pitch',
+    // with 'pitch': the Core's Base MIDI / Span show and edit this region (else they are locked) / 코어 MIDI·스팬 동기화
+    syncCore: true,
     linkRate: true,
     rateHz: 0.03,
     rotOn: false,
@@ -68,6 +81,10 @@ export function sanitizeRegions(raw) {
     if (typeof r.id !== 'string' || !r.id || seen.has(r.id)) r.id = d.id;
     seen.add(r.id);
     r.enabled = r.enabled !== false;
+    r.layout = REGION_LAYOUTS.includes(r.layout) ? r.layout : 'pitch';
+    r.syncCore = r.syncCore !== false;
+    r.solo = r.solo === true; // S / M of the region (risset-core regionAudible) / 영역 솔로·뮤트
+    r.mute = r.mute === true;
     const a = clamp(Number(r.lo), 0, 1);
     const b = clamp(Number(r.hi), 0, 1);
     r.lo = Number.isFinite(a) ? a : 0;
@@ -94,7 +111,7 @@ export function sanitizeRegions(raw) {
 export function isClassicField(regions) {
   if (!regions || regions.length !== 1) return false;
   const r = regions[0];
-  return r.enabled && r.lo <= 0 && r.hi >= 1 && r.linkRate && !r.rotOn && Math.abs(r.gain - 1) < 1e-9;
+  return r.enabled && !r.mute && r.lo <= 0 && r.hi >= 1 && r.linkRate && !r.rotOn && Math.abs(r.gain - 1) < 1e-9;
 }
 
 export const regionCenter = (r) => (r.rotCenterAuto ? 0.5 * (r.lo + r.hi) : r.rotCenter);
@@ -157,6 +174,12 @@ export function screenToSpace(r, angleDeg, tau, s) {
   return { tau: (a * Math.cos(th) + d * Math.sin(th)) * r.timeScaleSec, y: c - a * Math.sin(th) + d * Math.cos(th) };
 }
 
+/** True when the region spreads its voices over itself (layout 'fit', the default). / 영역 안 고른 배치 */
+export const regionFit = (r) => r.layout !== 'window';
+
+/** Region space coordinate of a normalized voice phase y′ (fit: lo + (hi − lo)·y′). / 정규화 위상 → 영역 공간 */
+export const regionY = (r, y) => (regionFit(r) ? r.lo + (r.hi - r.lo) * y : y);
+
 /**
  * Sounding points of one region on the green line.
  * @param {object} r region
@@ -170,11 +193,14 @@ export function screenToSpace(r, angleDeg, tau, s) {
 export function regionCrossings(r, angleDeg, phiAt, offs, N) {
   const out = [];
   const a = ((angleDeg % 360) + 360) % 360;
+  const fit = regionFit(r);
+  const w = Math.max(1e-6, r.hi - r.lo);
   if (Math.abs(a) < 1e-9 || Math.abs(a - 360) < 1e-9) {
-    // Un-rotated: the voice phase itself / 회전 없음: 보이스 위상 그대로
+    // Un-rotated: the voice phase itself (fit: squeezed into lo…hi, every voice inside) / 회전 없음
     const phi = phiAt(0);
     for (let i = 0; i < N; i++) {
-      const s = (((phi + offs[i]) % 1) + 1) % 1;
+      const u = (((phi + offs[i]) % 1) + 1) % 1;
+      const s = fit ? r.lo + w * u : u;
       if (s >= r.lo && s <= r.hi) out.push({ voice: i, s });
     }
     return out;
@@ -186,7 +212,7 @@ export function regionCrossings(r, angleDeg, phiAt, offs, N) {
     const s = r.lo + ((r.hi - r.lo) * k) / M;
     const { tau, y } = lineToSpace(r, angleDeg, s);
     ss[k] = s;
-    hh[k] = phiAt(tau) - y;
+    hh[k] = phiAt(tau) - (fit ? (y - r.lo) / w : y); // fit: the region's own normalized space / 영역 자체 정규화 공간
   }
   for (let i = 0; i < N; i++) {
     const o = offs[i];

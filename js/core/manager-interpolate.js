@@ -7,6 +7,11 @@
  * 순수 데이터 (클립 길이와 음고 선은 measure로 받음).
  *
  * A = the earlier range [A.t0, A.t1), B = the later one [B.t0, B.t1). The gap is [g0, g1) = [A.t1, B.t0).
+ * Overlapping ranges: the overlap [o0, o1) is what gets filled — from the state just before it (the part of
+ * the earlier range before o0) to the state just after it (the part of the later-ending range after o1).
+ * Mode: 'replace' (default) mutes what the joined tracks had in the filled part; 'add' only layers on top.
+ * 겹치는 구간: 겹친 부분 [o0, o1)을 채움 — 그 직전 상태(먼저 시작한 구간의 앞부분)에서 직후 상태(나중에 끝나는
+ * 구간의 뒷부분)로. 모드: 'replace'(기본) = 채운 부분에서 출처 트랙 뮤트, 'add' = 위에 더하기만.
  * Like Extend (core/manager-extend.js) the tool only ADDS things: new tracks (instance.ext = step id) and
  * one range over the gap (region.ext) that mutes what the source tracks had there. The step is written to
  * manager.extensions, so "Remove last" (removeLastExtension) and Undo restore exactly what was there.
@@ -77,8 +82,21 @@ export function interpGap(ra, rb) {
   if (!ra || !rb || ra.id === rb.id || ra.kind !== 'range' || rb.kind !== 'range') return null;
   const [A, B] = ra.t0 <= rb.t0 ? [ra, rb] : [rb, ra];
   const gap = B.t0 - A.t1;
-  return gap > 1e-6 ? { A, B, g0: A.t1, g1: B.t0, gap } : null;
+  if (gap > 1e-6) return { A, B, g0: A.t1, g1: B.t0, gap };
+  // Overlap: fill [o0, o1) from the part before it to the part after it / 겹침: 겹친 부분을 그 앞→뒤로 채움
+  const o0 = Math.max(A.t0, B.t0);
+  const o1 = Math.min(A.t1, B.t1);
+  const lo = Math.min(A.t0, B.t0);
+  const hi = Math.max(A.t1, B.t1);
+  if (!(o1 - o0 > 1e-6)) return null;
+  // the side windows: what sounds just before / after the overlap (at least MIN_SIDE s, inside the cycle)
+  // 양옆 창: 겹친 부분 바로 앞·뒤 (최소 MIN_SIDE 초)
+  const left = { ...A, t0: Math.min(lo, Math.max(0, o0 - MIN_SIDE)), t1: o0 };
+  const right = { ...B, t0: o1, t1: Math.max(hi, o1 + MIN_SIDE) };
+  if (!(left.t1 - left.t0 > 1e-6)) return null;
+  return { A: left, B: right, g0: o0, g1: o1, gap: o1 - o0, overlap: true, srcA: A, srcB: B };
 }
+const MIN_SIDE = 0.5;
 
 // ==========================================================================
 // Glide: pitch lines / 음고 선 보간
@@ -368,7 +386,7 @@ const PLANNERS = { all: planAll, glide: planGlide, fade: planFade };
  * One undoable step. / 두 구간 사이를 method로 채움 (실행 취소 1단계)
  * @returns {{ ok: boolean, error?: 'method'|'gap'|'empty'|'lines', id?: string, added?: number, joins?: number, from?: number, to?: number }}
  */
-export function interpolateRanges(method, regionA, regionB, measure) {
+export function interpolateRanges(method, regionA, regionB, measure, { mode = 'replace' } = {}) {
   const plan = PLANNERS[method];
   if (!plan) return { ok: false, error: 'method' };
   ensureManager();
@@ -394,7 +412,8 @@ export function interpolateRanges(method, regionA, regionB, measure) {
   // What the joined tracks had inside the gap gives way to the transition / 간격 안에 있던 출처 트랙의 소리는 전환에 자리를 내줌
   const inGap = out.muted.filter((id) => sources.some((s) => s.inst.id === id && s.a < g1 - 1e-3 && s.b > g0 + 1e-3));
   const n = (m.extensions || []).filter(isInterpLog).length + 1;
-  const region = inGap.length ? { id: uid('rg_', 6), kind: 'range', name: `⇝ ${n}`, t0: r3(g0), t1: r3(g1), solo: [], mute: inGap, ext: opId } : null;
+  // 'add': the transition is layered on top, nothing is muted / 'add' = 위에 더하기만, 뮤트 없음
+  const region = inGap.length && mode !== 'add' ? { id: uid('rg_', 6), kind: 'range', name: `⇝ ${n}`, t0: r3(g0), t1: r3(g1), solo: [], mute: inGap, ext: opId } : null;
   dispatch({
     type: 'manager/interpolate',
     history: true,
@@ -431,7 +450,9 @@ registerSelfCheck('Manager interpolate: Hermite glide joins pitch and slope; pai
   a.ok(e && Math.abs(e.m - 64) < 1e-9 && Math.abs(e.slope - 2) < 1e-9, 'edge of a rising line: pitch 64, 2 st / s');
   a.equal(lineEdge([{ t: 0, m: 60 }, { t: 0.9, m: 64 }], { t0: 1, t1: 2 }, 'out'), null, 'a line that ended before the range is not joined');
   a.near(lineEdge([{ t: 0, m: 60 }, { t: 1.5, m: 63 }], { t0: 1, t1: 2 }, 'out').m, 63, 1e-9, 'a line that stops inside the range is read where it stops');
-  a.equal(interpGap({ id: 'a', kind: 'range', t0: 0, t1: 3 }, { id: 'b', kind: 'range', t0: 2, t1: 4 }), null, 'overlapping ranges have no gap');
+  const ov = interpGap({ id: 'a', kind: 'range', t0: 0, t1: 3 }, { id: 'b', kind: 'range', t0: 2, t1: 4 });
+  a.ok(ov && ov.overlap && ov.g0 === 2 && ov.g1 === 3 && ov.A.t1 === 2 && ov.B.t0 === 3 && ov.B.t1 === 4, 'overlapping ranges: the overlap is filled, from the part before it to the part after it');
+  a.equal(interpGap({ id: 'a', kind: 'range', t0: 0, t1: 3 }, { id: 'b', kind: 'range', t0: 3, t1: 4 }), null, 'touching ranges have nothing to fill');
   withIsolatedState(() => {
     appState.manager = createDefaultManagerState();
     ensureManager();

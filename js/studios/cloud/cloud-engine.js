@@ -95,6 +95,9 @@ export function createDefaultCloudParams() {
     maxPolyphony: 128,
     sched: { lookahead: 0.5, interval: 25 },
     view: { tMin: 0, tMax: 30, midiMin: 24, midiMax: 108, curveTab: 'density', histWin: 4 },
+    // multi-module (studios/cloud/cloud-modules.js): [] = the classic single cloud / 다중 모듈 ([] = 단일 구름)
+    modules: [],
+    activeModule: 0,
   };
 }
 
@@ -392,7 +395,7 @@ export function bakeCloudEvents(rawDoc) {
   res.sig = sig;
   bakeCount++;
   cache.set(sig, res);
-  while (cache.size > 6) cache.delete(cache.keys().next().value);
+  while (cache.size > 16) cache.delete(cache.keys().next().value); // room for every module / 모듈마다 하나
   return res;
 }
 

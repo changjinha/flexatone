@@ -20,7 +20,7 @@
 import { midiToFreq } from '../core/units.js';
 import { registerSelfCheck } from '../core/state.js';
 import { addSample, getSample, removeSample, MAX_SAMPLE_SEC } from '../core/sample-library.js';
-import { normalizeSampleSpec, sampleRegionKey, renderSampleRegion, integrateReadSec, regionStartOffset, renderGrainShift } from '../modules/sample-source.js';
+import { normalizeSampleSpec, sampleRegionKey, renderSampleRegion, integrateReadSec, regionStartOffset, renderGrainShift, sampleTapeSpeed } from '../modules/sample-source.js';
 
 /** Rate every imported file is stored at (the app's export rate). / 가져온 파일의 저장 샘플레이트 */
 export const SAMPLE_STORE_RATE = 48000;
@@ -175,6 +175,7 @@ class SampleTone {
     this.rootMidi = spec.root;
     this.pitchOnly = spec.play === 'pitch';
     this.speed = spec.speed;
+    this.tapeSpeed = sampleTapeSpeed(spec); // tape: rate = speed · Hz / root / 테이프 배율
     this.grainSec = spec.grainMs / 1000;
     this.offset = 0;
     this.silent = !region;
@@ -189,7 +190,7 @@ class SampleTone {
         this.node.buffer = region.buffer;
         this.node.loop = region.loop;
       }
-      this.frequency = scaledParam(this.node.playbackRate, 1 / midiToFreq(spec.root));
+      this.frequency = scaledParam(this.node.playbackRate, this.tapeSpeed / midiToFreq(spec.root));
       this.detune = this.node.detune;
     }
   }
@@ -262,7 +263,9 @@ class SampleTone {
 export function createToneSource(ctx, { sample = null, wave = null, tape = false } = {}) {
   if (sample) {
     const s = normalizeSampleSpec(sample);
-    if (tape) s.play = 'tape';
+    // Forced tape (scrub audition) previews the pitch: a pitch-only voice's read speed must not shift it
+    // 강제 테이프(스크럽 미리듣기)는 음높이 미리듣기 — 음높이만 보이스의 읽기 속도가 음높이를 바꾸면 안 됨
+    if (tape) { if (s.play === 'pitch') s.speed = 1; s.play = 'tape'; }
     return new SampleTone(ctx, getSampleRegionBuffer(s), s);
   }
   const osc = ctx.createOscillator();
@@ -272,7 +275,7 @@ export function createToneSource(ctx, { sample = null, wave = null, tape = false
 
 /**
  * When a Sampler voice starts playing in its middle (cue / loop pass), skip what it would already
- * have read: tape ∫ hz(t) / root dt, pitch only speed · elapsed, from the voice start.
+ * have read: tape speed · ∫ hz(t) / root dt, pitch only speed · elapsed, from the voice start.
  * 보이스 중간에서 시작할 때 테이프 재생이 이미 읽었을 만큼 건너뜀. No-op for oscillators.
  * @param {object} tone      value returned by createToneSource
  * @param {(sec: number) => number} hzAt heard frequency at a document second
@@ -282,10 +285,10 @@ export function skipSampleRead(tone, hzAt, voiceStartSec, fromSec) {
   // Pitch only: the pointer moves at `speed` regardless of pitch / 음높이만: 포인터는 음높이와 무관
   if (tone.pitchOnly) { tone.setReadSec(tone.speed * (fromSec - voiceStartSec)); return; }
   const sr = tone.node.context?.sampleRate || SAMPLE_STORE_RATE;
-  tone.setReadSec(integrateReadSec(hzAt, voiceStartSec, fromSec, tone.rootMidi, { blockSec: 128 / sr })); // k-rate playbackRate / k-rate 보정
+  tone.setReadSec(tone.tapeSpeed * integrateReadSec(hzAt, voiceStartSec, fromSec, tone.rootMidi, { blockSec: 128 / sr })); // k-rate playbackRate / k-rate 보정
 }
 
-registerSelfCheck('Sampler audio: region buffer, tape octave up = half the length, pitch-only octave up = same length', async (a) => {
+registerSelfCheck('Sampler audio: region buffer, tape octave up = half the length, pitch-only octave up = same length, tape speed', async (a) => {
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
   if (!Offline || typeof globalThis.AudioBuffer !== 'function') { a.ok(true, 'Web Audio unavailable — skipped'); return; }
   const sr = SAMPLE_STORE_RATE;
@@ -306,6 +309,18 @@ registerSelfCheck('Sampler audio: region buffer, tape octave up = half the lengt
   let last = 0;
   for (let i = 0; i < out.length; i++) if (Math.abs(out[i]) > 1e-4) last = i;
   a.near(last / sr, 0.25, 0.01, `sound ends at ${(last / sr).toFixed(3)} s`);
+  // Tape speed ×2 at the root note: rate 2, and a mid-voice start skips twice as much / 테이프 속도 ×2
+  const fast = createToneSource(new Offline(1, 128, sr), { sample: { ...spec, speed: 2 } });
+  fast.frequency.value = midiToFreq(60);
+  a.near(fast.node.playbackRate.value, 2, 1e-4, 'tape speed ×2 → rate 2');
+  skipSampleRead(fast, () => midiToFreq(60), 0, 0.1);
+  a.near(fast.offset, 0.2, 0.002, `tape speed ×2 skips ${fast.offset.toFixed(3)} s for 0.1 s`);
+  const floor = createToneSource(new Offline(1, 128, sr), { sample: { ...spec, speed: 0 } });
+  floor.frequency.value = midiToFreq(60);
+  a.ok(floor.node.playbackRate.value > 0, 'tape speed 0 keeps a small positive rate');
+  const scrub = createToneSource(new Offline(1, 128, sr), { sample: { ...spec, play: 'pitch', speed: 0.5 }, tape: true });
+  scrub.frequency.value = midiToFreq(60);
+  a.near(scrub.node.playbackRate.value, 1, 1e-4, 'forced tape of a pitch-only voice ignores its read speed');
   const missing = createToneSource(new Offline(1, 128, sr), { sample: { id: 'smp_missing' } });
   a.ok(missing.silent, 'missing file → silent');
   missing.start(0);
@@ -324,4 +339,28 @@ registerSelfCheck('Sampler audio: region buffer, tape octave up = half the lengt
   for (let i = 0; i < out2.length; i++) if (Math.abs(out2[i]) > 1e-3) last2 = i;
   a.near(last2 / sr, 0.5, 0.05, `pitch-only sound ends at ${(last2 / sr).toFixed(3)} s`);
   removeSample(entry.id); // keep the check file out of the user's library / 점검용 파일 제거
+}, { group: 'audio' });
+
+registerSelfCheck('Voice-source seam: createToneSource without a sample = the plain oscillator (bit-identical)', async (a) => {
+  const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+  if (!Offline) { a.ok(true, 'Web Audio unavailable — skipped'); return; }
+  const sr = 24000;
+  const render = async (make) => {
+    const ctx = new Offline(1, sr / 4, sr);
+    const wave = ctx.createPeriodicWave(new Float32Array([0, 0, 0.3, 0]), new Float32Array([0, 1, 0, 0.4]));
+    const osc = make(ctx, wave);
+    osc.frequency.setValueCurveAtTime(new Float32Array([220, 330, 247]), 0, 0.2);
+    osc.detune.setValueAtTime(15, 0.1);
+    osc.connect(ctx.destination);
+    osc.start(0);
+    osc.stop(0.24);
+    return { osc, data: (await ctx.startRendering()).getChannelData(0) };
+  };
+  const ref = await render((ctx, wave) => { const o = ctx.createOscillator(); o.setPeriodicWave(wave); return o; });
+  const got = await render((ctx, wave) => createToneSource(ctx, { wave }));
+  a.ok(typeof OscillatorNode === 'undefined' || got.osc instanceof OscillatorNode, 'no sample → a real OscillatorNode');
+  a.ok(!got.osc.isSample, 'not a sample tone');
+  let maxDiff = 0;
+  for (let i = 0; i < ref.data.length; i++) maxDiff = Math.max(maxDiff, Math.abs(ref.data[i] - got.data[i]));
+  a.ok(maxDiff === 0, `identical render (max diff ${maxDiff})`);
 }, { group: 'audio' });

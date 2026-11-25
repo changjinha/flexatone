@@ -10,6 +10,9 @@
  * 모든 컨트롤에 data-help, 설정 편집은 활성 획 + 선택된 획 모두에 적용.
  */
 
+import { lineLinkControl, createGhostToggle } from '../../ui/line-link.js';
+import { setLineLink } from '../../core/line-clip.js';
+import { GEOMETRY_KEYS } from './draw-engine.js';
 import { clamp, deepClone } from '../../core/math-utils.js';
 import { midiToNoteName } from '../../core/units.js';
 import { t, getLang, I18N } from '../../core/i18n.js';
@@ -29,6 +32,7 @@ import {
   createPresetStrokes, echoCanon, newStrokeId, offsetRaw, pathsToRaw, createStroke, countPieces, getProcessCount, STROKE_COLORS,
 } from './draw-engine.js';
 import { getDrawParams, editDraw, getActiveStroke, getProcessedMap } from '../draw-studio.js';
+import { voiceGainControl } from '../../ui/voice-gain.js';
 import { createDrawCanvases } from './draw-canvases.js';
 import { createLocateButtons } from '../../ui/locate-tool.js';
 import { exportDrawJson, exportDrawWav, auditionStroke } from './draw-audio.js';
@@ -290,6 +294,7 @@ export function mountDrawWorkspace(root, hooks) {
     const toolbar = el('div', { class: 'flex flex-wrap items-center gap-1.5' }, [
       el('div', { class: 'flex gap-0.5 rounded-lg bg-slate-950 border border-slate-800 p-0.5' }, tools),
       ...locateBtns,
+      (() => { const g = createGhostToggle(); syncers.push(g.sync); return g; })(), // ◌ unplayed parts / 재생 안 하는 부분
       el('div', { class: 'w-36' }, [slider('draw.penWidth', 'draw.penWidth', () => num(getDrawParams().drawWidth, 0.7), (val) => setView((d) => { d.drawWidth = val; }), { min: 0, max: 1, step: 0.05, accent: 'accent-pink' })]),
       labelled('draw.gridTime', select('draw.grid', TIME_DIVS.map((v) => [String(v), v ? `${v}s` : t('draw.off')]), () => String(getDrawParams().grid?.timeDiv ?? 0.5), (val) => { editDraw((d) => { d.grid = { ...d.grid, timeDiv: Number(val) }; }, { history: false }); }), 'draw.grid'),
       toggle('draw.gridPitch', 'draw.grid', () => getDrawParams().grid?.pitchDiv !== 'off', () => editDraw((d) => { d.grid = { ...d.grid, pitchDiv: d.grid?.pitchDiv === 'off' ? 'semitone' : 'off' }; }, { history: false })),
@@ -319,10 +324,23 @@ export function mountDrawWorkspace(root, hooks) {
         return b;
       };
       const info = el('span', { class: 'font-mono text-[10px] text-slate-400 truncate' });
+      // 🔗 linked piece + play range (ui/line-link.js) / 링크·재생 구간
+      const linkSlot = el('span', { class: 'inline-flex' });
+      let linkKey = '';
+      syncers.push(() => {
+        const all = getDrawParams().strokes;
+        const x = all.find((y) => y.id === s.id);
+        const k = x ? JSON.stringify([x.link, x.clip, all.filter((y) => y.link?.id && y.link.id === x.link?.id).length]) : '';
+        if (k === linkKey) return;
+        linkKey = k;
+        linkSlot.replaceChildren(...[x && lineLinkControl(x, all, (onL) => { editDraw((d) => setLineLink(d.strokes, s.id, onL, GEOMETRY_KEYS)); commit(); })].filter(Boolean));
+      });
       const row = el('div', { class: 'flex items-center gap-1.5 rounded-lg px-1.5 py-1 border cursor-pointer', dataset: { help: 'draw.strokeList' }, on: { click: (e) => editDraw((d) => { d.activeStrokeId = s.id; d.selectedIds = e.shiftKey ? [...new Set([...(d.selectedIds || []), s.id])] : [s.id]; }, { history: false }) } }, [
         el('span', { class: 'w-2.5 h-2.5 rounded-full shrink-0', style: `background:${s.color}` }),
         el('span', { class: 'text-[11px] text-slate-100 truncate flex-1', text: s.name }),
+        linkSlot,
         info,
+        voiceGainControl({ get: () => getDrawParams().strokes.find((y) => y.id === s.id)?.baseGain ?? 0.8, set: (val, ck) => editDraw((dd) => { const x = dd.strokes.find((y) => y.id === s.id); if (x) x.baseGain = val; }, { coalesceKey: `draw-gain-${s.id}` }), commit, push: (fn) => syncers.push(fn), def: 0.8 }),
         flag('solo', 'S', 'bg-amber-500 text-slate-950 border-amber-400'),
         flag('muted', 'M', 'bg-rose-600 text-white border-rose-500'),
         el('button', { class: 'text-slate-500 hover:text-sky-300 px-1 text-[11px]', text: '⧉', title: t('draw.duplicate'), dataset: { help: 'draw.duplicate' }, on: { click: (e) => { e.stopPropagation(); editDraw((d) => { d.selectedIds = [s.id]; }, { history: false }); duplicateSelected(); } } }),
@@ -339,7 +357,7 @@ export function mountDrawWorkspace(root, hooks) {
       });
       return row;
     });
-    return el('section', { class: SECTION }, [
+    return el('section', { class: SECTION, dataset: { window: 'list', rack: 'draw-strokes' } }, [
       el('div', { class: 'flex items-center justify-between gap-2' }, [
         el('h3', { class: 'text-xs font-bold uppercase tracking-wider text-pink-300', text: t('draw.strokes'), dataset: { help: 'draw.strokeList' } }),
         el('span', { class: 'text-[10px] text-slate-500', text: t('draw.count', params.strokes.length) }),
@@ -431,8 +449,6 @@ export function mountDrawWorkspace(root, hooks) {
     ]);
   }
 
-  // ------------------------------------------------------------------ keyboard tools
-  const isTyping = (tg) => tg?.tagName === 'INPUT' || tg?.tagName === 'TEXTAREA' || tg?.tagName === 'SELECT' || tg?.isContentEditable;
   // ------------------------------------------------------------------ object effects (shared warp stack)
   function buildFxRack() {
     const r = createWarpStackRack({
@@ -468,6 +484,8 @@ export function mountDrawWorkspace(root, hooks) {
     ]);
   }
 
+  // ------------------------------------------------------------------ keyboard tools
+  const isTyping = (tg) => tg?.tagName === 'INPUT' || tg?.tagName === 'TEXTAREA' || tg?.tagName === 'SELECT' || tg?.isContentEditable;
   const KEY_TOOL = { d: 'draw', v: 'select', n: 'node', e: 'erase', l: 'line', w: 'warp' };
   function onKey(e) {
     if (isTyping(e.target) || e.altKey) return;

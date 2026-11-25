@@ -24,6 +24,7 @@ import { el, syncValue, num } from './panels.js';
 import { createDefaultVoice } from '../core/state.js';
 import { setSliderDefault, probeStudioDefault } from './slider-reset.js';
 import { createSampleEditor } from './sample-editor.js';
+import { normalizeAdsr, adsrGainAt, createDefaultAdsr } from '../core/adsr.js';
 
 const ACCENT = { sine: '', tri: 'accent-emerald', saw: 'accent-amber', sqr: 'accent-rose', rich: 'accent-violet' };
 const LABEL = { sine: 'text-sky-300', tri: 'text-emerald-300', saw: 'text-amber-300', sqr: 'text-rose-300', rich: 'text-violet-300' };
@@ -106,7 +107,66 @@ export function createTimbreEditor(binding) {
   ]);
 
   if (sampleEd) sampleEd.root.classList.add('hidden');
-  const root = el('div', { class: 'flex flex-col gap-2 min-w-0' }, [head, mix, func, sampleEd?.root]);
+
+  // ---- ADSR envelope (core/adsr.js), the same block as the Glissando timbre toolbox. `binding.joins`:
+  // the studio has lines that join back to back (else ↻ Restart stays off and says why).
+  // ADSR 엔벨로프 — 글리산도 음색 툴박스와 같은 블록. binding.joins: 이어지는 선이 있는 스튜디오 (없으면 ↻ 꺼짐 + 이유)
+  const adsrEdit = (fn, key) => binding.edit((s) => { s.adsr = normalizeAdsr(s.adsr); fn(s.adsr); }, key ? `${prefix}-${key}` : null);
+  const adsrOn = el('input', { type: 'checkbox', class: 'accent-violet-500 w-3.5 h-3.5', on: { change: (e) => { adsrEdit((a) => { a.on = e.target.checked; }); commit(); } } });
+  const adsrRe = el('input', { type: 'checkbox', class: 'accent-violet-500 w-3.5 h-3.5', on: { change: (e) => { adsrEdit((a) => { a.retrig = e.target.checked; }); commit(); } } });
+  if (!binding.joins) adsrRe.disabled = true;
+  const adsrPic = el('canvas', { class: 'ml-auto w-24 h-6 rounded bg-slate-950 border border-slate-800' });
+  const adsrDef = createDefaultAdsr();
+  const adsrSl = {};
+  const adsrVal = {};
+  const ADSR_RANGE = { a: [2, 0.005], d: [2, 0.005], s: [1, 0.01], r: [3, 0.005] };
+  const adsrGrid = el('div', { class: 'grid grid-cols-4 gap-2' }, ['a', 'd', 's', 'r'].map((k) => {
+    const r = el('input', { type: 'range', min: '0', max: String(ADSR_RANGE[k][0]), step: String(ADSR_RANGE[k][1]), class: 'w-full accent-violet' });
+    setSliderDefault(r, adsrDef[k]);
+    // moving a slider switches the envelope on / 슬라이더를 움직이면 켜짐
+    r.addEventListener('input', () => adsrEdit((a) => { a[k] = Number(r.value); a.on = true; }, `adsr-${k}`));
+    r.addEventListener('change', commit);
+    adsrSl[k] = r;
+    adsrVal[k] = el('span', { class: 'text-[10px] font-mono text-slate-400 tabular-nums', text: '' });
+    return el('label', { class: 'flex flex-col items-center gap-0.5 min-w-0' }, [el('span', { class: 'text-[10px] font-semibold text-slate-300', text: t(`adsr.${k}`) }), r, adsrVal[k]]);
+  }));
+  const adsrReLabel = el('label', { class: `flex items-center gap-1.5 text-[11px] ${binding.joins ? 'text-slate-300 cursor-pointer' : 'text-slate-600 cursor-not-allowed'}`, title: binding.joins ? t('adsr.retrigTip') : t('adsr.noJoins') }, [adsrRe, `↻ ${t('adsr.retrig')}`]);
+  const adsrBox = el('div', { class: 'flex flex-col gap-1.5 border-t border-slate-800 pt-2', dataset: { help: 'gliss.adsr' } }, [
+    el('div', { class: 'flex flex-wrap items-center gap-x-3 gap-y-1' }, [
+      el('label', { class: 'flex items-center gap-1.5 text-[11px] font-semibold text-violet-300 cursor-pointer' }, [adsrOn, t('adsr.title')]),
+      adsrReLabel,
+      adsrPic,
+    ]),
+    adsrGrid,
+  ]);
+  function syncAdsr(s) {
+    const a = normalizeAdsr(s.adsr);
+    adsrOn.checked = a.on;
+    adsrRe.checked = !!binding.joins && a.retrig;
+    adsrGrid.classList.toggle('opacity-40', !a.on);
+    for (const k of ['a', 'd', 's', 'r']) {
+      syncValue(adsrSl[k], a[k]);
+      adsrVal[k].textContent = k === 's' ? a[k].toFixed(2) : `${a[k].toFixed(k === 'a' ? 3 : 2)} s`;
+    }
+    const w = adsrPic.clientWidth;
+    const h = adsrPic.clientHeight;
+    if (!w || !h) return;
+    const dpr = globalThis.devicePixelRatio || 1;
+    if (adsrPic.width !== Math.round(w * dpr)) { adsrPic.width = Math.round(w * dpr); adsrPic.height = Math.round(h * dpr); }
+    const ctx = adsrPic.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = a.on ? '#a78bfa' : '#475569';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    for (let i = 0; i <= w; i++) {
+      const y = h - 2 - (h - 4) * adsrGainAt({ ...a, on: true }, (i / w) * 2, 2);
+      if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
+    }
+    ctx.stroke();
+  }
+
+  const root = el('div', { class: 'flex flex-col gap-2 min-w-0' }, [head, mix, func, sampleEd?.root, adsrBox]);
 
   function drawPreview(s) {
     const w = canvas.clientWidth;
@@ -140,7 +200,11 @@ export function createTimbreEditor(binding) {
   let lastDrawn = '';
   function sync() {
     const s = spec();
-    const mode = timbreSpecMode(s) === 'sample' && !sampleEd ? 'mix' : timbreSpecMode(s);
+    syncAdsr(s);
+    // No tab for a mode this editor cannot edit (Sample without a sample editor; Pulse until ROADMAP D-3) → Mix tab.
+    // 편집할 수 없는 모드(샘플 편집기 없는 샘플, D-3 전의 펄스)는 믹스 탭으로 표시.
+    const raw = timbreSpecMode(s);
+    const mode = (raw === 'sample' && !sampleEd) || raw === 'pulse' ? 'mix' : raw;
     const isFunc = mode === 'func';
     const isSample = mode === 'sample';
     for (const [b, on] of [[btnMix, mode === 'mix'], [btnFunc, isFunc], [btnSample, isSample]]) {

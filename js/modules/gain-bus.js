@@ -26,6 +26,7 @@ import {
   DB_TAPERS,
 } from '../core/units.js';
 import { createDefaultVoice, registerSelfCheck } from '../core/state.js';
+import { clipTnToU, clipFullSpan } from '../core/line-clip.js';
 import { evaluateCurveObjectY, regionWindow, regionRampNorm } from './curve-engine.js';
 
 /** dB span represented by an envelope y∈(0,1] when gainUnit = 'db' (y=1 → 0 dB, y→0 → −60 dB). */
@@ -69,7 +70,9 @@ export function getGainEngineRange(gainObj, samples = 160) {
  * @param {{ range?: {effMin:number, effMax:number} }} [opts] precomputed getGainEngineRange
  */
 export function evaluateVoiceGainAtNormT(v, tNorm, opts = {}) {
-  const tc = clamp(Number.isFinite(tNorm) ? tNorm : 0, 0, 1);
+  // The envelope belongs to the whole curve: a trimmed line plays its part of it (core/line-clip.js)
+  // 엔벨로프는 곡선 전체의 것: 잘린 선은 그 부분을 재생
+  const tc = clamp(v?.clip ? clipTnToU(v, tNorm) : Number.isFinite(tNorm) ? tNorm : 0, 0, 1);
   if (v?.gainMode === 'engine' && v.gainEngineObj) {
     const g = v.gainEngineObj;
     const lo = clamp(Number.isFinite(Number(g.ampMin)) ? Number(g.ampMin) : 0, 0, 1);
@@ -135,7 +138,7 @@ export function evaluateVoiceAmplitudeAtNormT(v, tNorm, opts = {}) {
   const env = evaluateVoiceGainAtNormT(v, tNorm, opts);
   const unit = GAIN_UNITS.includes(v?.gainUnit) ? v.gainUnit : 'amp';
   const amp = clampBaseGain(Number(v?.baseGain)) * envelopeToAmp(env, unit, { ...voiceEnvelopeOpts(v), ...opts });
-  return opts.regions === false ? amp : amp * evaluateRegionAmpFactor(v, tNorm);
+  return opts.regions === false ? amp : amp * evaluateRegionAmpFactor(v, v?.clip ? clamp(clipTnToU(v, tNorm), 0, 1) : tNorm);
 }
 
 /** Shortest amplitude edge fade of a region, even with ramp 'off' (click guard). */
@@ -160,7 +163,7 @@ export function evaluateRegionAmpFactor(v, tNorm) {
   for (const r of regions) {
     if (!r) continue;
     const fadeSec = r.ramp === 'off' ? REGION_MIN_FADE_SEC : Math.max(REGION_MIN_FADE_SEC, Number(r.rampSec) || 0);
-    const rn = regionRampNorm(r, v.duration, fadeSec);
+    const rn = regionRampNorm(r, v.clip ? clipFullSpan(v).dur : v.duration, fadeSec);
     const w = regionWindow(r, tNorm, rn, r.t0 > 1e-6, r.t1 < 1 - 1e-6);
     if (r.solo) {
       anySolo = true;

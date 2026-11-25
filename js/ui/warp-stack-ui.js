@@ -19,6 +19,7 @@ const EN = {
   'warp.add': 'Effect', 'warp.mix': 'Amount', 'warp.on': 'On / off', 'warp.up': 'Earlier', 'warp.down': 'Later', 'warp.dup': 'Duplicate', 'warp.reset': 'Reset', 'warp.del': 'Remove', 'warp.fold': 'Fold / unfold',
   'warp.empty': 'No effect yet.', 'warp.none': 'Nothing selected.', 'warp.max': 'At most {0} effects.',
   'warp.liq.count': '{0} brush strokes', 'warp.liq.undo': 'Remove last', 'warp.liq.reset': 'Clear strokes',
+  'warp.ops.pull': '{0} pulls', 'warp.ops.restore': '{0} restored regions', 'warp.ops.reset': 'Clear all',
   'warp.c.custom': 'p : q', 'warp.c.On': 'On', 'warp.c.Cents': 'Fine', 'warp.c.Gain': 'Gain', 'warp.c.TimeMs': 'Time', 'warp.c.Pan': 'Pan', 'warp.c.hint': 'G = the original; R / B = exact ratios of it.',
   'warp.p.link': 'Link R = 1 / B', 'warp.p.amount': 'Amount', 'warp.p.lockTime': 'Lock time', 'warp.p.cx': 'Centre (time)', 'warp.p.cy': 'Centre (pitch)', 'warp.p.radius': 'Radius (cells)', 'warp.p.strength': 'Strength',
   'warp.p.angle': 'Angle', 'warp.p.ampSemi': 'Depth (pitch)', 'warp.p.periodSec': 'Period (time)', 'warp.p.ampMs': 'Depth (time)', 'warp.p.periodSemi': 'Period (pitch)', 'warp.p.phase': 'Phase',
@@ -31,6 +32,7 @@ const KO = {
   'warp.add': '효과 추가', 'warp.mix': '적용량', 'warp.on': '켜기 / 끄기', 'warp.up': '앞으로', 'warp.down': '뒤로', 'warp.dup': '복제', 'warp.reset': '초기화', 'warp.del': '제거', 'warp.fold': '접기 / 펼치기',
   'warp.empty': '아직 효과가 없습니다.', 'warp.none': '선택된 것이 없습니다.', 'warp.max': '효과는 최대 {0}개입니다.',
   'warp.liq.count': '브러시 스트로크 {0}개', 'warp.liq.undo': '마지막 제거', 'warp.liq.reset': '스트로크 지우기',
+  'warp.ops.pull': '당기기 {0}개', 'warp.ops.restore': '복원 영역 {0}개', 'warp.ops.reset': '모두 지우기',
   'warp.c.custom': 'p : q', 'warp.c.On': '켜기', 'warp.c.Cents': '미세 조정', 'warp.c.Gain': '게인', 'warp.c.TimeMs': '시간', 'warp.c.Pan': '팬', 'warp.c.hint': 'G = 원음, R / B = 원음의 정확한 비율.',
   'warp.p.link': '연결 R = 1 / B', 'warp.p.amount': '세기', 'warp.p.lockTime': '시간 고정', 'warp.p.cx': '중심 (시간)', 'warp.p.cy': '중심 (음고)', 'warp.p.radius': '반지름 (셀)', 'warp.p.strength': '강도',
   'warp.p.angle': '각도', 'warp.p.ampSemi': '깊이 (음고)', 'warp.p.periodSec': '주기 (시간)', 'warp.p.ampMs': '깊이 (시간)', 'warp.p.periodSemi': '주기 (음고)', 'warp.p.phase': '위상',
@@ -49,6 +51,10 @@ Object.assign(HELP_DB, {
   'warp.mix': H(['Amount', 'How far the points move: 0 = not at all, 1 = the full warp.', '', 'q′ = q + mix·(W(q) − q)'], ['적용량', '점이 옮겨지는 정도: 0 = 그대로, 1 = 변형 전체.', '', 'q′ = q + mix·(W(q) − q)']),
   'warp.fx.liquify': H(['Liquify', 'Brush strokes (push, twirl, pinch, bloat, reconstruct) stored and replayed as a displacement.', 'Non-destructive: the strokes are kept, Amount scales them, Lock time moves pitch only.', 'q′ = q + a·D(q),  D = Σ strokes · (1 − (d / R)²)²'],
     ['리퀴파이', '브러시 스트로크(밀기·비틀기·오므리기·부풀리기·복원)를 저장해 변위로 재생합니다.', '비파괴: 스트로크는 그대로 남고, 세기로 전체를 조절하며, 시간 고정은 음고만 움직입니다.', 'q′ = q + a·D(q),  D = Σ strokes · (1 − (d / R)²)²']),
+  'warp.fx.pull': H(['Pull (region)', 'Selected regions of the original space carried by a drag (the Pull tool of the Grid Studio).', 'Move = the region moves rigidly with a soft edge; Elastic = the grabbed point moves fully and the outline stays. The weight is taken where the point was in the original space, so the place of this stage in the stack does not change what is selected.', 'q′ = q + a·w(q₀)·(dx, dy)'],
+    ['당기기 (영역)', '원래 공간에서 선택한 영역을 드래그로 옮깁니다 (그리드 스튜디오의 당기기 도구).', '이동 = 영역이 부드러운 가장자리와 함께 그대로 움직임, 탄성 = 잡은 점이 그대로 따라오고 윤곽은 고정. 가중치는 점이 원래 공간에서 있던 자리로 정하므로, 스택에서의 위치가 선택 대상을 바꾸지 않습니다.', 'q′ = q + a·w(q₀)·(dx, dy)']),
+  'warp.fx.restore': H(['Restore (region)', 'Undoes everything above it inside its regions (of the original space): points go back where they were, copies fade out.', 'Made by “Restore selection”; it is kept at the end of the stack. An effect added below it is not restored.', 'q′ = lerp(q, q₀, w(q₀))'],
+    ['복원 (영역)', '그 영역 안(원래 공간 기준)에서 위의 모든 변형을 되돌립니다: 점은 원래 자리로, 복제본은 사라집니다.', '“선택 영역 원상태로”로 만들어지며 스택 끝에 놓입니다. 그 아래에 추가한 효과는 복원되지 않습니다.', 'q′ = lerp(q, q₀, w(q₀))']),
   'warp.fx.lens': H(['Lens', 'Bulge (+) widens the intervals around a centre, pinch (−) narrows them.', '', 'r′ = r^e, e = 2^(−1.5·s)'], ['렌즈', '볼록(+)은 중심 주변의 음정을 넓히고, 오목(−)은 좁힙니다.', '', 'r′ = r^e, e = 2^(−1.5·s)']),
   'warp.fx.twirl': H(['Twirl', 'Rotates the plane around a centre, most at the centre: time turns into pitch.', 'A strong twirl can turn time back; the line is then cut into forward runs.', 'θ(r) = angle·(1 − r)²'], ['비틀기', '중심 주위로 평면을 회전 (중심에서 가장 크게): 시간이 음고로 돌아갑니다.', '강한 비틀기는 시간을 되돌릴 수 있으며, 그때 선은 전진 구간으로 잘립니다.', 'θ(r) = angle·(1 − r)²']),
   'warp.fx.wave': H(['Wave', 'A sine ripple of the plane: pitch along time (a written vibrato), time along pitch.', '', 'm′ = m + A·sin 2π(t / T + φ),  t′ = t + B·sin 2π(m / P + φ)'], ['물결', '평면의 사인 물결: 시간에 따른 음고(적힌 비브라토), 음고에 따른 시간.', '', 'm′ = m + A·sin 2π(t / T + φ),  t′ = t + B·sin 2π(m / P + φ)']),
@@ -89,7 +95,8 @@ export function createWarpStackRack(o) {
   const stack = () => o.get();
   const item = (id) => (stack() || []).find((it) => it.id === id);
   const editItem = (id, fn, opts) => o.edit((st) => { const it = st.find((q) => q.id === id); if (it) fn(it, st); }, opts);
-  const types = () => (o.types || SpaceWarpRegistry.ids());
+  // warps made by a tool (Pull, Restore) are not offered in the ＋ menu / 도구가 만드는 변형은 ＋ 메뉴에 없음
+  const types = () => (o.types || SpaceWarpRegistry.list().filter((w) => !w.toolOnly).map((w) => w.id));
 
   function control(it, def, q, accent = '') {
     const id = it.id;
@@ -164,6 +171,15 @@ export function createWarpStackRack(o) {
     let body;
     if (it.type === 'chroma') body = chromaBody(it, def);
     else body = [el('div', { class: 'grid grid-cols-2 gap-x-3 gap-y-1 items-end' }, def.params.filter((q) => !q.when || q.when(it.params)).map((q) => control(it, def, q)))];
+    if (it.type === 'pull' || it.type === 'restore') {
+      const countOps = el('span', { class: 'text-[11px] text-slate-400' });
+      syncers.push(() => { countOps.textContent = t(`warp.ops.${it.type}`, item(id)?.params.ops.length || 0); });
+      body.push(el('div', { class: 'flex flex-wrap items-center gap-1.5' }, [
+        countOps,
+        el('button', { class: BTN, text: `↶ ${t('warp.liq.undo')}`, dataset: { help: `warp.fx.${it.type}` }, on: { click: () => { editItem(id, (x) => { x.params.ops.pop(); }); commit(); } } }),
+        el('button', { class: BTN, text: t('warp.ops.reset'), dataset: { help: `warp.fx.${it.type}` }, on: { click: () => { editItem(id, (x) => { x.params.ops = []; }); commit(); } } }),
+      ]));
+    }
     if (it.type === 'liquify') {
       const count2 = el('span', { class: 'text-[11px] text-slate-400' });
       syncers.push(() => { count2.textContent = t('warp.liq.count', item(id)?.params.ops.length || 0); });

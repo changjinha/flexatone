@@ -21,6 +21,9 @@ import { resolveRissetDoc } from '../studios/risset/risset-audio.js';
 import * as mixer from '../audio/manager-mixer.js';
 import { ensureAudioCtx, triggerDownload } from '../audio/audio-engine.js';
 import { drawScene, viewMapDims, masterGeometry, masterCurvedView } from './manager-panel.js';
+import { showVideoProgress, hideVideoProgress } from './studio-video.js';
+import { renderVideoOffline, offlineVideoAvailable, pickSaveTarget, saveBlob } from './video-encode.js';
+import { getProjectFileName } from './file-name-chip.js';
 
 const SIZES = [
   { id: '720p', w: 1280, h: 720 },
@@ -320,20 +323,28 @@ function setBusy(on) {
   dlg.classList.toggle('busy', on);
 }
 
-function status(text, frac = null) {
+let lastFrac = 0;
+/** Status line + progress: bar, whole % and the floating badge (ui/studio-video.js) while a video is made. / 진행률 표시 */
+function status(text, frac = null, { badge = !!job || busyRender } = {}) {
+  if (frac !== null) lastFrac = clamp(frac, 0, 1);
+  const pct = Math.floor(lastFrac * 100);
   const st = dlg?.querySelector('#mgrVidStatus');
-  if (st) st.textContent = text;
+  if (st) st.textContent = badge || frac === 1 ? `${pct}% · ${text}` : text;
   const bar = dlg?.querySelector('#mgrVidBar');
-  if (bar && frac !== null) bar.style.width = `${clamp(frac, 0, 1) * 100}%`;
+  if (bar && frac !== null) bar.style.width = `${lastFrac * 100}%`;
+  if (badge) showVideoProgress({ label: t('mgrVid.title'), frac: lastFrac, text, onStop: job ? () => cancelJob() : null });
 }
+let busyRender = false;
 
 async function record(hooks) {
   const C = mixer.cycleLength();
   if (!(C > 0.05)) { hooks?.showToast?.(t('mgr.nothingToPlay'), 'error'); return; }
+  if (offlineVideoAvailable()) { await recordOffline(hooks, C); return; } // frame-exact render (default) / 프레임 단위 렌더
   const fmt = supportedFormats().find((f) => f.id === opts.format) || supportedFormats()[0];
   const { w: W, h: H } = sizeOf();
   const total = C * opts.cycles;
   setBusy(true);
+  busyRender = true;
   status(t('mgr.exporting'), 0);
   mixer.stopAllManager();
   const actx = await ensureAudioCtx();
@@ -343,7 +354,8 @@ async function record(hooks) {
     if (res.ok) buffer = res.buffer;
     else if (opts.audio) hooks?.showToast?.(t('mgrVid.silent'), 'info');
   }
-  if (!dlg) return; // closed while rendering / 렌더링 중 닫힘
+  busyRender = false;
+  if (!dlg) { hideVideoProgress(); return; } // closed while rendering / 렌더링 중 닫힘
 
   // Video: the dialog preview canvas becomes the recording surface / 미리보기 캔버스 = 녹화 화면
   const canvas = dlg.querySelector('#mgrVidCanvas');
@@ -409,11 +421,12 @@ async function record(hooks) {
   job = null;
   cleanup(j);
   setBusy(false);
-  if (j.cancelled) { status(t('mgrVid.cancelled'), 0); drawPreview(); return; }
+  if (j.cancelled) { status(t('mgrVid.cancelled'), 0, { badge: false }); hideVideoProgress(); drawPreview(); return; }
   const blob = new Blob(chunks, { type: fmt.mime.split(';')[0] });
   const filename = `Flexatone_Master_${W}x${H}_T${total.toFixed(2)}s.${fmt.ext}`;
   triggerDownload(blob, filename);
-  status(t('mgrVid.done', filename, (blob.size / 1048576).toFixed(1)), 1);
+  status(t('mgrVid.done', filename, (blob.size / 1048576).toFixed(1)), 1, { badge: true });
+  hideVideoProgress(4000);
   hooks?.showToast?.(t('mgrVid.done', filename, (blob.size / 1048576).toFixed(1)));
   drawPreview();
 }
@@ -430,4 +443,66 @@ function cancelJob() {
   if (!job) return;
   job.cancelled = true;
   if (job.rec.state !== 'inactive') job.rec.stop();
+}
+
+// --------------------------------------------------------------------------
+// Offline render (ui/video-encode.js): every frame drawn for its own cycle time, H.264 + AAC MP4. Works in a
+// background tab and is never short of frames. The spectrum strip has no live analyser here (drawn empty).
+// 오프라인 렌더: 프레임마다 사이클 시각을 그려 H.264 + AAC MP4로. 백그라운드 탭에서도 동작. 스펙트럼은 비어 있음.
+// --------------------------------------------------------------------------
+
+async function recordOffline(hooks, C) {
+  const { w: W, h: H } = sizeOf();
+  const total = C * opts.cycles;
+  const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
+  const file = (getProjectFileName() || '').replace(/\.json$/i, '');
+  const base = `${file ? `${file}_` : 'Flexatone_'}Master_${W}x${H}_${stamp}`;
+  const handle = await pickSaveTarget(`${base}.mp4`); // inside the click / 클릭 안에서
+  if (handle === 'cancel') return;
+  setBusy(true);
+  busyRender = true;
+  job = { cancelled: false, offline: true, rec: { state: 'inactive', stop() {} }, nodes: [], tracks: [] };
+  status(t('mgr.exporting'), 0);
+  mixer.stopAllManager();
+  try {
+    let audio = null;
+    if (opts.audio) {
+      const res = await mixer.exportCycleWav({ download: false });
+      if (res.ok) {
+        const b = res.buffer;
+        const n = Math.round(total * b.sampleRate);
+        audio = new AudioBuffer({ length: n, numberOfChannels: b.numberOfChannels, sampleRate: b.sampleRate });
+        for (let c = 0; c < b.numberOfChannels; c++) { const src = b.getChannelData(c); const dst = audio.getChannelData(c); for (let o = 0; o < n; o += src.length) dst.set(src.subarray(0, Math.min(src.length, n - o)), o); }
+      } else hooks?.showToast?.(t('mgrVid.silent'), 'info');
+    }
+    busyRender = false;
+    if (!dlg || job.cancelled) throw new Error('cancelled');
+    const canvas = dlg.querySelector('#mgrVidCanvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const sims = createRissetSims();
+    const frames = Math.max(1, Math.round(total * opts.fps));
+    const res = await renderVideoOffline({
+      W, H, fps: opts.fps, duration: total, canvas, audio,
+      cancelled: () => !job || job.cancelled,
+      draw: (i, tt) => { const pos = tt >= total ? C : tt % C; drawFrame(ctx, W, H, { pos, risset: stepRissetSims(sims, pos), analyser: null }); },
+      onProgress: (f, phase) => status(phase === 'mux' ? t('mgrVid.rMux') : t('mgrVid.rFrames', Math.round(f * frames), frames), phase === 'mux' ? 0.99 : 0.05 + f * 0.93),
+    });
+    if (!res) throw new Error('cancelled');
+    const name = `${base}.${res.ext}`;
+    const where = await saveBlob(res.blob, name, res.ext === 'mp4' ? handle : null);
+    const mb = (res.blob.size / 1048576).toFixed(1);
+    status(t('mgrVid.done', where, mb), 1, { badge: true });
+    hooks?.showToast?.(t('mgrVid.done', where, mb));
+    hideVideoProgress(5000);
+  } catch (err) {
+    if (String(err?.message) === 'cancelled') { status(t('mgrVid.cancelled'), 0, { badge: false }); hideVideoProgress(); }
+    else { console.error('[Flexatone] master video render:', err); status(String(err?.message || err), 0, { badge: false }); hooks?.showToast?.(String(err?.message || err), 'error'); hideVideoProgress(); }
+  } finally {
+    busyRender = false;
+    job = null;
+    setBusy(false);
+    drawPreview();
+  }
 }

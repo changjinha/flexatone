@@ -1567,6 +1567,228 @@ inline-height path was simulated).
   strongest line.
 - Later effects: clone, smudge, gradient map (colour → timbre), ripple / distort, emboss; layer blend modes; side-chain between layers.
 
+## Space extension A — 3-D node splines, time modes, envelope lanes (2026-11-24) / 스페이스 확장 A
+
+Brief: `docs/studio_prompts/PROMPT_spacex_a.md`. Sound output is unchanged (stereo / HRTF); HOA is extension B, the timeline and a moving listener are C.
+
+| File | Tier | Role |
+|---|---|---|
+| `js/modules/spline3d.js` | modules (pure, shared) | Hermite node spline: auto (Catmull–Rom × `curv`) / free (Bézier handles) tangents, P / D, arc-length table (256 chords per segment), shape-preserving insert (de Casteljau), self-check |
+| `js/studios/space/space-lanes.js` | studios (pure) | lane definitions (unit, range, scale, default domain), `normalizeLane`, `compileLane` (1024-point table) |
+| `js/studios/space/space-motion.js` | studios (pure) | `buildMotion`: position along the path at source time τ for time- / position-domain speed profiles, `speed` and `fit` time modes; `pathPosition` (stop / loop / ping-pong) |
+| `js/studios/space/space-views.js` | studios (pure) | orthographic planes, orbit-camera projection, node / handle picking, node edits |
+| `js/studios/space/space-scene3d.js` | ui | node editor shared by every flat view; front / side / perspective canvases |
+| `js/ui/envelope-window.js` | ui (shared) | envelope editor (points + handles, value range, x range, shapes, tools); own `env.*` strings and help |
+| `js/studios/space/space-i18n-ext.js`, `space-checks-a.js` | data / pure | extension strings + help; self-checks |
+
+### Decisions / 결정
+
+1. **Older paths are untouched.** Analytic paths keep their code path; `stateAt` adds `z = h`, `vz = 0`. The radial speed adds `dz·vz` only when `vz ≠ 0`, so the six older presets bake bit-identical (hash compare).
+2. **Spline paths and envelope speeds use one tabulated motion** (`buildMotion`). Position-domain profiles (constant, path, distance) are linear in S between table points, which has the closed form `S = S_k + (v_k / a)(e^{aΔτ} − 1)`, `v = v_k e^{aΔτ}` — position and speed agree exactly, so the Doppler ratio has no ripple from the table (checked: numeric dS/dτ = v within 1e-4, ∫v dτ = length within 1e-4).
+3. **Time modes.** `speed`: the duration is the time to reach the end (open + stop); loop / ping-pong keep the user's duration. `fit`: the profile is scaled so one traversal takes the duration. Older path types with an envelope speed keep their own duration (they wrap or extrapolate).
+4. **Lane domains use emission-time quantities**: source clock τ, fraction of the path length, distance of the emission position. Distance-domain speed needs only geometry (static listener): `τ(s) = ∫ ds / v(r(s))`.
+5. **Lanes are baked** (`b.gainLane`, `b.morph`, into `b.lp`, into `b.fObs`), so the signature includes them; lanes that are off add no arrays and no audio nodes. The timbre lane uses a second oscillator only when it is on (4 → 8 nodes per source).
+6. **Conversion to spline** checks the direction as well as the position (≤ 0.01 rad): with the position test alone an orbit converted with 8 nodes was within 0.5 m but its f_obs was 1 % off.
+7. **Envelope window is new shared UI**, not a wrapper of the Glissando gain canvas (that editor is part of `ui/canvases.js` and tied to voices). It edits the same data with the same pure helpers (`splitSplineSegmentPreservingShape`, `elevateSplineSegmentHandles`, `removeSplinePoint`).
+8. **Strings in a new file** (`space-i18n-ext.js`), because `space-i18n.js` had uncommitted edits of another session.
+
+### Doc vs. code / 문서와 코드 차이
+
+- The brief's `closed` flag and `end: 'loop'` overlap: `loop` always closes the curve; `closed` + `stop` = one lap.
+- "Rebake only the affected source": the document bake re-bakes every source when the signature changes (as before); 8 spline sources re-bake in 75 ms.
+- The x range of a time-domain speed envelope is the source's Duration field (it exists before the motion is known); other lanes use the resulting duration.
+
+### Known limits / 한계
+
+- The perspective view is for looking and selecting; nodes are dragged in the flat views.
+- Ping-pong reverses instantly (a pitch step at each end).
+- A sampled timbre cannot use the timbre lane.
+- Paths of other studios cannot be imported as splines yet (follow-up F1).
+
+### Checks / 점검
+
+`runSelfCheck()` 192 → 202, all pass. Browser: comet preset renders in four views, node drag (1 undo step), insert, undo, WAV export, Bake to Glissando, playback with 0 bakes, no console errors. Not verified: listening, Manager playback of spline documents, the file dialog round trip, 1100 px layout.
+
+**Other studios could adopt:** `ui/envelope-window.js` (Cloud / Tempo / Chaos parameter curves), `modules/spline3d.js` (Draw paths, Chaos 3-D).
+
+## Space extension B — HOA output + importing the sound of other studios (2026-11-24) / 스페이스 확장 B
+
+Brief: `docs/studio_prompts/PROMPT_spacex_b.md`.
+
+| File | Tier | Role |
+|---|---|---|
+| `js/modules/ambisonics.js` | modules (pure, shared) | ambiX real spherical harmonics (ACN / SN3D, order ≤ 4), order weights, width blur, sampling decoder, energy vector, 2 self-checks |
+| `js/audio/hoa-bus.js` | audio (shared) | virtual loudspeakers (HRTF panners), speaker-gain curves, ambiX coefficient curves, ambiX bus |
+| `js/audio/wav-multichannel.js` | audio (shared) | 32-bit float `WAVE_FORMAT_EXTENSIBLE` writer + header reader |
+| `js/audio/instance-source.js` | audio (shared) | request / await / cache of instance buffers, debounce, subscribers; imports nothing from the mixer |
+| `js/audio/instance-render.js` | audio | the renderer (registered at start-up): describe (key, length), render (`doc` / `heard`), list |
+| `js/studios/space/space-checks-b.js` | audio | 3 offline self-checks |
+
+### Decisions / 결정
+
+1. **Imported sound = rendered buffer + live link**, the Manager's own model (render → cache by key → re-render 0.25 s after an edit → swap while playing). There is no common real-time path through ten different synthesis back-ends; a buffer also equals the offline export. The motion is separate: path / lane edits re-bake (ms) and never re-render the sound.
+2. **Doppler of a buffer = playback rate.** `playbackRate(t) = f_obs / f_s = (dτ/dt)^amount`, buffer offset at the cue = emission time heard there. This is the variable delay line of the brief written as a tape speed: it starts exactly at any cue (a delay line would need the past) and needs no measurement of DelayNode interpolation. Measured: a 440 Hz tone follows the baked ratio within 1 % (zero crossings). The delay line is left for live Manager tracks (extension C).
+3. **Binaural = HOA panning function per source.** Encode → decode is linear, so speaker k gets `D[k] · Y(direction)`; the product is taken when the curves are made (K gain nodes per source, K = 16 / 24 / 32 / 50) instead of mixing an N-channel bus through a K × N matrix of nodes. The ambiX bus (real HOA channels) exists for the export.
+4. **Sampling decoder on a Fibonacci lattice**, amplitude-normalised (Σ g ≈ 1). Speaker counts were chosen from measurements (direction error 3.0° / 2.6° / 2.9° / 2.2°, loudness spread 0.2 / 0.4 / 0.6 / 0.6 dB for orders 1–4). No matrix inversion: the SN3D addition theorem gives the pattern directly.
+5. **No circular import.** `studio-clips.js` → `space-audio.js`, so `space-audio.js` imports only `instance-source.js` (a registry); `instance-render.js` imports the mixer and registers itself (pattern of `configureModSources`).
+6. **Cycles.** Offline renders pass the chain of targets being rendered; a target already in the chain is silent. The editor document cannot pick itself (status "cycle"). A describe that re-enters its own target also answers "cycle" (clip key of A importing B importing A).
+7. **`input.target`** is a string: an instance id, or `@<studio>` = the editor document of a studio that has no instance (the brief had `instId` + `studio`).
+8. **ambiX is scene-referred**: no output fader, no studio tremolo; float keeps values above 1 (warning + optional normalise).
+
+### Doc vs. code / 문서와 코드 차이
+
+- The Manager's "instance → buffer" lives in non-exported functions; two of them (`renderHeard`, `docKey`) are exposed as `instanceRenderApi`. The `doc` content calls the studios' offline renderers directly.
+- The Space adapter had no `key`; without one a Space track would not re-render when an imported original changes (its own document is unchanged). `spaceRenderKey` was added.
+- Sample library: mono, ≤ 60 s — Freeze cuts longer sounds (toast).
+- "⟿ Send to Space" in the other studios' Send menu was not added (the Send router is built around pitch lines); importing is done from the Space Sound rack. "Mute the original track in the Manager" is not automatic: the help says to mute the track.
+
+### Known limits / 한계
+
+- Stereo originals are summed to mono (a point source). Stems / L–R split: follow-up F1.
+- Shape masks and Warp (pitch-based) do not act on imported sources of a Space track.
+- Virtual-speaker decoding colours the high range (many correlated HRTFs); not measured.
+- Order 4 needs a 25-channel OfflineAudioContext for the ambiX export; a refusal shows a toast.
+- Live: each re-schedule builds the K panners again (once per pass, not per source).
+
+### Checks / 점검
+
+`runSelfCheck()` 202 → 207, all pass; older presets bit-identical; browser run as listed in `CHANGELOG.md`. Not verified: listening, external ambiX decoders, order 4 everywhere, `heard` content with warps / takes.
+
+**Other studios could adopt:** `audio/instance-source.js` (any studio that wants another studio's sound as material), `audio/hoa-bus.js` + `modules/ambisonics.js` (a spatial output for Cloud / Wave), `audio/wav-multichannel.js`.
+
+## Space extension C — moving listener, time pins, timeline, Space Master (2026-11-24) / 스페이스 확장 C
+
+Brief: `docs/studio_prompts/PROMPT_spacex_c.md`. Order of work as the brief allows: C1 (listener) → C3 (Space Master) → C2 (timeline, reduced).
+
+| File | Tier | Role |
+|---|---|---|
+| `js/studios/space/space-engine.js` | studios (pure) | `normalizeListener`, `getListenerMotion`, `listenerFrame`, `listenerOrientation`, `listenerStateAt`, moving-listener sample in `bakeSource`, `pinnedProfile`, presets |
+| `js/studios/space/space-master-doc.js` | studios (pure) | `_spaceMaster` document: get / edit / normalise, `syncMasterSources`, `arcPlace` |
+| `js/studios/space/space-doc.js` | studios (pure) | the document the workspace shows: studio or master (UI state) |
+| `js/audio/space-master.js` | audio | track router (live follower, offline exact curves), delay compensation |
+| `js/studios/space/space-timeline.js` | ui | timeline canvas |
+
+### Decisions / 결정
+
+1. **Moving listener.** For a listener time t the listener is at L(t), fixed for that sample, so `g(τ) = τ + |X(τ) − L(t)| / c − t` is still strictly increasing for |v_S| < c and the same Newton-in-bisection solver is used. Implicit differentiation gives `dτ/dt = (1 + n̂·v_L / c) / (1 + n̂·v_S / c)`, n̂ = (X − L) / r. A static listener with no pitch / roll keeps the older sample code (bit-identical); otherwise `bakeMoving` runs. The first / last arrival times are fixed points of `t = start + τ + |X(τ) − L(t)| / c`.
+2. **The listener's path is a source model** (path, speed, time mode) evaluated in listener time; it rests at the start before `move.start` and at the end afterwards. The node editor has a target (`source` | `listener`), so every view edits it with the same gestures.
+3. **Distance-domain speed with a moving listener** is no longer geometry only: `ds/dτ = v(|P(s) − L(start + τ)|)` is integrated forward (midpoint, 5 ms) and handed to `buildMotion` as a time-domain profile.
+4. **Pins.** `s(τ)` = Fritsch–Carlson monotone cubic through (pin time, arc length of the node). A pin that does not increase is ignored; if the result is faster than 0.98 c the time axis is stretched (clamp badge).
+5. **Space Master is a separate project key**, not a special instance: nothing that walks the instance list has to skip it. The workspace switches document through one module (`space-doc.js`); the plugin, the Manager clip adapter and the sends keep reading the studio document.
+6. **Live = follower, offline = exact.** Tracks are running signals (Risset is a live engine), so the live chain follows the baked arrays every 50 ms with `setTargetAtTime` (τ = 35 ms). The export has the whole cycle in advance and uses the Space scheduler with `setValueCurveAtTime` and a DelayNode curve `D(t) = t − τ(t) − offset`.
+7. **Delay compensation** subtracts the smallest delay of the scene — a constant, so no pitch changes.
+8. **Mixer changes are a router hook**: `ensureChannel` and the export ask the router before connecting to the output bus; `disposeChannel` tells it. Off → `route` answers false → the graph is the old one (export difference 0).
+
+### Doc vs. code / 문서와 코드 차이
+
+- Brief: the master's source clock = the clip's content time, locked to the tempo. Done: the cycle position (real seconds); a free clock when no cycle plays. The mixer does not expose when a clip (re)starts without deeper hooks.
+- Brief: timeline with global tracks, markers, loop region, snapping. Done: blocks, duration edge, pins, cue.
+- `getCyclePosition()` throws between the creation of the cycle and its first scheduled occurrence; the master clock catches it.
+
+### Known limits / 한계
+
+- The live follower smooths with a 35 ms time constant: very fast passes are slightly rounded live (the export is exact). At the cycle loop the clock jumps back and the parameters glide.
+- New Manager tracks get their master source when the strip is used or the master document is on screen.
+- Envelope facing (`lanes`) spans 0 … document length.
+- Launch / Scenes with the master on use the free clock (not tested).
+
+### Checks / 점검
+
+`runSelfCheck()` 207 → 212, all pass; older presets bit-identical. By hand: export identical with the master off, 2.4e-7 at wet 0, hard-left scene silences the right channel, 4 live chains, strip + "Edit in Space". Not verified: listening, loop boundaries, CPU with many tracks in Binaural mode, file round trip of `_spaceMaster`.
+
+**Manager candidates** — `params()`: listener x / y / z / yaw / pitch / roll, `wet`, per source baseGain, a path transform (offset / rotate / scale); `signals()`: per source r(t), v_r(t), azimuth / elevation, closest-approach events.
+
+## Space follow-up F1 — curve links, groups, stems, stereo split (2026-11-24) / 스페이스 후속 F1
+
+Brief: `docs/studio_prompts/PROMPT_spacex_f1.md` (both parts, F1-a and F1-b).
+
+| File | Tier | Role |
+|---|---|---|
+| `js/studios/space/space-curve-link.js` | studios (pure) | `registerSpaceCurveSource(studio, { curves(doc) })`, `listCurveStudios`, `listCurves`, `mapCurve`, `curveToNodes` (3-D RDP, node budget by bisection, error per spline segment), `resolveCurveLink`, `applyCurveLink`, `updateCurveLinks`, `curveLinksStale`, `curveLinkLoops` |
+| `js/studios/chaos/chaos-space-curve.js` | studios | Chaos provider: stage-A bake `voices[i].src.{x,y,z}` + `songSec` (read-only, registers itself; imported by `main.js`) |
+| `js/studios/space/space-groups.js` | studios (pure) | `stereoSplit`, `stemSplit`, `ungroupSource`, `groupMembers`, `arcOffsets` |
+| `js/studios/space/space-engine.js` | studios (pure) | `normalizeGroup`; `getKinematics` = `baseKinematics` (unchanged code) + the group wrapper; `input.channel`; group in `spaceSignature` only when present |
+| `js/audio/instance-source.js` / `instance-render.js` | audio | stem targets `<target>#<key>`, `listInstanceStems`, `stemDoc` (voices / strokes filtered or soloed, `lineMix` solo) |
+
+Decisions (default first, the rest selectable):
+
+- **The path type stays `spline`**; the link is a record in `path.link` (the brief suggested a type `link`). Every spline tool keeps working, and "Break link" is deleting the record.
+- **Second kind of Send, same rules:** instance binding (`link.inst` = the instance in the origin's editor when linked, read through `sourceDoc`), signature (`link.sig` = hash of mapping + range + origin points; an unchanged origin writes nothing), loop rule (`curveLinkLoops`: the origin must not be reachable from Space over the applied pitch-line Send edges, because Space's line is the HEARD pitch and depends on the path).
+- **Sources:** real 3-D data exists in Chaos only. Draw, Field, Fractal, Glissando, Cloud, Tempo, Wave, Grid are covered by one generic adapter: their Send lines as flat curves (x = time, y = pitch). No file was added to those folders.
+- **Mapping defaults:** 3-D → bounding box in a 60 m sphere at the listener; pitch lines → each axis to 60 m (time and pitch have no common unit). **Range** was added after the first test: a 60-unit Lorenz run has ≈ 50 loops and 64 nodes follow it only within ±23 m; 6 % of it fits within ±0.4 m.
+- **Sync point:** `render()` of the Space workspace (`curveLinksStale` → one `editSpace(..., { history: false })`). A Space instance that is not in the editor keeps its last nodes until it is opened.
+- **Groups in the engine, not in the audio graph:** a follower's kinematics is the lead's own path displaced; in the path frame the velocity is taken by central difference of the displaced point (the frame turns), so the Doppler shift of a wingman on a curve is right. No chains (a follower cannot lead).
+- **Stems are rendered by soloing**, one offline render per stem through the existing renderers, cached per target like any import. Measured: 8 Chaos stems of 30 s ≈ 0.9 s (the whole: 0.8 s) → cap 16, no worker needed.
+
+### Checks / 점검
+
+`runSelfCheck()` 212 → 215 (`space-f1: curve links`, `groups`, `stems and channels in sound`), older presets bit-identical. Not verified by listening.
+
+## Space follow-up F2 — loudspeaker arrays, user HRIR (2026-11-24) / 스페이스 후속 F2
+
+Brief: `docs/studio_prompts/PROMPT_spacex_f2.md`. Only decoders were added; encoding, the bake and the gain-curve mechanism of extension B are unchanged.
+
+| File | Tier | Role |
+|---|---|---|
+| `js/modules/speaker-arrays.js` | modules (pure) | layouts, `createArrayDecoder` (mode matching / AllRAD, order limit, mean energy 1), `vbapGains` (ring pairs, tightest 3-D triplet), `arrayMetrics`, `delayCompensation`, `channelOrderText` |
+| `js/audio/hoa-bus.js` | audio | `createArrayBus` (trim → delay → output channel), `createBinauralSpeakers({ dec, hrir })`, per-direction energy normalisation in `speakerCurves` |
+| `js/audio/hrir-store.js` | audio | HRIR sets: file-name parsing, content-hash id, memory + IndexedDB, nearest direction, `hrirFor(id).bufferFor(ctx, dir)` |
+| `js/studios/space/space-audio.js` | studios | `arraySetup`, `hoaMonitorOptions`, `renderSpaceArray`, `exportSpaceArray`, `playArrayTest`, live array path in `scheduleSpace` |
+
+Decisions:
+
+- **An array decoder has the shape of the binaural decoder** (`{ order, speakers, matrix }`), so a source's gain curves are made by the same `speakerCurves` and the Array mode costs nothing new per source.
+- **Two-channel device = headphone monitor of the array**, not a disabled mode: `createBinauralSpeakers` gets the array decoder and puts an HRTF panner (or a user HRIR convolver) at every real loudspeaker position. The stereo render (Manager clip, stereo WAV) of an Array document is that monitor.
+- **Mode matching on rings uses the sectoral harmonics only** (a ring cannot match the others); with all (N + 1)² harmonics the pseudo-inverse of a ring is meaningless. Even so it is unusable on 5.1 (measured ±19 dB), so choosing 5.1 / 7.1 selects AllRAD; the brief's "default = mode matching" holds for the regular layouts.
+- **Energy normalisation is per direction and therefore not a matrix**: it is applied in `speakerCurves`, sample by sample.
+- **The stereo output stage was not changed.** The live multichannel path connects `merger → gain(fader level at start) → ctx.destination` and raises `destination.channelCount`; analyzer, limiter and loudness lock do not see it. This path is untested (no multichannel device here).
+- **HRIR input = stereo WAV per direction with the direction in the name.** SOFA needs an HDF5 reader; a 2M-channel WAV has no directions. Sets are cached per browser; `spatial.hrir` is the content-hash id.
+
+### Checks / 점검
+
+`runSelfCheck()` 215 → 219 (`speaker arrays`, `space-f2: array settings`, `array render`, `user HRIR`). Stereo paths: 0 (equal power, HRTF), ≤ 7.5e-8 (binaural, at the noise floor of repeated renders).
+
+## Space follow-up F3 — room: image sources and reverb (2026-11-24) / 스페이스 후속 F3
+
+Brief: `docs/studio_prompts/PROMPT_spacex_f3.md` (F3-1 and F3-2 in one pass: the ground reflection is the one-surface case of the box).
+
+| File | Tier | Role |
+|---|---|---|
+| `js/studios/space/space-room.js` | studios (pure) | `normalizeRoom`, `roomOf`, `roomActive`, `roomImages` (1 / 6 / 24), `mirrorState`, `bakeRoom` (memo: physics signature + room geometry), `roomEndSec`, `reverbImpulse`, `measureRt60`, `reverbTailSec` |
+| `js/studios/space/space-audio.js` | studios | images scheduled as extra voices in `scheduleSpace`, `createReverb` (stereo convolver / first-order diffuse field), reverb send in `scheduleSpaceSource`, `phaseExact` |
+| `js/studios/space/space-scene3d.js` | studios (ui) | `drawRoomBox` in the top, ortho and perspective views |
+
+Decisions:
+
+- **An image is baked, not derived.** `bakeSource` takes a kinematics override whose `stateAt` is the mirrored state; everything else (solver, moving listener, lanes, HOA direction arrays) is the code of the direct sound. Level × √(1 − α) per bounce and the reflection low-pass are applied to the baked arrays afterwards.
+- **What re-bakes:** geometry, absorption, low-pass (`roomGeometryKey`). The reverb never does. The room is outside `spaceSignature`, so the direct bake cache is untouched by any room edit.
+- **Reverb = ConvolverNode with a generated response** (seeded noise × e^(−kt), one-pole damping, unit energy per channel) rather than an FDN: deterministic by construction, RT60 exact by construction, no feedback network to tune.
+- **Send law.** The physical default is a send that ignores the distance law (reverberant level ≈ independent of the source position), which is what makes far sources sound far; level 1 ⇒ critical distance = reference distance.
+- **Phase.** See the changelog: `osc.frequency.setValueAtTime(freq[0], 0)` only when images exist.
+- **Outside the box:** image level × clamp(1 − distance outside, 0, 1); the ground mode has no box and reflects everywhere.
+
+### Checks / 점검
+
+`space-f3: image sources`, `reverb impulse`, `room in sound`. Off-state regression < 1e-9 inside the checks, and against the stored renders of F2.
+
+## Space follow-up F4 — c(t), supersonic sources, modulation matrix (2026-11-24) / 스페이스 후속 F4
+
+Brief: `docs/studio_prompts/PROMPT_spacex_f4.md`. F4-b in full; of F4-a the signals and the document targets (not the scenes).
+
+Decisions:
+
+- **One general baker for both physics extensions** (`bakeGeneral` in `space-engine.js`). It is parametrised by the EMISSION time: A(τ) is computed on a grid of 400 points per second, its turning points are refined by golden-section search, and every monotone piece is inverted by bisection onto a uniform listener-time grid. No root tracking is needed, pieces cannot be lost or swapped, and a changing c, a moving listener and a supersonic source are the same code. It is used only when `cEnv` is on or a source is at or above c with the clamp off; everything else stays on the classic Newton baker, bit-identical.
+- **A backwards arrival is an ordinary voice.** An oscillator does not care about the direction of time, so the piece is baked with |dτ/dt| as its frequency ratio and scheduled like any other voice (and like the room's image sources). Only buffers cannot follow: imports are silent on backwards pieces.
+- **Arrivals hang on the main bake** (`b.more`, `bakeArrivals(b)`): the Map of bakes per source, the timeline, the read-outs and the room keep their shape; the audio graph and the top view walk `more`.
+- **Boom** = an N-wave buffer through the normal direction stage, from a short bake that starts 12 ms before the cone crossing (`boomBake`), so the edge fade of a voice does not soften the shock; the buffer starts with the same silence.
+- **c(t)** is piecewise linear on a 2 ms grid with its exact integral and inverse, so `C`, `Cinv` and `at` are consistent to rounding and the analytic frequency ratio matches the numeric derivative to 1e-4.
+- **Matrix signals are lines.** The route format already normalises any line over its own range, so distance, radial speed, direction and Doppler shift are offered as extra lines of a Space track — no new route kind. The closest approach is the upward crossing of a ±1 gate whose steps sit at the interpolated zero of the radial speed.
+- **Matrix targets are time curves of the document**, like Cloud's: `space.c` → `cEnv`, `space.yaw` → orientation envelopes, `space.air` / `space.width` → source lanes. They are written into the params of the clip being rendered (`applyDocMods`), which is the "pre-render only" rule of the brief for parameters that need a re-bake.
+
+### Checks / 점검
+
+`space-f4: changing c(t)`, `supersonic`, `Manager`. See CHANGELOG 0.40.0 for what was left out.
+
 ---
 
 ## Grid Studio rebuilt as the space-warp studio + Draw object effects (2026-11-24)
@@ -1629,4 +1851,73 @@ playing, edit while playing, slider drag = 1 undo step, WAV, project save / load
 Draw — pixelate + chromatic on the active stroke (1 piece → 21, raw unchanged), 21 baked voices, offline render, Warp tool =
 1 undo step, undo. **Not verified:** by ear; Manager add / launch with the rebuilt Grid in the UI (only the self-checks ran);
 sources other than Glissando and the demo lines; a pen; Draw's Warp tool on a stroke in Node (direct) mode.
+
+---
+
+## Projection contract (0.46.0) / 투영 규약
+
+**Principle.** Inside a studio everything may be free (editable time, phase-space frequency, interacting modules); the
+Master only sees the studio as curves on a Euclidean grid, time (s) × pitch (MIDI). `studios/projection.js` is that interface.
+- A path is any curve in (t, m). The Master works on its **monotone pieces** (t non-decreasing): each is a single-valued
+  m(t). A reversal / loop turns into several pieces; a chord is several pieces sounding together — so free time and
+  multi-valued pitch need no special case on the grid.
+- **Phase space** (Risset, S¹): the studio hands over the sounding (wrapped) pitch, `cutAtWrap` inserts the breaks, so a
+  wrap never draws a line across the grid. `domain: 'phase'` tells the Master where the path came from.
+- **Order of maps** (existing, unchanged): studio document time → studio's own map (take, warp, tempo) → cycle time.
+  `retime(path, {rate, semis})` is the pure version; written values stay in `t0` / `m0` for the curved (warp) view.
+- **No fallback:** a studio without a projection is a block (clip only). A Send line is not a projection (Cloud sends its centre curve, the Master draws its grains).
+- `gridify` rasterises onto the grid with the column weight = Σ amplitudes, steep or flat alike (self-checked).
+
+**Measured.** Glissando's projected pitch equals the offline-rendered pitch (zero-crossing) within 15 cents at document
+rates 1, 2, 0.5, 1.5 (the earlier manual run: ≤ 3.4 cents). All 11 studios project valid paths on default documents; none had
+non-monotone paths there, so the time-reversal cases are covered by synthetic checks only.
+
+**Other sessions changed tempo while this was built:** `core/tempo.js` `splitRates()` now always returns `tape = 1`
+(tape mode moved elsewhere), so the parity check compares only the `doc` part and does not assume a tape ratio.
+
+**Next steps (not done):** (1) switch `clipGeometry` in `ui/manager-panel.js` to `projectStudio` + `retime` so a new studio
+needs no UI edit; (2) draw Risset's phase-space paths in the Master View as an opt-in view (default stays the band);
+(3) express the Master's pitch / shape masks through the contract (path in → amplitude out) for phase-space studios;
+(4) parity checks against audio for Field, Wave, Space.
+
+---
+
+## Signal flow (0.49.0) / 시그널 플로우
+
+- **Model** (`core/signal-flow.js`): cords between toolbox keys, `SRC` = monitors, `DST` = Output / Space Studio. Default = serial in toolbox
+  order; first edit turns the *shown* patch into the user's (`custom`), so off-toolbox cords are collapsed (bypass) at that moment.
+  Many inputs and many outputs per box; stage = longest path from `SRC`, same stage = parallel; loops refused.
+- **UI:** ports on every signal toolbox (gen / proc / post) list all inputs / outputs; ⇄ in the toolbox grip opens / closes them (not on the Utility
+  toolbox); port click = checkbox popover; the Signal flow toolbox (④ Utility, rack key `tool-chain`) is the vertical patcher.
+- **Why vertical:** the first (horizontal) drawing of 8 boxes was 1428 px wide inside a 300 px toolbox — a cord could not be dragged across the hidden part.
+- **What it does NOT do:** drive the audio. Toolboxes such as timbre, vibrato, space, gain are parameter sets of one studio engine; only the studio tremolo
+  is a real series stage (`audio/studio-fx.js` `connectStudioOutput`). Candidates for making the flow real: the studio tremolo before / after the output,
+  Space (room → output), parallel studio outputs into the Manager. Each needs its own decision on what "order" means for that engine.
+- **Storage:** `localStorage` per studio (like the module tray and toolbox order), not in the project file.
+
+---
+
+## Voice-source split D-1 · D-2 (0.50.0) / 음원 분리 D-1 · D-2
+
+Plan: `docs/ROADMAP_PLANS.md` section D (Control → Source → Host).
+
+- **D-1, native seam.** Every studio voice tone now goes through `createToneSource(ctx, { sample, wave })`. The five studios that still
+  built oscillators themselves (Grid, Cloud, Chaos, Fractal, Wave ridge) pass `{ wave }` only, so the result *is* the old OscillatorNode.
+  The sample spec, the mid-voice read skip (`skipSampleRead`) and the Sample tab for these studio-wide-timbre studios come together in D-6.
+  Left as plain oscillators on purpose: Wave spectral bins (phase-set sines), the tremolo LFO, Risset's no-worklet fallback, Tempo's
+  metronome click, and Space's timbre-lane B oscillator (the A ↔ B crossfade partner, only built when the source is not a sample — a
+  sampled timbre B would need its own spec; open question for D-6).
+- **D-2, worklet kernels.** `modules/sources/` holds self-contained classes shipped into worklets with `toString()`:
+  `PulseKernel` (static `sample(spec, ψ, dt)`, `polyBlep`, `harmonic(spec, k)`, `phaseKind = 'cycle'`). `composeKernelSource(classes, tail)`
+  joins them; `RISSET_KERNELS = [RissetVoiceBank, PulseKernel]`. The bank refers to `PulseKernel` by name: on the main thread through the
+  module import, in the worklet because the class precedes the processor in the composed source.
+- **Conflict: the "no imports" rule of the voice bank.** The bank file now imports the kernel. The rule that matters is on the *class source*
+  (no `import`, DOM or globals other than other composed kernels); the self-check checks each class and builds a bank from the composed
+  source alone, then renders a pulse block. / 규칙은 클래스 소스 기준으로 유지.
+- **Native parity.** `pulseCoefficients(spec, h)` = `morph · (2/πk)(sin 2πkd, 1 − cos 2πkd) · 0.8` + `(1 − morph)` on the fundamental. The
+  kernel's DFT matches it within 0.01 at high headroom; near Nyquist the kernel fades to a sine (its anti-aliasing) while a PeriodicWave is
+  band-limited by the browser, so the two differ only there.
+- **Not done:** Pulse tab in the timbre editor and Risset palette / per-voice assignment (D-3); `SampleKernel` (D-4); mip-maps / zones (D-5);
+  Sample tab in the studio-wide-timbre studios (D-6). The colour analysis (`risset-core.js` `addWaveHarmonics`) still has its own copy of the
+  pulse harmonic formula (analysis only; left so its float order stays the same).
 

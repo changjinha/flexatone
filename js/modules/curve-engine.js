@@ -1,6 +1,6 @@
 /**
  * Flexatone — modules/curve-engine.js
- * Layer 1 (modules): the 11 domain-agnostic curve engines.
+ * Layer 1 (modules): the domain-agnostic curve engines.
  * 계층 1 (modules): 도메인 독립적인 11종 곡선 엔진.
  * Term: this is THE "Curve Engine" (voice.engine, ENGINE_IDS). Not a Studio Engine (studios/<id>/<id>-engine.js)
  * and not the Audio Engine (audio/audio-engine.js). / 용어: 이 파일이 "곡선 엔진(Curve Engine)".
@@ -29,10 +29,12 @@ import {
 import { normToFreq, freqToMidi } from '../core/units.js';
 import { compileFormula } from '../core/formula.js';
 import { t } from '../core/i18n.js';
+import { clipFullSpan } from '../core/line-clip.js';
 import {
   ENGINE_IDS,
   MORPH_MODES,
   TRIG_FNS,
+  FLOW_KINDS,
   createDefaultCurveParams,
   createDefaultCurveConfig,
   createDefaultMorphNode,
@@ -71,6 +73,7 @@ export const ENGINE_DEFS = Object.freeze(
     ['expo', 'formula', false, 'exp: (e^(kt) − 1)/(e^k − 1)   ·   log: ln(1 + (e^k − 1)t)/k'],
     ['trig', 'formula', false, 'g ∈ {sin, cos, tan, asin, acos, atan},  x = x₀ + (x₁ − x₀)t,  y = (g(x) − g(x₀))/(g(x₁) − g(x₀))'],
     ['formula', 'formula', false, 'f(t; a, b, c …) — your own expression, optionally normalized to f(0)=0, f(1)=1'],
+    ['flow', 'formula', false, 'Poiseuille 1−(1−t)ⁿ · Blasius f′(ηt) · Rankine t/a | a/t · Stokes −e^(−η)cos(η−φ)  (each normalized to end at 1)'],
   ].map(([id, kind, fittable, formula]) =>
     Object.freeze({
       id,
@@ -110,6 +113,7 @@ const range = (key, min, max, step, extra = {}) => ({
   softMax: extra.softMax ?? max,
   integer: !!extra.integer,
   default: D[key],
+  ...(extra.showWhen ? { showWhen: extra.showWhen } : {}),
 });
 
 /**
@@ -195,7 +199,38 @@ export const PARAM_SCHEMAS = Object.freeze({
     { key: 'formulaExpr', type: 'formula', labelKey: 'param.formulaExpr' },
     { key: 'formulaNorm', type: 'toggle', labelKey: 'param.formulaNorm', offLabelKey: 'param.formulaRaw', default: D.formulaNorm },
   ],
+  flow: [
+    {
+      key: 'flowKind',
+      type: 'select',
+      labelKey: 'param.flowKind',
+      options: FLOW_KINDS.map((k) => ({ value: k, labelKey: `flowKind.${k}` })),
+      default: 'poiseuille',
+    },
+    // Each parameter is shown only for the profile kinds listed in `showWhen`. / 종류별 표시
+    range('flowP', 0.5, 8, 0.05, { softMin: 1, softMax: 6, showWhen: ['poiseuille'] }),
+    range('flowCouette', 0, 1, 0.01, { showWhen: ['poiseuille'] }),
+    range('flowSlip', 0, 0.8, 0.01, { showWhen: ['poiseuille'] }),
+    range('flowEta', 1, 10, 0.05, { softMin: 1, softMax: 10, showWhen: ['blasius'] }),
+    range('flowBlaWarp', 0.3, 3, 0.01, { showWhen: ['blasius'] }),
+    { key: 'flowBlaInt', type: 'toggle', labelKey: 'param.flowBlaInt', offLabelKey: 'param.flowBlaVel', default: D.flowBlaInt, showWhen: ['blasius'] },
+    range('flowCore', 0.2, 0.95, 0.01, { softMin: 0.2, softMax: 0.9, showWhen: ['rankine'] }),
+    range('flowDecay', 0.3, 3, 0.01, { showWhen: ['rankine'] }),
+    range('flowSmooth', 0, 1, 0.01, { showWhen: ['rankine'] }),
+    range('flowStokesEta', 1, 10, 0.05, { softMin: 1, softMax: 10, showWhen: ['stokes'] }),
+    range('flowPhase', -60, 60, 1, { softMin: -60, softMax: 60, showWhen: ['stokes'] }),
+    range('flowWaveK', 0.3, 3, 0.01, { showWhen: ['stokes'] }),
+    range('flowDamp', 0.3, 3, 0.01, { showWhen: ['stokes'] }),
+  ],
 });
+
+/**
+ * Is this schema entry shown for the object's current sub-kind? Entries with `showWhen`
+ * (a list of flowKind values) only appear for those kinds. / 하위 종류에 맞는 항목만 표시
+ */
+export function schemaVisible(s, obj) {
+  return !s.showWhen || s.showWhen.includes(obj?.flowKind || 'poiseuille');
+}
 
 /** key → numeric range schema (for clamping). / 숫자 파라미터 색인 */
 const NUMERIC_PARAMS = {};
@@ -415,6 +450,106 @@ function evalFormula(tt, p) {
   return clamp(y, -Y_LIMIT, Y_LIMIT);
 }
 
+// --- 15. Flow (fluid-dynamics profiles) -----------------------------------
+
+/**
+ * Blasius boundary layer: f‴ + ½ f f″ = 0, f(0) = f′(0) = 0, f″(0) = 0.332057.
+ * Lazily tabulated with RK4 (h = 0.01, η ∈ [0, 10]); BLASIUS_FP[i] = f′(i·h) → 1.
+ */
+const BLASIUS_H = 0.01;
+const BLASIUS_N = 1000;
+let blasiusTable = null;
+export function blasiusTableFp() {
+  if (blasiusTable) return blasiusTable;
+  const fp = new Float64Array(BLASIUS_N + 1);
+  let f = 0;
+  let g = 0; // f′
+  let h2 = 0.3320573362; // f″
+  const d = (a, b, c) => [b, c, -0.5 * a * c];
+  for (let i = 1; i <= BLASIUS_N; i++) {
+    const k1 = d(f, g, h2);
+    const k2 = d(f + 0.5 * BLASIUS_H * k1[0], g + 0.5 * BLASIUS_H * k1[1], h2 + 0.5 * BLASIUS_H * k1[2]);
+    const k3 = d(f + 0.5 * BLASIUS_H * k2[0], g + 0.5 * BLASIUS_H * k2[1], h2 + 0.5 * BLASIUS_H * k2[2]);
+    const k4 = d(f + BLASIUS_H * k3[0], g + BLASIUS_H * k3[1], h2 + BLASIUS_H * k3[2]);
+    f += (BLASIUS_H / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
+    g += (BLASIUS_H / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
+    h2 += (BLASIUS_H / 6) * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]);
+    fp[i] = g;
+  }
+  blasiusTable = fp;
+  return fp;
+}
+
+/** f′(η) by linear interpolation of the table (η clamped to [0, 10]). */
+export function blasiusFPrime(eta) {
+  const fp = blasiusTableFp();
+  const x = clamp(eta, 0, BLASIUS_N * BLASIUS_H) / BLASIUS_H;
+  const i = Math.min(BLASIUS_N - 1, Math.floor(x));
+  return fp[i] + (fp[i + 1] - fp[i]) * (x - i);
+}
+
+/** Blasius stream function f(η) = ∫f′ (cumulative trapezoid of the table). */
+let blasiusStreamTable = null;
+function blasiusStream(eta) {
+  if (!blasiusStreamTable) {
+    const fp = blasiusTableFp();
+    const F = new Float64Array(BLASIUS_N + 1);
+    for (let i = 1; i <= BLASIUS_N; i++) F[i] = F[i - 1] + 0.5 * BLASIUS_H * (fp[i - 1] + fp[i]);
+    blasiusStreamTable = F;
+  }
+  const x = clamp(eta, 0, BLASIUS_N * BLASIUS_H) / BLASIUS_H;
+  const i = Math.min(BLASIUS_N - 1, Math.floor(x));
+  return blasiusStreamTable[i] + (blasiusStreamTable[i + 1] - blasiusStreamTable[i]) * (x - i);
+}
+
+/**
+ * 15. Flow — normalized fluid-dynamics profiles; t is the wall distance (or radius) 0 → 1.
+ *  poiseuille: u = 1 − (1 − t)ⁿ  (n = 2 → the parabola; wall → centreline); β mixes in Couette
+ *              (moving wall) t, s adds Navier wall slip.
+ *  blasius:    u = f′(η t) / f′(η),  η = flowEta  (flat-plate boundary layer).
+ *  rankine:    solid-body core v = r/a, free vortex v = a/r, r = t, a = flowCore; end-normalized →
+ *              rises to a peak 1/a (overshoot), then relaxes to 1.
+ *  stokes:     Stokes' 2nd problem, u = e^(−η)cos(η − φ) at t = 0 — the displaced layer 1 − u,
+ *              a damped ripple settling onto the target; η = flowEta·t, φ = flowPhase°.
+ */
+function evalFlow(tt, p) {
+  const kind = FLOW_KINDS.includes(p?.flowKind) ? p.flowKind : 'poiseuille';
+  if (kind === 'poiseuille') {
+    // Couette–Poiseuille mix (β = moving-wall share) and Navier wall slip s.
+    const beta = readParam(p, 'flowCouette');
+    const slip = readParam(p, 'flowSlip');
+    const u = (1 - beta) * (1 - Math.pow(1 - tt, readParam(p, 'flowP'))) + beta * tt;
+    return slip + (1 - slip) * u;
+  }
+  if (kind === 'blasius') {
+    const eta = readParam(p, 'flowEta');
+    const x = eta * Math.pow(tt, readParam(p, 'flowBlaWarp'));
+    if (p?.flowBlaInt) return blasiusStream(x) / blasiusStream(eta);
+    return blasiusFPrime(x) / blasiusFPrime(eta);
+  }
+  if (kind === 'rankine') {
+    const a = readParam(p, 'flowCore');
+    const m = readParam(p, 'flowDecay');
+    const k = readParam(p, 'flowSmooth');
+    const shape = (x) => {
+      const r = x <= a ? x / a : Math.pow(a / x, m);
+      const q = x / a;
+      const lamb = q < 1e-9 ? 0 : (1 - Math.exp(-1.25643 * q * q)) / q / 0.63817; // Lamb–Oseen, peak 1
+      return (1 - k) * r + k * lamb;
+    };
+    const end = shape(1);
+    return end < 1e-9 ? tt : clamp(shape(tt) / end, -Y_LIMIT, Y_LIMIT);
+  }
+  const eta = readParam(p, 'flowStokesEta');
+  const phi = (readParam(p, 'flowPhase') * Math.PI) / 180;
+  const kw = readParam(p, 'flowWaveK');
+  const d = readParam(p, 'flowDamp');
+  const g = (x) => -Math.exp(-d * eta * x) * Math.cos(kw * eta * x - phi);
+  const den = g(1) - g(0);
+  if (Math.abs(den) < 1e-3) return tt;
+  return clamp((g(tt) - g(0)) / den, -Y_LIMIT, Y_LIMIT);
+}
+
 /** id → (t, params) => y for every non-composite engine. / 단일 엔진 평가 함수 표 */
 export const ENGINE_EVALUATORS = Object.freeze({
   harmonic: evalHarmonic,
@@ -430,6 +565,7 @@ export const ENGINE_EVALUATORS = Object.freeze({
   expo: evalExpo,
   trig: evalTrig,
   formula: evalFormula,
+  flow: evalFlow,
 });
 
 /**
@@ -515,7 +651,49 @@ export function evalMorph(tt, curveObj) {
  */
 export function evaluateCurveObjectY(obj, tNorm, opts = {}) {
   if (!obj) return clamp(tNorm, 0, 1);
-  const tc = clamp(Number.isFinite(tNorm) ? tNorm : 0, 0, 1);
+  const tn = Number.isFinite(tNorm) ? tNorm : 0;
+  // Play range (core/line-clip.js): tNorm is the played time; opts.u = tNorm is already the curve u
+  // 재생 구간: tNorm은 재생 시간, opts.u면 tNorm이 곧 곡선 u
+  const c = obj.clip;
+  const u = opts.u ? tn : c ? c.u0 + clamp(tn, 0, 1) * (c.u1 - c.u0) : clamp(tn, 0, 1);
+  if (u >= 0 && u <= 1) return evalCurveInside(obj, u, opts);
+  return evalCurveBeyond(obj, u, opts);
+}
+
+/** Engines whose formula is defined past 0…1, so an extended line can follow it. / 0…1 밖에서도 정의되는 엔진 */
+const EXT_ANALYTIC = new Set(['damped', 'anticipation', 'ratchet', 'chirp', 'bounce', 'polynomial', 'expo', 'trig', 'formula', 'flow']);
+const EXT_EPS = 1e-3;
+
+/** Harmonic engine past its ends: the same cosine law on an unwarped time. / 끝 너머의 하모닉 엔진 */
+function evalHarmonicBeyond(tt, p) {
+  const m = Math.tan((readParam(p, 'alpha') * Math.PI) / 180);
+  return 0.5 * (1 - Math.cos(Math.PI * tt)) + ((m - Math.PI / 2) / (2 * Math.PI)) * Math.sin(2 * Math.PI * tt) * Math.sin(Math.PI * tt);
+}
+
+/**
+ * Curve value past u = 0 or u = 1 (an extended line). ext 'shape': the engine's own formula
+ * where it is defined, else the tangent; ext 'tangent': straight on with the end slope.
+ * 곡선 끝 너머의 값 (연장된 선): 'shape' = 엔진 수식 (정의되지 않으면 접선), 'tangent' = 끝 기울기로 직선.
+ */
+function evalCurveBeyond(obj, u, opts) {
+  const raw = !!opts.raw;
+  if (obj.clip?.ext !== 'tangent') {
+    const te = !raw && obj.reverse ? 1 - u : u;
+    let y = NaN;
+    if (obj.engine === 'harmonic') y = evalHarmonicBeyond(te, obj);
+    else if (EXT_ANALYTIC.has(obj.engine)) {
+      try { y = ENGINE_EVALUATORS[obj.engine](te, obj); } catch { y = NaN; }
+    }
+    if (Number.isFinite(y)) return clamp(!raw && obj.inverse ? 1 - y : y, -Y_LIMIT, Y_LIMIT);
+  }
+  const edge = u < 0 ? 0 : 1;
+  const inner = u < 0 ? EXT_EPS : 1 - EXT_EPS;
+  const yE = evalCurveInside(obj, edge, opts);
+  const slope = (yE - evalCurveInside(obj, inner, opts)) / (edge - inner);
+  return clamp(yE + slope * (u - edge), -Y_LIMIT, Y_LIMIT);
+}
+
+function evalCurveInside(obj, tc, opts) {
   const raw = !!opts.raw;
   const te = !raw && obj.reverse ? 1 - tc : tc;
   let y = obj.engine === 'morph' ? evalMorph(te, obj) : evalSingleEngine(obj.engine, te, obj);
@@ -613,7 +791,7 @@ export function applyRegionsY(obj, tn, y) {
     if (!r || !r.curve || tn < r.t0 || tn > r.t1) continue;
     const mix = clamp(Number(r.mix) || 0, 0, 1);
     if (mix <= 0) continue;
-    const rn = regionRampNorm(r, obj.duration);
+    const rn = regionRampNorm(r, obj.clip ? clipFullSpan(obj).dur : obj.duration); // regions live on the whole curve / 구간은 곡선 전체 기준
     const nearIn = tn < r.t0 + rn;
     const nearOut = tn > r.t1 - rn;
     const w = regionWindow(r, tn, rn, nearIn && regionEdgeRamped(obj, r, 'in'), nearOut && regionEdgeRamped(obj, r, 'out'));
@@ -950,6 +1128,43 @@ registerSelfCheck('All engines: f(0)=0, f(1)=1 at defaults', (a) => {
     const obj = createDefaultCurveConfig(id);
     a.near(evaluateCurveObjectY(obj, 0), 0, 1e-9, `${id} f(0)`);
     a.near(evaluateCurveObjectY(obj, 1), 1, 1e-9, `${id} f(1)`);
+  }
+}, { group: 'engine' });
+
+registerSelfCheck('Flow engine: per-kind parameters stay finite and keep endpoints', (a) => {
+  const base = createDefaultCurveConfig('flow');
+  a.ok(PARAM_SCHEMAS.flow.every((s) => s.key === 'flowKind' || (s.showWhen && s.showWhen.every((k) => FLOW_KINDS.includes(k)))), 'every flow param is tied to a kind');
+  a.ok(PARAM_SCHEMAS.flow.filter((s) => schemaVisible(s, { flowKind: 'rankine' })).length === 4, 'rankine shows kind + 3 params');
+  for (const k of FLOW_KINDS) {
+    for (const s of PARAM_SCHEMAS.flow.filter((x) => x.type === 'range' && schemaVisible(x, { flowKind: k }))) {
+      for (const v of [s.min, s.max]) {
+        const c = { ...base, flowKind: k, [s.key]: v };
+        for (let i = 0; i <= 20; i++) a.ok(Number.isFinite(evalFlow(i / 20, c)), `${k} ${s.key}=${v} finite`);
+        a.near(evalFlow(1, c), 1, 1e-6, `${k} ${s.key}=${v} f(1)`);
+      }
+    }
+  }
+  a.near(evalFlow(0.5, { ...base, flowCouette: 1 }), 0.5, 1e-12, 'Couette β=1 is a line');
+  a.near(evalFlow(0, { ...base, flowSlip: 0.3 }), 0.3, 1e-12, 'slip head start');
+  a.near(evalFlow(1, { ...base, flowKind: 'blasius', flowBlaInt: true }), 1, 1e-9, 'Blasius stream f(1)');
+  const lo = { ...base, flowKind: 'rankine', flowSmooth: 1 };
+  a.ok(evalFlow(0.5, lo) > 1, 'Lamb–Oseen still overshoots');
+}, { group: 'engine' });
+
+registerSelfCheck('Flow engine: Blasius f″(0), f′(5) and profile shapes', (a) => {
+  const fp = blasiusTableFp();
+  a.near((fp[1] - fp[0]) / BLASIUS_H, 0.332057, 2e-3, 'f″(0) = 0.332057');
+  a.near(blasiusFPrime(5), 0.99155, 2e-3, "f′(η=5) ≈ 0.99155");
+  a.near(blasiusFPrime(3), 0.84605, 2e-3, "f′(η=3) ≈ 0.84605");
+  const p = createDefaultCurveConfig('flow');
+  a.near(evalFlow(0.5, p), 0.75, 1e-12, 'Poiseuille n=2 mid');
+  const r = { ...p, flowKind: 'rankine', flowCore: 0.5 };
+  a.near(evalFlow(0.5, r), 2, 1e-12, 'Rankine peak 1/a');
+  a.near(evalFlow(1, r), 1, 1e-12, 'Rankine end');
+  for (const k of FLOW_KINDS) {
+    const c = { ...p, flowKind: k };
+    a.near(evalFlow(0, c), 0, 1e-9, `${k} f(0)`);
+    a.near(evalFlow(1, c), 1, 1e-9, `${k} f(1)`);
   }
 }, { group: 'engine' });
 

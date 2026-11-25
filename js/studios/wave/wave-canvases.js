@@ -119,6 +119,8 @@ function heatmapFor(bake, color) {
   return cv;
 }
 
+/** The c(x) strip is only meaningful for equations that read the medium curve. / c(x) 띠가 의미 있는 경우 */
+const noMedium = (p) => p.eq === 'gs' || p.eq === 'diffusion' || (p.eq === 'schrod' && p.qm.V !== 'curve');
 const hasPosition = (it) => it.kind !== 'standing' && it.kind !== 'noise';
 
 /**
@@ -251,7 +253,7 @@ export function createWaveCanvases(els, { requestRender, showToast }) {
       else ctx.arc(x0, y, 5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      if (it.velocity !== 0 && p.eq !== 'gs') {
+      if (it.velocity !== 0 && p.eq !== 'gs' && p.eq !== 'diffusion') {
         // launch direction arrow / 발사 방향 화살표
         const dir = it.velocity > 0 ? -1 : 1;
         ctx.beginPath();
@@ -359,7 +361,7 @@ export function createWaveCanvases(els, { requestRender, showToast }) {
     ctx.fillText('c(x)', x0 + w / 2, m.plotY - 4);
     ctx.strokeStyle = '#1e293b';
     ctx.strokeRect(x0 + 0.5, m.plotY + 0.5, w - 1, m.plotH - 1);
-    if (p.eq === 'gs') {
+    if (noMedium(p)) {
       ctx.fillStyle = '#475569';
       ctx.textBaseline = 'middle';
       ctx.fillText('—', x0 + w / 2, m.plotY + m.plotH / 2);
@@ -506,7 +508,7 @@ export function createWaveCanvases(els, { requestRender, showToast }) {
   }
 
   function hitMedium(p, m, pt) {
-    if (p.eq === 'gs') return null;
+    if (noMedium(p)) return null;
     let best = null;
     p.c.customPoints.forEach((q, idx) => {
       const h = mediumHandle(m, p, q);
@@ -614,7 +616,7 @@ export function createWaveCanvases(els, { requestRender, showToast }) {
     const m = waveMetrics(els.main, p.view);
     const pt = pos(e);
     if (m.inMedium(pt)) {
-      if (p.eq === 'gs' || p.c.customPoints.length >= 12) return;
+      if (noMedium(p) || p.c.customPoints.length >= 12) return;
       const xn = clamp((m.yToMidi(pt.y) - p.pLo) / span(p), 0.01, 0.99);
       const y = mediumY(p, m, pt.x);
       editWave((d) => { d.c.customPoints.push({ x: Number(xn.toFixed(4)), y: Number(y.toFixed(4)), handles: [] }); });

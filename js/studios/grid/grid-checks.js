@@ -13,7 +13,7 @@ import { StudioRegistry, MAX_GENERATED_VOICES } from '../registry.js';
 import { sanitizeWarpStack } from '../../modules/space-warp.js';
 import { createDefaultGridParams, sanitizeGridParams, bakeGrid, demoLines, gridDomain, gridPresetSpace, warpedGridLines, runAt, getGridBakeCount, withIsolatedGridCache, GRID_PRESET_IDS, GRID_OWN, GRID_MAX_RUNS } from './grid-engine.js';
 import { normalizeDual, resizePane, toggleDualLock, setDualLayout, dualSizes, applyDualTotal, serializeDual, parseDual, gridMetrics, metricsKey, DUAL_DEFAULT, DUAL_GAP, DUAL_NARROW_W } from './grid-layout.js';
-import { GRID_ID, getGridParams, editGrid, applyGridPreset, getGridLines, resolveGridDoc, gridMasterLines, runToVoice, voicePitchAt, gridBakeRuns, gridResultKey } from '../grid-studio.js';
+import { GRID_ID, getGridParams, editGrid, applyGridPreset, getGridLines, resolveGridDoc, gridMasterLines, runToVoice, voicePitchAt, gridBakeRuns, gridResultKey, restoreGridSpace, beginGridPull, writeGridPull } from '../grid-studio.js';
 
 const G = { group: 'studio' };
 const own = (space = [], over = {}) => sanitizeGridParams({ ...createDefaultGridParams(), source: { studio: GRID_OWN }, sound: 'grid', space: sanitizeWarpStack(space), ...over });
@@ -210,4 +210,48 @@ registerSelfCheck('Grid: windows — identical metrics, one view, resize lock (s
     a.near(mR.yToMidi(mE.midiToY(midi)), midi, 1e-9, 'pitch round trip');
   }
   a.ok(mE.view === mR.view, 'both windows read one view object');
+}, G);
+
+registerSelfCheck('Grid: tools, selections, Restore (all / selection), Pull', (a) => {
+  withIsolatedState(() => {
+    const d0 = createDefaultGridParams();
+    a.ok(d0.tool.mode === 'brush' && d0.tool.sel === null && d0.tool.hardness === 0 && d0.tool.aspect === 1 && d0.tool.axis === 'both', 'default tool = the round brush, no selection');
+    const sel = { kind: 'selPitch', poly: [[-1e6, 116], [1e6, 116], [1e6, 124], [-1e6, 124]] };
+    const withSel = sanitizeGridParams({ ...d0, tool: { ...d0.tool, sel } });
+    a.equal(JSON.stringify(sanitizeGridParams(deepClone(withSel))), JSON.stringify(withSel), 'a document with a selection sanitises idempotently');
+    a.equal(sanitizeGridParams({ tool: { sel: { kind: 'nope', poly: sel.poly } } }).tool.sel, null, 'unknown selection kinds are dropped');
+    appState.studioParams[GRID_ID] = own(gridPresetSpace('ripple'));
+    const key0 = gridResultKey(appState.studioParams[GRID_ID]);
+    editGrid((d) => { d.tool.sel = sel; d.tool.feather = 0; }, { history: false });
+    a.equal(gridResultKey(appState.studioParams[GRID_ID]), key0, 'a selection does not change the sound');
+    // restore only the selection: a Restore stage at the end / 선택 영역 복원 = 스택 끝의 복원 단계
+    let res = restoreGridSpace();
+    a.ok(res.ok && res.scope === 'selection', 'restore with a selection');
+    const p1 = getGridParams();
+    a.equal(p1.space[p1.space.length - 1].type, 'restore', 'the Restore stage is last');
+    const b1 = bakeGrid(p1, LINES, { ns: 'detached' });
+    const c3 = b1.runs.find((r) => r.key === 'd1'); // C3 = 48, outside the band (58 – 62) / 띠 밖
+    a.ok(b1.runs.filter((r) => r.key === 'd1').some((r) => r.pts.some((q) => Math.abs(q.m - 48) > 0.2)) && c3, 'outside the selection the ripple stays');
+    // a line inside the band: G3 = 55 is outside, so check with a band around 55 / 띠 안의 선
+    editGrid((d) => { d.tool.sel = { kind: 'selPitch', poly: [[-1e6, 106], [1e6, 106], [1e6, 114], [-1e6, 114]] }; }, { history: false });
+    restoreGridSpace();
+    const g3 = bakeGrid(getGridParams(), LINES, { ns: 'detached' }).runs.filter((r) => r.key === 'd2');
+    a.ok(g3.every((r) => r.pts.every((q) => Math.abs(q.m - 55) < 1e-6)), 'inside the selection the line is back where it was');
+    a.equal(getGridParams().space.filter((it) => it.type === 'restore').length, 1, 'regions collect in one Restore stage');
+    // restore all = flat / 전체 복원 = 평평
+    editGrid((d) => { d.tool.sel = null; }, { history: false });
+    res = restoreGridSpace();
+    a.ok(res.ok && res.scope === 'all' && getGridParams().space.length === 0 && getGridParams().preset === 'flat', 'restore without a selection = flat space');
+    a.equal(restoreGridSpace().reason, 'flat', 'nothing to restore on a flat space');
+    // pull / 당기기
+    a.equal(beginGridPull([0, 0], { region: null }).reason, 'nosel', 'pull needs a selection');
+    const region = { poly: sel.poly, feather: 0 };
+    let s = beginGridPull([40, 120], { region, mode: 'move' });
+    writeGridPull(s, 0, 8);
+    s = beginGridPull([40, 120], { region, mode: 'move' });
+    a.ok(s.opIndex === 0 && s.base[1] === 8, 'grabbing the same selection again continues the last pull');
+    writeGridPull(s, 0, 4);
+    const pl = getGridParams().space.find((it) => it.type === 'pull');
+    a.ok(pl && pl.params.ops.length === 1 && pl.params.ops[0].dy === 12, 'one pull of 12 cells');
+  });
 }, G);

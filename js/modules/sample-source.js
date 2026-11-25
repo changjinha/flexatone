@@ -14,8 +14,14 @@
  *                   gainDb,      level trim (the file is played peak-normalised)
  *                   play,        'tape' (pitch and speed together) | 'pitch' (pitch only: the file is read at
  *                                `speed` × its own speed while the pitch curve sets the pitch — granular shift)
- *                   speed,       read speed in 'pitch' mode (1 = original, 0 = freeze, up to 4)
- *                   grainMs }    grain length in 'pitch' mode (short = cleaner attacks, long = smoother tone)
+ *                   speed,       play speed: 'tape' = rate multiplier on top of the pitch curve (×2 = twice as
+ *                                fast and an octave up, at least SAMPLE_TAPE_SPEED_MIN); 'pitch' = read speed
+ *                                (1 = original, 0 = freeze), up to 4
+ *                   grainMs,     grain length in 'pitch' mode (short = cleaner attacks, long = smoother tone)
+ *                   envOn,       fade-in / fade-out envelope over the region on (false = only the short edge fades)
+ *                   fadeInMs, fadeOutMs,  envelope lengths (shortened together when they do not fit the region)
+ *                   loopOverlap }  loop + envelope: true = the fade-out overlaps the next pass's fade-in
+ *                                (a crossfade; the loop is shorter by the fade-out), false = fade out, then fade in
  *
  * Where it is stored / 저장 위치 (always per voice — never studio-wide / 항상 보이스 단위):
  *   - Glissando voice:  voice.timbreMode = 'sample', voice.timbreSample = spec
@@ -37,8 +43,13 @@ export const DEFAULT_SAMPLE_ROOT = 60;
 /** 'tape': rate = f / root (pitch and speed together). 'pitch': pitch only, read speed separate. */
 export const SAMPLE_PLAY_MODES = Object.freeze(['tape', 'pitch']);
 export const SAMPLE_SPEED_MAX = 4;
+/** Tape cannot stand still (rate 0 = one frozen sample), so its speed has a floor. / 테이프 속도 하한 */
+export const SAMPLE_TAPE_SPEED_MIN = 0.05;
+/** Rate multiplier a tape voice plays at. / 테이프 재생 배율 */
+export function sampleTapeSpeed(spec) { return Math.max(SAMPLE_TAPE_SPEED_MIN, Number(spec?.speed) || 0); }
 export const SAMPLE_GRAIN_MIN_MS = 20;
 export const SAMPLE_GRAIN_MAX_MS = 250;
+export const SAMPLE_FADE_MAX_MS = 20000;
 
 /** Spec with defaults filled in and values limited. / 기본값을 채우고 범위를 제한한 스펙 */
 export function normalizeSampleSpec(raw) {
@@ -57,6 +68,10 @@ export function normalizeSampleSpec(raw) {
     play: SAMPLE_PLAY_MODES.includes(s.play) ? s.play : 'tape',
     speed: clamp(num(s.speed, 1), 0, SAMPLE_SPEED_MAX),
     grainMs: clamp(num(s.grainMs, 70), SAMPLE_GRAIN_MIN_MS, SAMPLE_GRAIN_MAX_MS),
+    envOn: s.envOn === true,
+    fadeInMs: clamp(num(s.fadeInMs, 50), 0, SAMPLE_FADE_MAX_MS),
+    fadeOutMs: clamp(num(s.fadeOutMs, 200), 0, SAMPLE_FADE_MAX_MS),
+    loopOverlap: s.loopOverlap !== false,
   };
 }
 
@@ -79,7 +94,8 @@ export function sampleSpecKey(spec) {
 /** Key of what the region buffer depends on (file, region, loop, fades, gain). / 구간 버퍼 키 */
 export function sampleRegionKey(spec) {
   const s = normalizeSampleSpec(spec);
-  return `${s.id}|${s.t0}|${s.t1 ?? 'end'}|${s.loop}|${s.xfadeMs}|${s.gainDb}`;
+  const env = s.envOn ? `${s.fadeInMs},${s.fadeOutMs},${s.loop === 'loop' && s.loopOverlap ? 'o' : '-'}` : '-';
+  return `${s.id}|${s.t0}|${s.t1 ?? 'end'}|${s.loop}|${s.xfadeMs}|${s.gainDb}|${env}`;
 }
 
 /** Region [a, b) in file samples, limited to the file. / 파일 샘플 단위 구간 */
@@ -107,6 +123,7 @@ export function renderSampleRegion(entry, spec) {
   const scale = (entry.peak > 1e-6 ? 1 / entry.peak : 1) * Math.pow(10, s.gainDb / 20);
   const loop = s.loop === 'loop';
   if (n < 2) return { data: new Float32Array(2), sampleRate: sr, loop: false };
+  if (s.envOn) return renderEnvelopedRegion(entry.data, a, n, sr, scale, s);
   const X = Math.min(Math.round((s.xfadeMs / 1000) * sr), loop ? Math.floor(n / 2) : Math.floor(n / 2));
   if (loop && X >= 1) {
     const out = new Float32Array(n - X);
@@ -129,6 +146,56 @@ export function renderSampleRegion(entry, spec) {
     }
   }
   return { data: out, sampleRate: sr, loop };
+}
+
+/**
+ * Envelope lengths in frames for a region of n frames; scaled down together when they do not fit.
+ * 구간 n 프레임에 맞춘 엔벨로프 길이 (안 맞으면 함께 줄임).
+ */
+export function sampleEnvelopeFrames(spec, n, sampleRate) {
+  const s = normalizeSampleSpec(spec);
+  let A = Math.round((s.fadeInMs / 1000) * sampleRate);
+  let R = Math.round((s.fadeOutMs / 1000) * sampleRate);
+  if (A + R > n) { const k = n / (A + R); A = Math.floor(A * k); R = Math.floor(R * k); }
+  return { A, R };
+}
+
+/** Envelope gain at frame i of n (sine fade in, cosine fade out). / 엔벨로프 이득 */
+function envGain(i, n, A, R) {
+  let g = 1;
+  if (i < A) g *= Math.sin(0.5 * Math.PI * ((i + 0.5) / A));
+  const j = i - (n - R);
+  if (R > 0 && j >= 0) g *= Math.cos(0.5 * Math.PI * ((j + 0.5) / R));
+  return g;
+}
+
+/**
+ * Region with the fade-in / fade-out envelope. Loop + overlap: the fade-out tail is laid over the
+ * fade-in head and the buffer is shorter by the fade-out, so each pass crossfades into the next.
+ * Loop without overlap: the whole region repeats (it fades out, then the next pass fades in).
+ * 엔벨로프 구간. 루프 + 겹침: 페이드아웃 꼬리를 페이드인 머리에 겹치고 그만큼 짧아짐 (다음 회차로 크로스페이드).
+ * 겹침 없음: 구간 전체가 반복 (페이드아웃 후 다음 회차 페이드인).
+ */
+function renderEnvelopedRegion(src, a, n, sr, scale, s) {
+  const loop = s.loop === 'loop';
+  const { A, R } = sampleEnvelopeFrames(s, n, sr);
+  const env = new Float32Array(n);
+  for (let i = 0; i < n; i++) env[i] = src[a + i] * scale * envGain(i, n, A, R);
+  // One shot: keep the short declick on an edge whose fade is 0 / 원샷: 페이드가 0인 쪽은 짧은 클릭 제거
+  if (!loop) {
+    const X = Math.min(Math.round((s.xfadeMs / 1000) * sr), Math.floor(n / 2));
+    for (let i = 0; i < X; i++) {
+      const g = i / X;
+      if (A === 0) env[i] *= g;
+      if (R === 0) env[n - 1 - i] *= g;
+    }
+    return { data: env, sampleRate: sr, loop: false };
+  }
+  const O = s.loopOverlap ? Math.min(R, Math.floor(n / 2)) : 0;
+  if (O < 1) return { data: env, sampleRate: sr, loop: true };
+  const out = env.slice(0, n - O);
+  for (let i = 0; i < O; i++) out[i] += env[n - O + i];
+  return { data: out, sampleRate: sr, loop: true };
 }
 
 /**
@@ -338,6 +405,24 @@ registerSelfCheck('Sampler: spec defaults, region fades, loop crossfade, root de
   a.equal(regionStartOffset(5, 2, false), null, 'one shot is over');
   a.equal(normalizeSampleSpec({}).play, 'tape', 'old specs stay tape');
   a.ok(sampleRegionKey({ id: 'x', play: 'pitch' }) === sampleRegionKey({ id: 'x' }), 'region key ignores the play mode');
+
+  // Envelope / 엔벨로프
+  a.equal(normalizeSampleSpec({}).envOn, false, 'envelope off by default');
+  a.ok(sampleRegionKey({ id: 'x', envOn: true }) !== sampleRegionKey({ id: 'x' }), 'region key follows the envelope');
+  const env = renderSampleRegion(entry, { t0: 0, t1: 1, envOn: true, fadeInMs: 200, fadeOutMs: 300 });
+  a.equal(env.data.length, sr, 'one shot envelope keeps the length');
+  const rmsAt = (d, c, w = 480) => { let q = 0; for (let i = c - w; i < c + w; i++) q += d[i] * d[i]; return Math.sqrt(q / (2 * w)); };
+  a.ok(rmsAt(env.data, Math.round(0.02 * sr)) < 0.25 * rmsAt(env.data, Math.round(0.5 * sr)), 'fades in');
+  a.ok(rmsAt(env.data, sr - 600, 500) < 0.1 * rmsAt(env.data, Math.round(0.5 * sr)), 'fades out');
+  const fit = sampleEnvelopeFrames({ fadeInMs: 800, fadeOutMs: 800 }, sr, sr);
+  a.equal(fit.A + fit.R <= sr, true, 'fades shortened to fit the region');
+  const lo = renderSampleRegion(entry, { t0: 0, t1: 1, loop: 'loop', envOn: true, fadeInMs: 100, fadeOutMs: 100, loopOverlap: true });
+  a.equal(lo.data.length, sr - Math.round(0.1 * sr), 'overlapped loop is shorter by the fade-out');
+  const ln = renderSampleRegion(entry, { t0: 0, t1: 1, loop: 'loop', envOn: true, fadeInMs: 100, fadeOutMs: 100, loopOverlap: false });
+  a.equal(ln.data.length, sr, 'loop without overlap keeps the whole region');
+  // Overlap: the level stays up across the wrap; no overlap: it dips / 겹침: 경계에서 레벨 유지, 겹침 없음: 꺼짐
+  a.ok(rmsAt(lo.data, 480) > 0.5, `overlap keeps level at the wrap (${rmsAt(lo.data, 480).toFixed(2)})`);
+  a.ok(rmsAt(ln.data, 480) < 0.2, 'no overlap dips at the wrap');
 }, { group: 'audio' });
 
 registerSelfCheck('Sampler pitch only: octave up keeps the length, level stays even, speed 0.5 doubles it', (a) => {

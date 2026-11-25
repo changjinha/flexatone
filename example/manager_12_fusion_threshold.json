@@ -1,0 +1,1221 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-24T00:00:00.000Z",
+  "title": "Fusion threshold / 융합 문턱 (45 s)",
+  "description": "Several things cross the border between rhythm and tone at different moments. Risset pulses accelerate until they are a pitch; cloud grains go from 1.5 to 110 per second and fuse into a texture; a tremolo sweeps 2 → 38 Hz on a slow glide (flutter, roughness, then side tones); a logistic map leaves a single note for period 2, 4 and chaos; a 3:4:5 canon meets on one beat at 32 s; a Koch run moves in 0.12 s steps; three Doppler pass-bys come faster each time. Modulation: every canon onset retriggers the Field sparks, the glide's pitch moves the cloud's centre, the logistic steps duck the Koch run. Space Master: steps left, canon right, grains circle wide in 30 s, the pulses run a fast Lissajous figure. / 리듬과 음 사이의 경계를 서로 다른 순간에 넘는 현상들: 음고가 되는 리세 펄스, 초당 1.5 → 110개로 융합되는 그레인, 2 → 38 Hz 트레몰로(떨림 → 거칠기 → 측음), 한 음에서 카오스로 가는 로지스틱 계단, 32초에 만나는 3:4:5 카논, 점점 빨라지는 도플러 통과. 모듈레이션: 카논의 어택이 필드 불꽃을 재시작, 글라이드 음고가 구름 중심을 이동, 로지스틱 계단이 코흐 선율을 덕킹.",
+  "prefs": {
+    "studio": "cloud"
+  },
+  "viewport": {
+    "midiMin": 44,
+    "midiMax": 74,
+    "timeMin": 0,
+    "timeMax": 42
+  },
+  "voices": [
+    {
+      "id": "v_12a",
+      "name": "Flutter → roughness → tone",
+      "color": "#38bdf8",
+      "f0Midi": 50,
+      "f1Midi": 62,
+      "f0Hz": 146.8324,
+      "f1Hz": 293.6648,
+      "startTime": 0,
+      "duration": 40,
+      "engine": "harmonic",
+      "baseGain": 0.5,
+      "timbre": {
+        "sine": 1.0,
+        "tri": 0.0,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.0
+      },
+      "tremolo": {
+        "on": true,
+        "shape": "sine",
+        "rateUnit": "hz",
+        "bpm": 120,
+        "rate": 2,
+        "rateEnd": 38,
+        "rateEngine": "expo",
+        "depthUnit": "amp",
+        "depth": 0.95,
+        "depthDb": 12,
+        "fadeIn": 0,
+        "phase": 0,
+        "sync": "voice",
+        "smooth": 0.3,
+        "seed": 1,
+        "formula": "sin(2*pi*x)"
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0.2,
+          "handles": []
+        },
+        {
+          "x": 0.2,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.9,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_12b",
+      "name": "Shadow a fifth above",
+      "color": "#a78bfa",
+      "f0Midi": 57,
+      "f1Midi": 69,
+      "f0Hz": 220.0,
+      "f1Hz": 440.0,
+      "startTime": 5,
+      "duration": 35,
+      "engine": "harmonic",
+      "baseGain": 0.3,
+      "timbre": {
+        "sine": 1.0,
+        "tri": 0.0,
+        "saw": 0.0,
+        "sqr": 0.0,
+        "rich": 0.0
+      },
+      "tremolo": {
+        "on": true,
+        "shape": "sine",
+        "rateUnit": "hz",
+        "bpm": 120,
+        "rate": 3,
+        "rateEnd": 25,
+        "rateEngine": "expo",
+        "depthUnit": "amp",
+        "depth": 0.95,
+        "depthDb": 12,
+        "fadeIn": 0,
+        "phase": 0.5,
+        "sync": "voice",
+        "smooth": 0.3,
+        "seed": 1,
+        "formula": "sin(2*pi*x)"
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0,
+          "handles": []
+        },
+        {
+          "x": 0.3,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 0.9,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0,
+          "handles": []
+        }
+      ]
+    }
+  ],
+  "activeVoiceId": "v_12a",
+  "versions": [],
+  "studioParams": {
+    "risset": {
+      "rateHz": 0.035,
+      "lastNonZeroRate": 0.035,
+      "voiceCount": 8,
+      "spanSemitones": 56.1564,
+      "baseMidi": -36.38,
+      "masterGain": 0.7,
+      "gridMode": "ratio",
+      "ratioText": "3:2",
+      "waveMorph": 1,
+      "waveDuty": 0.25,
+      "oscSyncHz": 1.5,
+      "flutterDb": -9,
+      "envShape": "gaussian",
+      "envCenter": 0.5,
+      "envWidth": 0.28
+    },
+    "cloud": {
+      "seed": 5,
+      "length": 40,
+      "density": {
+        "engine": "expo",
+        "lo": 1.5,
+        "hi": 110,
+        "reverse": false,
+        "inverse": false,
+        "customPoints": [
+          {
+            "x": 0,
+            "y": 0,
+            "handles": []
+          },
+          {
+            "x": 1,
+            "y": 1,
+            "handles": []
+          }
+        ],
+        "expMode": "exp",
+        "expK": 4
+      },
+      "pitch": {
+        "center": {
+          "engine": "custom",
+          "lo": 72,
+          "hi": 72,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ]
+        },
+        "width": {
+          "engine": "custom",
+          "lo": 14,
+          "hi": 5,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ]
+        },
+        "dist": "gauss",
+        "min": 48,
+        "max": 96
+      },
+      "glide": {
+        "mode": "slope",
+        "slopeMean": 0,
+        "slopeSpread": 3,
+        "upBias": 0.5
+      },
+      "duration": {
+        "dist": "uniform",
+        "mean": 0.12,
+        "min": 0.06,
+        "max": 0.22
+      },
+      "gain": {
+        "base": 0.5,
+        "spread": 0.3,
+        "envelope": "expdecay",
+        "attack": 0.01
+      },
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.2,
+        "saw": 0,
+        "sqr": 0,
+        "rich": 0.3,
+        "stereo": 0.9
+      },
+      "view": {
+        "tMin": 0,
+        "tMax": 40,
+        "midiMin": 48,
+        "midiMax": 96,
+        "curveTab": "density",
+        "histWin": 4
+      }
+    },
+    "chaos": {
+      "preset": "custom",
+      "system": "logistic",
+      "params": {
+        "r": 3.7
+      },
+      "seed": 4,
+      "voices": 2,
+      "spread": 1e-06,
+      "duration": 40,
+      "normalize": "reference",
+      "map": {
+        "pitch": {
+          "source": "x",
+          "curve": "linear",
+          "invert": false,
+          "quantize": "off",
+          "scale": "penta",
+          "root": 0,
+          "slewMs": 0,
+          "quantAmt": 1,
+          "sens": 1,
+          "lo": 55,
+          "hi": 91
+        },
+        "gain": {
+          "source": "speed",
+          "lo": 0.2,
+          "hi": 0.9,
+          "curve": "linear",
+          "invert": false
+        },
+        "bright": {
+          "source": "x",
+          "lo": 0,
+          "hi": 1,
+          "curve": "linear",
+          "invert": false
+        }
+      },
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.3,
+        "saw": 0.12,
+        "sqr": 0,
+        "rich": 0.1,
+        "baseGain": 0.8,
+        "width": 0.8,
+        "brightAmt": 0.5
+      },
+      "transient": 200,
+      "sweep": {
+        "on": true,
+        "param": "r",
+        "from": 2.9,
+        "to": 3.99
+      },
+      "discrete": {
+        "mode": "hold",
+        "rate": 7,
+        "glideMs": 20
+      }
+    },
+    "tempo": {
+      "seed": 1,
+      "preset": "custom",
+      "length": 40,
+      "quantizeBake": "continuous",
+      "subject": {
+        "notes": [
+          {
+            "midi": 62,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 65,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 69,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 67,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 72,
+            "dur": 1,
+            "glide": 0.4
+          },
+          {
+            "midi": 71,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 69,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 65,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 64,
+            "dur": 0.5,
+            "glide": 0.3
+          },
+          {
+            "midi": 62,
+            "dur": 0.5,
+            "glide": 0
+          },
+          {
+            "midi": 69,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 57,
+            "dur": 2,
+            "glide": 0.25
+          }
+        ],
+        "source": "editor",
+        "voiceIndex": 0,
+        "bpmRef": 120
+      },
+      "converge": {
+        "enabled": true,
+        "Tc": 30,
+        "sc": 25,
+        "ratios": [
+          3,
+          4,
+          5
+        ],
+        "r0": 0.25,
+        "preset": "nancarrow"
+      },
+      "phasing": {
+        "enabled": false,
+        "epsilon": 0.01
+      },
+      "pulse": {
+        "audible": true,
+        "kind": "tick",
+        "accentFirst": true,
+        "level": 0.2
+      },
+      "voices": [
+        {
+          "id": "tv1",
+          "name": "3",
+          "transpose": -12,
+          "start": 0,
+          "tempo": {
+            "mode": "converge"
+          },
+          "baseGain": 0.65,
+          "timbre": {
+            "sine": 0.7,
+            "tri": 0.5,
+            "saw": 0.1,
+            "sqr": 0.1,
+            "rich": 0.1
+          }
+        },
+        {
+          "id": "tv2",
+          "name": "4",
+          "transpose": 0,
+          "start": 0,
+          "tempo": {
+            "mode": "converge"
+          },
+          "baseGain": 0.6,
+          "timbre": {
+            "sine": 0.4,
+            "tri": 0.6,
+            "saw": 0.05,
+            "sqr": 0.05,
+            "rich": 0.25
+          }
+        },
+        {
+          "id": "tv3",
+          "name": "5",
+          "transpose": 12,
+          "start": 0,
+          "tempo": {
+            "mode": "converge"
+          },
+          "baseGain": 0.45,
+          "timbre": {
+            "sine": 0.4,
+            "tri": 0.6,
+            "saw": 0.05,
+            "sqr": 0.05,
+            "rich": 0.25
+          }
+        }
+      ],
+      "activeVoiceId": "tv1"
+    },
+    "field": {
+      "flowMode": "2d",
+      "fieldEnabled": true,
+      "fieldCoord": 2,
+      "guideAttraction": 1.6,
+      "wellGrid": "none",
+      "wellStrength": 0,
+      "layers": [
+        {
+          "id": "fl_main",
+          "name": "Main field",
+          "enabled": true,
+          "mode": "add",
+          "amount": 1,
+          "range": {
+            "full": true,
+            "t0": 0,
+            "t1": 4,
+            "m0": 48,
+            "m1": 72
+          },
+          "shape": "rect",
+          "invert": false,
+          "feather": 0.08,
+          "nodes": [
+            {
+              "id": "fn_1",
+              "type": "repeller",
+              "sec": 0.5,
+              "midi": 80,
+              "strength": 1.4,
+              "radius": 0.25
+            },
+            {
+              "id": "fn_2",
+              "type": "vortex",
+              "sec": 1.1,
+              "midi": 78,
+              "strength": 1.2,
+              "radius": 0.22
+            }
+          ],
+          "turbulence": 0.9,
+          "turbFreq": 3.5,
+          "fieldPhase": 0,
+          "flowAngle": 0,
+          "flowStrength": 0
+        }
+      ],
+      "activeLayerId": "fl_main",
+      "regions": [],
+      "activeRegionId": "",
+      "voices": [
+        {
+          "id": "pv_12a",
+          "name": "Spark up",
+          "color": "#34d399",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 76,
+          "f1Midi": 88,
+          "startTime": 0,
+          "duration": 1.6,
+          "baseGain": 0.7,
+          "mass": 0.6,
+          "drag": 3.8,
+          "launchAngle": 40,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.0,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        },
+        {
+          "id": "pv_12b",
+          "name": "Spark down",
+          "color": "#2dd4bf",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 84,
+          "f1Midi": 72,
+          "startTime": 0.15,
+          "duration": 1.4,
+          "baseGain": 0.6,
+          "mass": 0.8,
+          "drag": 3.8,
+          "launchAngle": -40,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.2,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        }
+      ],
+      "activeVoiceId": "pv_12a",
+      "view": {
+        "viewMode": "piano",
+        "showArrows": true,
+        "showWells": true,
+        "showGuide": true,
+        "showRegions": true,
+        "showLayers": true,
+        "arrowDensity": 34,
+        "arrowSize": 1,
+        "arrowWidth": 1.1,
+        "tMin": 0,
+        "tMax": 2,
+        "midiMin": 66,
+        "midiMax": 92
+      },
+      "cueSec": 0
+    },
+    "fractal": {
+      "mode": "lsystem",
+      "preset": "",
+      "seed": 1,
+      "length": 30,
+      "lo": 48,
+      "hi": 88,
+      "quantize": "off",
+      "lsys": {
+        "axiom": "F",
+        "rules": [
+          {
+            "from": "F",
+            "to": "F+F-F-F+F"
+          }
+        ],
+        "iterations": 3,
+        "angleSemitones": 3,
+        "stepSec": 0.12,
+        "glide": true,
+        "startNote": 64
+      },
+      "gain": {
+        "source": "fixed",
+        "level": 0.6,
+        "slopeAmount": 0.6
+      },
+      "timbre": {
+        "sine": 0.6,
+        "tri": 0.5,
+        "saw": 0.1,
+        "sqr": 0,
+        "rich": 0.15
+      },
+      "voicesMax": 8
+    },
+    "space": {
+      "c": 343,
+      "cScale": 0.45,
+      "airDist": 40,
+      "refDist": 4,
+      "listener": {
+        "x": 0,
+        "y": 0,
+        "headingDeg": 0
+      },
+      "length": 34,
+      "bakeRate": 200,
+      "panMode": "equalPower",
+      "seed": 1,
+      "preset": "custom",
+      "tool": "move",
+      "view": {
+        "cx": 0,
+        "cy": 0,
+        "span": 140
+      },
+      "sources": [
+        {
+          "id": "s1",
+          "name": "Pass 1",
+          "color": "#22d3ee",
+          "path": {
+            "type": "line",
+            "x0": -120,
+            "y0": 4,
+            "x1": 120,
+            "y1": 4
+          },
+          "speed": {
+            "mode": "const",
+            "value": 30
+          },
+          "start": 6,
+          "duration": 8,
+          "baseGain": 0.6,
+          "f": {
+            "mode": "const",
+            "hz": 880
+          }
+        },
+        {
+          "id": "s2",
+          "name": "Pass 2 (faster)",
+          "color": "#f472b6",
+          "path": {
+            "type": "line",
+            "x0": 120,
+            "y0": -4,
+            "x1": -120,
+            "y1": -4
+          },
+          "speed": {
+            "mode": "const",
+            "value": 48
+          },
+          "start": 18,
+          "duration": 5,
+          "baseGain": 0.6,
+          "f": {
+            "mode": "const",
+            "hz": 660
+          }
+        },
+        {
+          "id": "s3",
+          "name": "Pass 3 (fastest)",
+          "color": "#fbbf24",
+          "path": {
+            "type": "line",
+            "x0": -120,
+            "y0": 3,
+            "x1": 120,
+            "y1": 3
+          },
+          "speed": {
+            "mode": "const",
+            "value": 80
+          },
+          "start": 30,
+          "duration": 3,
+          "baseGain": 0.6,
+          "f": {
+            "mode": "const",
+            "hz": 1100
+          }
+        }
+      ],
+      "activeSourceId": "s1"
+    },
+    "_spaceMaster": {
+      "on": true,
+      "wet": 1,
+      "compensate": true,
+      "doc": {
+        "c": 343,
+        "cScale": 1.0,
+        "airDist": 40,
+        "refDist": 8,
+        "listener": {
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "headingDeg": 0
+        },
+        "length": 45,
+        "bakeRate": 200,
+        "panMode": "equalPower",
+        "seed": 1,
+        "preset": "",
+        "tool": "move",
+        "view": {
+          "cx": 0,
+          "cy": 0,
+          "span": 60
+        },
+        "spatial": {
+          "order": 2,
+          "weighting": "maxre"
+        },
+        "sources": [
+          {
+            "id": "trk_in_12_pulse",
+            "name": "Pulses → pitch (Risset rhythm)",
+            "color": "#a78bfa",
+            "path": {
+              "type": "lissajous",
+              "cx": 0,
+              "cy": 5,
+              "ax": 10,
+              "ay": 6,
+              "a": 3,
+              "b": 2,
+              "delta": 30,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 22.364
+            },
+            "start": 0,
+            "duration": 45,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_12_pulse",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_12_grain",
+            "name": "Grains → texture (1.5 → 110 /s)",
+            "color": "#94a3b8",
+            "path": {
+              "type": "orbit",
+              "cx": 0,
+              "cy": 0,
+              "rx": 11,
+              "ry": 11,
+              "phase": 90,
+              "dir": 1,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 2.304
+            },
+            "start": 0,
+            "duration": 45,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_12_grain",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_12_steps",
+            "name": "Steps: order → chaos",
+            "color": "#fb923c",
+            "path": {
+              "type": "static",
+              "x": -9,
+              "y": 6,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 1
+            },
+            "start": 0,
+            "duration": 45,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_12_steps",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_12_canon",
+            "name": "Canon 3:4:5 (meets at 32 s)",
+            "color": "#facc15",
+            "path": {
+              "type": "static",
+              "x": 9,
+              "y": 6,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 1
+            },
+            "start": 0,
+            "duration": 45,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_12_canon",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_12_flut",
+            "name": "Flutter → roughness",
+            "color": "#38bdf8",
+            "path": {
+              "type": "orbit",
+              "cx": 0,
+              "cy": 0,
+              "rx": 6,
+              "ry": 6,
+              "phase": 270,
+              "dir": -1,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 0.838
+            },
+            "start": 0,
+            "duration": 45,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_12_flut",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_12_spark",
+            "name": "Sparks (retriggered by the canon)",
+            "color": "#34d399",
+            "path": {
+              "type": "lissajous",
+              "cx": 0,
+              "cy": 0,
+              "ax": 14,
+              "ay": 10,
+              "a": 2,
+              "b": 3,
+              "delta": 0,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 19.461
+            },
+            "start": 0,
+            "duration": 45,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_12_spark",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_12_koch",
+            "name": "Koch run (0.12 s steps)",
+            "color": "#c084fc",
+            "path": {
+              "type": "spiral",
+              "cx": 0,
+              "cy": 0,
+              "r0": 4,
+              "r1": 20,
+              "turns": 2.5,
+              "phase": 0,
+              "dir": -1,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 4.189
+            },
+            "start": 0,
+            "duration": 45,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_12_koch",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_12_pass",
+            "name": "Three pass-bys, each faster",
+            "color": "#22d3ee",
+            "path": {
+              "type": "static",
+              "x": 0,
+              "y": 10,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 1
+            },
+            "start": 0,
+            "duration": 45,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_12_pass",
+              "content": "heard",
+              "bypass": true
+            }
+          }
+        ],
+        "activeSourceId": "trk_in_12_pulse"
+      }
+    }
+  },
+  "manager": {
+    "instances": [
+      {
+        "id": "in_12_pulse",
+        "studio": "risset",
+        "name": "Pulses → pitch (Risset rhythm)",
+        "color": "#a78bfa",
+        "doc": null,
+        "gainDb": -11,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 45,
+        "loop": true,
+        "fadeIn": 4,
+        "fadeOut": 4,
+        "inCycle": true
+      },
+      {
+        "id": "in_12_grain",
+        "studio": "cloud",
+        "name": "Grains → texture (1.5 → 110 /s)",
+        "color": "#94a3b8",
+        "doc": null,
+        "gainDb": 3,
+        "mute": false,
+        "solo": false,
+        "start": 3,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.5,
+        "fadeOut": 3,
+        "inCycle": true
+      },
+      {
+        "id": "in_12_steps",
+        "studio": "chaos",
+        "name": "Steps: order → chaos",
+        "color": "#fb923c",
+        "doc": null,
+        "gainDb": -6,
+        "mute": false,
+        "solo": false,
+        "start": 2,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.5,
+        "fadeOut": 3,
+        "inCycle": true
+      },
+      {
+        "id": "in_12_canon",
+        "studio": "tempo",
+        "name": "Canon 3:4:5 (meets at 32 s)",
+        "color": "#facc15",
+        "doc": null,
+        "gainDb": -6,
+        "mute": false,
+        "solo": false,
+        "start": 2,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.3,
+        "fadeOut": 3,
+        "inCycle": true
+      },
+      {
+        "id": "in_12_flut",
+        "studio": "glissando",
+        "name": "Flutter → roughness",
+        "color": "#38bdf8",
+        "doc": null,
+        "gainDb": -9,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 1,
+        "fadeOut": 2,
+        "inCycle": true
+      },
+      {
+        "id": "in_12_spark",
+        "studio": "field",
+        "name": "Sparks (retriggered by the canon)",
+        "color": "#34d399",
+        "doc": null,
+        "gainDb": -11,
+        "mute": false,
+        "solo": false,
+        "start": 2,
+        "length": 40,
+        "loop": true,
+        "fadeIn": 0.05,
+        "fadeOut": 2,
+        "inCycle": true
+      },
+      {
+        "id": "in_12_koch",
+        "studio": "fractal",
+        "name": "Koch run (0.12 s steps)",
+        "color": "#c084fc",
+        "doc": null,
+        "gainDb": -2,
+        "mute": false,
+        "solo": false,
+        "start": 12,
+        "length": null,
+        "loop": false,
+        "fadeIn": 2,
+        "fadeOut": 3,
+        "inCycle": true
+      },
+      {
+        "id": "in_12_pass",
+        "studio": "space",
+        "name": "Three pass-bys, each faster",
+        "color": "#22d3ee",
+        "doc": null,
+        "gainDb": 4,
+        "mute": false,
+        "solo": false,
+        "start": 6,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.3,
+        "fadeOut": 2,
+        "inCycle": true
+      }
+    ],
+    "focus": {
+      "risset": "in_12_pulse",
+      "cloud": "in_12_grain",
+      "chaos": "in_12_steps",
+      "tempo": "in_12_canon",
+      "glissando": "in_12_flut",
+      "field": "in_12_spark",
+      "fractal": "in_12_koch",
+      "space": "in_12_pass"
+    },
+    "cycleLoop": true,
+    "cycleMode": "auto",
+    "cycleLen": null,
+    "open": true,
+    "regions": [],
+    "mods": [
+      {
+        "id": "md_12a",
+        "on": true,
+        "src": {
+          "inst": "in_12_canon",
+          "kind": "trig",
+          "line": "mean",
+          "trig": "onset",
+          "thrDb": -24
+        },
+        "dst": {
+          "inst": "in_12_spark",
+          "param": "retrig"
+        },
+        "amount": 1,
+        "invert": false,
+        "attackMs": 10,
+        "releaseMs": 250
+      },
+      {
+        "id": "md_12b",
+        "on": true,
+        "src": {
+          "inst": "in_12_flut",
+          "kind": "pitch",
+          "line": "mean",
+          "trig": "onset",
+          "thrDb": -24
+        },
+        "dst": {
+          "inst": "in_12_grain",
+          "param": "cloud.center"
+        },
+        "amount": 0.3,
+        "invert": false,
+        "attackMs": 10,
+        "releaseMs": 250
+      },
+      {
+        "id": "md_12c",
+        "on": true,
+        "src": {
+          "inst": "in_12_steps",
+          "kind": "env",
+          "line": "mean",
+          "trig": "onset",
+          "thrDb": -24
+        },
+        "dst": {
+          "inst": "in_12_koch",
+          "param": "gain"
+        },
+        "amount": -10,
+        "invert": false,
+        "attackMs": 5,
+        "releaseMs": 180
+      }
+    ]
+  }
+}

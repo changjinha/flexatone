@@ -1,0 +1,1732 @@
+{
+  "format": "flexatone-project",
+  "version": 1,
+  "savedAt": "2026-11-24T00:00:00.000Z",
+  "title": "Contrary motions / 반진행 (48 s)",
+  "description": "Things that move against each other, each on its own clock: a Shepard–Risset field rises for ever while a second one (in fifths) falls for ever; in the Tempo fan one voice slows to 0.4× while another rushes to 2.6×; a devil's staircase and a Brownian cloud climb while three Glissando lines fall for 30 s each. A silent Draw track is a local Warp (brush, 7 st radius): only pitches near its strokes are dragged. Modulation: the canon's loudness ducks the rising field (sidechain −9 dB), the falling lines' pitch drives the Wave track's tremolo. Space Master (HRTF): the rise orbits clockwise in 16 s, the fall counter-clockwise in 12 s, the canon crosses left → right once, the falls spiral inward. / 서로 반대로 움직이는 것들: 끝없는 상승과 끝없는 하강(5도 격자), 느려지는 성부와 빨라지는 성부, 오르는 계단·브라운 구름과 떨어지는 세 선. 무음 드로잉 트랙은 붓 방식 곡률(획 근처 음고만 끌림). 모듈레이션: 카논의 음량이 상승 음장을 덕킹, 하강선의 음고가 웨이브의 트레몰로를 구동. 스페이스 마스터(HRTF)에서 상승은 시계 방향 16초, 하강은 반시계 12초로 공전.",
+  "prefs": {
+    "studio": "risset"
+  },
+  "viewport": {
+    "midiMin": 36,
+    "midiMax": 92,
+    "timeMin": 0,
+    "timeMax": 48
+  },
+  "voices": [
+    {
+      "id": "v_11a",
+      "name": "Fall 1",
+      "color": "#38bdf8",
+      "f0Midi": 88,
+      "f1Midi": 52,
+      "f0Hz": 1318.5102,
+      "f1Hz": 164.8138,
+      "startTime": 0,
+      "duration": 30,
+      "engine": "harmonic",
+      "baseGain": 0.4,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0,
+          "handles": []
+        },
+        {
+          "x": 0.15,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.85,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_11b",
+      "name": "Fall 2",
+      "color": "#a78bfa",
+      "f0Midi": 84,
+      "f1Midi": 45,
+      "f0Hz": 1046.5023,
+      "f1Hz": 110.0,
+      "startTime": 8,
+      "duration": 30,
+      "engine": "plateau",
+      "baseGain": 0.4,
+      "timbre": {
+        "sine": 0.9,
+        "tri": 0.3,
+        "saw": 0.05,
+        "sqr": 0.0,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0,
+          "handles": []
+        },
+        {
+          "x": 0.15,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.85,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0,
+          "handles": []
+        }
+      ]
+    },
+    {
+      "id": "v_11c",
+      "name": "Fall 3",
+      "color": "#f472b6",
+      "f0Midi": 91,
+      "f1Midi": 40,
+      "f0Hz": 1567.9817,
+      "f1Hz": 82.4069,
+      "startTime": 16,
+      "duration": 32,
+      "engine": "anticipation",
+      "baseGain": 0.4,
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.5,
+        "saw": 0.1,
+        "sqr": 0.1,
+        "rich": 0.1
+      },
+      "gainPoints": [
+        {
+          "x": 0,
+          "y": 0,
+          "handles": []
+        },
+        {
+          "x": 0.15,
+          "y": 0.9,
+          "handles": []
+        },
+        {
+          "x": 0.85,
+          "y": 0.8,
+          "handles": []
+        },
+        {
+          "x": 1,
+          "y": 0,
+          "handles": []
+        }
+      ]
+    }
+  ],
+  "activeVoiceId": "v_11a",
+  "versions": [],
+  "studioParams": {
+    "risset": {
+      "rateHz": 0.03,
+      "lastNonZeroRate": 0.03,
+      "voiceCount": 8,
+      "spanSemitones": 96,
+      "baseMidi": 26,
+      "masterGain": 0.6,
+      "envCenter": 0.45,
+      "envWidth": 0.28
+    },
+    "tempo": {
+      "seed": 1,
+      "preset": "custom",
+      "length": 40,
+      "quantizeBake": "continuous",
+      "subject": {
+        "notes": [
+          {
+            "midi": 57,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 60,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 64,
+            "dur": 1,
+            "glide": 0.5
+          },
+          {
+            "midi": 62,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 59,
+            "dur": 1,
+            "glide": 0
+          },
+          {
+            "midi": 55,
+            "dur": 1,
+            "glide": 0.5
+          },
+          {
+            "midi": 57,
+            "dur": 2,
+            "glide": 0
+          }
+        ],
+        "source": "editor",
+        "voiceIndex": 0,
+        "bpmRef": 120
+      },
+      "converge": {
+        "enabled": false,
+        "Tc": 30,
+        "sc": 0,
+        "ratios": [
+          3,
+          4,
+          5
+        ],
+        "r0": 0.25,
+        "preset": "custom"
+      },
+      "phasing": {
+        "enabled": false,
+        "epsilon": 0.01
+      },
+      "pulse": {
+        "audible": false,
+        "kind": "tick",
+        "accentFirst": true,
+        "level": 0.3
+      },
+      "voices": [
+        {
+          "id": "tv1",
+          "name": "→ 0.4× (slowing)",
+          "transpose": -12,
+          "start": 0,
+          "tempo": {
+            "mode": "curve",
+            "lo": 1,
+            "hi": 0.4,
+            "scale": "log",
+            "curve": {
+              "engine": "expo",
+              "reverse": false,
+              "inverse": false,
+              "expMode": "exp",
+              "expK": 2
+            }
+          },
+          "baseGain": 0.65,
+          "timbre": {
+            "sine": 0.7,
+            "tri": 0.5,
+            "saw": 0.1,
+            "sqr": 0.1,
+            "rich": 0.1
+          }
+        },
+        {
+          "id": "tv2",
+          "name": "1× (steady)",
+          "transpose": 0,
+          "start": 0,
+          "tempo": {
+            "mode": "const",
+            "ratio": 1
+          },
+          "baseGain": 0.5,
+          "timbre": {
+            "sine": 0.4,
+            "tri": 0.6,
+            "saw": 0.05,
+            "sqr": 0.05,
+            "rich": 0.25
+          }
+        },
+        {
+          "id": "tv3",
+          "name": "→ 2.6× (rushing)",
+          "transpose": 12,
+          "start": 0,
+          "tempo": {
+            "mode": "curve",
+            "lo": 1,
+            "hi": 2.6,
+            "scale": "log",
+            "curve": {
+              "engine": "expo",
+              "reverse": false,
+              "inverse": false,
+              "expMode": "exp",
+              "expK": 4
+            }
+          },
+          "baseGain": 0.45,
+          "timbre": {
+            "sine": 0.9,
+            "tri": 0.15,
+            "saw": 0,
+            "sqr": 0,
+            "rich": 0.25
+          }
+        }
+      ],
+      "activeVoiceId": "tv1"
+    },
+    "fractal": {
+      "mode": "cantor",
+      "preset": "devilsStair",
+      "seed": 2,
+      "length": 24,
+      "lo": 45,
+      "hi": 81,
+      "quantize": "off",
+      "cantor": {
+        "div": 3,
+        "gap": 0.3333333333333333,
+        "depth": 6
+      },
+      "gain": {
+        "source": "fixed",
+        "level": 0.6,
+        "slopeAmount": 0.6
+      },
+      "timbre": {
+        "sine": 0.7,
+        "tri": 0.4,
+        "saw": 0.1,
+        "sqr": 0,
+        "rich": 0.2
+      }
+    },
+    "cloud": {
+      "seed": 3,
+      "length": 32,
+      "density": {
+        "engine": "custom",
+        "lo": 18,
+        "hi": 45,
+        "reverse": false,
+        "inverse": false,
+        "customPoints": [
+          {
+            "x": 0,
+            "y": 0,
+            "handles": []
+          },
+          {
+            "x": 1,
+            "y": 1,
+            "handles": []
+          }
+        ]
+      },
+      "pitch": {
+        "center": {
+          "engine": "custom",
+          "lo": 42,
+          "hi": 86,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ]
+        },
+        "width": {
+          "engine": "custom",
+          "lo": 5,
+          "hi": 5,
+          "reverse": false,
+          "inverse": false,
+          "customPoints": [
+            {
+              "x": 0,
+              "y": 0,
+              "handles": []
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "handles": []
+            }
+          ]
+        },
+        "dist": "brownian",
+        "min": 30,
+        "max": 100,
+        "brownStep": 1.2,
+        "brownDrift": 0.15
+      },
+      "glide": {
+        "mode": "slope",
+        "slopeMean": 2,
+        "slopeSpread": 2,
+        "upBias": 0.8
+      },
+      "duration": {
+        "dist": "exp",
+        "mean": 0.35,
+        "min": 0.05,
+        "max": 2
+      },
+      "gain": {
+        "base": 0.5,
+        "spread": 0.3,
+        "envelope": "hann",
+        "attack": 0.01
+      },
+      "timbre": {
+        "sine": 0.85,
+        "tri": 0.25,
+        "saw": 0.03,
+        "sqr": 0,
+        "rich": 0.15,
+        "stereo": 0.7
+      },
+      "view": {
+        "tMin": 0,
+        "tMax": 32,
+        "midiMin": 30,
+        "midiMax": 100,
+        "curveTab": "density",
+        "histWin": 4
+      }
+    },
+    "wave": {
+      "preset": "medium",
+      "eq": "wave",
+      "Nx": 128,
+      "pLo": 36,
+      "pHi": 96,
+      "length": 30,
+      "speed": 10,
+      "cLo": 0.5,
+      "cHi": 2,
+      "c": {
+        "engine": "custom",
+        "customPoints": [
+          {
+            "x": 0,
+            "y": 0,
+            "handles": []
+          },
+          {
+            "x": 1,
+            "y": 1,
+            "handles": []
+          }
+        ]
+      },
+      "damping": 0.02,
+      "init": [
+        {
+          "kind": "gauss",
+          "x": 0.12,
+          "width": 1.5,
+          "amp": 1,
+          "mode": 3,
+          "velocity": 1
+        },
+        {
+          "kind": "gauss",
+          "x": 0.6,
+          "width": 1.5,
+          "amp": -0.7,
+          "mode": 3,
+          "velocity": -1
+        }
+      ],
+      "sonify": {
+        "mode": "spectral",
+        "source": "abs",
+        "ampPower": 1.5,
+        "gain": 1,
+        "floor": 0.001,
+        "stereo": 0.5,
+        "engine": "auto"
+      }
+    },
+    "draw": {
+      "version": 1,
+      "strokes": [
+        {
+          "id": "ds_11a",
+          "name": "Bend up",
+          "color": "#f472b6",
+          "muted": false,
+          "solo": false,
+          "raw": [
+            {
+              "t": 2.0,
+              "p": 60.0,
+              "w": 0.35
+            },
+            {
+              "t": 2.3333,
+              "p": 60.0513,
+              "w": 0.3892
+            },
+            {
+              "t": 2.6667,
+              "p": 60.2044,
+              "w": 0.4283
+            },
+            {
+              "t": 3.0,
+              "p": 60.4567,
+              "w": 0.4671
+            },
+            {
+              "t": 3.3333,
+              "p": 60.8038,
+              "w": 0.5053
+            },
+            {
+              "t": 3.6667,
+              "p": 61.2399,
+              "w": 0.5429
+            },
+            {
+              "t": 4.0,
+              "p": 61.7574,
+              "w": 0.5796
+            },
+            {
+              "t": 4.3333,
+              "p": 62.3474,
+              "w": 0.6154
+            },
+            {
+              "t": 4.6667,
+              "p": 63.0,
+              "w": 0.65
+            },
+            {
+              "t": 5.0,
+              "p": 63.7039,
+              "w": 0.6833
+            },
+            {
+              "t": 5.3333,
+              "p": 64.4471,
+              "w": 0.7153
+            },
+            {
+              "t": 5.6667,
+              "p": 65.2168,
+              "w": 0.7456
+            },
+            {
+              "t": 6.0,
+              "p": 66.0,
+              "w": 0.7743
+            },
+            {
+              "t": 6.3333,
+              "p": 66.7832,
+              "w": 0.8011
+            },
+            {
+              "t": 6.6667,
+              "p": 67.5529,
+              "w": 0.826
+            },
+            {
+              "t": 7.0,
+              "p": 68.2961,
+              "w": 0.8489
+            },
+            {
+              "t": 7.3333,
+              "p": 69.0,
+              "w": 0.8696
+            },
+            {
+              "t": 7.6667,
+              "p": 69.6526,
+              "w": 0.8881
+            },
+            {
+              "t": 8.0,
+              "p": 70.2426,
+              "w": 0.9043
+            },
+            {
+              "t": 8.3333,
+              "p": 70.7601,
+              "w": 0.9182
+            },
+            {
+              "t": 8.6667,
+              "p": 71.1962,
+              "w": 0.9296
+            },
+            {
+              "t": 9.0,
+              "p": 71.5433,
+              "w": 0.9385
+            },
+            {
+              "t": 9.3333,
+              "p": 71.7956,
+              "w": 0.9449
+            },
+            {
+              "t": 9.6667,
+              "p": 71.9487,
+              "w": 0.9487
+            },
+            {
+              "t": 10.0,
+              "p": 72.0,
+              "w": 0.95
+            },
+            {
+              "t": 10.3333,
+              "p": 71.9572,
+              "w": 0.9487
+            },
+            {
+              "t": 10.6667,
+              "p": 71.8296,
+              "w": 0.9449
+            },
+            {
+              "t": 11.0,
+              "p": 71.6194,
+              "w": 0.9385
+            },
+            {
+              "t": 11.3333,
+              "p": 71.3301,
+              "w": 0.9296
+            },
+            {
+              "t": 11.6667,
+              "p": 70.9668,
+              "w": 0.9182
+            },
+            {
+              "t": 12.0,
+              "p": 70.5355,
+              "w": 0.9043
+            },
+            {
+              "t": 12.3333,
+              "p": 70.0438,
+              "w": 0.8881
+            },
+            {
+              "t": 12.6667,
+              "p": 69.5,
+              "w": 0.8696
+            },
+            {
+              "t": 13.0,
+              "p": 68.9134,
+              "w": 0.8489
+            },
+            {
+              "t": 13.3333,
+              "p": 68.2941,
+              "w": 0.826
+            },
+            {
+              "t": 13.6667,
+              "p": 67.6526,
+              "w": 0.8011
+            },
+            {
+              "t": 14.0,
+              "p": 67.0,
+              "w": 0.7743
+            },
+            {
+              "t": 14.3333,
+              "p": 66.3474,
+              "w": 0.7456
+            },
+            {
+              "t": 14.6667,
+              "p": 65.7059,
+              "w": 0.7153
+            },
+            {
+              "t": 15.0,
+              "p": 65.0866,
+              "w": 0.6833
+            },
+            {
+              "t": 15.3333,
+              "p": 64.5,
+              "w": 0.65
+            },
+            {
+              "t": 15.6667,
+              "p": 63.9562,
+              "w": 0.6154
+            },
+            {
+              "t": 16.0,
+              "p": 63.4645,
+              "w": 0.5796
+            },
+            {
+              "t": 16.3333,
+              "p": 63.0332,
+              "w": 0.5429
+            },
+            {
+              "t": 16.6667,
+              "p": 62.6699,
+              "w": 0.5053
+            },
+            {
+              "t": 17.0,
+              "p": 62.3806,
+              "w": 0.4671
+            },
+            {
+              "t": 17.3333,
+              "p": 62.1704,
+              "w": 0.4283
+            },
+            {
+              "t": 17.6667,
+              "p": 62.0428,
+              "w": 0.3892
+            },
+            {
+              "t": 18.0,
+              "p": 62.0,
+              "w": 0.35
+            }
+          ],
+          "reversal": "drop",
+          "timeMode": "x",
+          "arcSpeed": 12,
+          "smooth": 0.35,
+          "pitchSnap": "off",
+          "scaleId": "major",
+          "scaleRoot": 0,
+          "snapStrength": 0.7,
+          "gainSource": "width",
+          "widthDepth": 1,
+          "baseGain": 0.8,
+          "timbre": {
+            "sine": 0.75,
+            "tri": 0.2,
+            "saw": 0.1,
+            "sqr": 0,
+            "rich": 0.15
+          },
+          "transform": {
+            "transpose": 0,
+            "stretch": 1,
+            "reverse": false,
+            "invert": false
+          },
+          "direct": false
+        },
+        {
+          "id": "ds_11b",
+          "name": "Bend down",
+          "color": "#fbbf24",
+          "muted": false,
+          "solo": false,
+          "raw": [
+            {
+              "t": 12.0,
+              "p": 80.0,
+              "w": 0.35
+            },
+            {
+              "t": 12.375,
+              "p": 79.9515,
+              "w": 0.3892
+            },
+            {
+              "t": 12.75,
+              "p": 79.8066,
+              "w": 0.4283
+            },
+            {
+              "t": 13.125,
+              "p": 79.5673,
+              "w": 0.4671
+            },
+            {
+              "t": 13.5,
+              "p": 79.237,
+              "w": 0.5053
+            },
+            {
+              "t": 13.875,
+              "p": 78.8203,
+              "w": 0.5429
+            },
+            {
+              "t": 14.25,
+              "p": 78.3228,
+              "w": 0.5796
+            },
+            {
+              "t": 14.625,
+              "p": 77.7516,
+              "w": 0.6154
+            },
+            {
+              "t": 15.0,
+              "p": 77.1145,
+              "w": 0.65
+            },
+            {
+              "t": 15.375,
+              "p": 76.4203,
+              "w": 0.6833
+            },
+            {
+              "t": 15.75,
+              "p": 75.6788,
+              "w": 0.7153
+            },
+            {
+              "t": 16.125,
+              "p": 74.9001,
+              "w": 0.7456
+            },
+            {
+              "t": 16.5,
+              "p": 74.095,
+              "w": 0.7743
+            },
+            {
+              "t": 16.875,
+              "p": 73.2748,
+              "w": 0.8011
+            },
+            {
+              "t": 17.25,
+              "p": 72.4508,
+              "w": 0.826
+            },
+            {
+              "t": 17.625,
+              "p": 71.6344,
+              "w": 0.8489
+            },
+            {
+              "t": 18.0,
+              "p": 70.8369,
+              "w": 0.8696
+            },
+            {
+              "t": 18.375,
+              "p": 70.0694,
+              "w": 0.8881
+            },
+            {
+              "t": 18.75,
+              "p": 69.3425,
+              "w": 0.9043
+            },
+            {
+              "t": 19.125,
+              "p": 68.6663,
+              "w": 0.9182
+            },
+            {
+              "t": 19.5,
+              "p": 68.0503,
+              "w": 0.9296
+            },
+            {
+              "t": 19.875,
+              "p": 67.5028,
+              "w": 0.9385
+            },
+            {
+              "t": 20.25,
+              "p": 67.0315,
+              "w": 0.9449
+            },
+            {
+              "t": 20.625,
+              "p": 66.643,
+              "w": 0.9487
+            },
+            {
+              "t": 21.0,
+              "p": 66.3426,
+              "w": 0.95
+            },
+            {
+              "t": 21.375,
+              "p": 66.1345,
+              "w": 0.9487
+            },
+            {
+              "t": 21.75,
+              "p": 66.0216,
+              "w": 0.9449
+            },
+            {
+              "t": 22.125,
+              "p": 66.0072,
+              "w": 0.9385
+            },
+            {
+              "t": 22.5,
+              "p": 66.1153,
+              "w": 0.9296
+            },
+            {
+              "t": 22.875,
+              "p": 66.3507,
+              "w": 0.9182
+            },
+            {
+              "t": 23.25,
+              "p": 66.7085,
+              "w": 0.9043
+            },
+            {
+              "t": 23.625,
+              "p": 67.1808,
+              "w": 0.8881
+            },
+            {
+              "t": 24.0,
+              "p": 67.7574,
+              "w": 0.8696
+            },
+            {
+              "t": 24.375,
+              "p": 68.4258,
+              "w": 0.8489
+            },
+            {
+              "t": 24.75,
+              "p": 69.1716,
+              "w": 0.826
+            },
+            {
+              "t": 25.125,
+              "p": 69.9787,
+              "w": 0.8011
+            },
+            {
+              "t": 25.5,
+              "p": 70.8295,
+              "w": 0.7743
+            },
+            {
+              "t": 25.875,
+              "p": 71.7056,
+              "w": 0.7456
+            },
+            {
+              "t": 26.25,
+              "p": 72.5881,
+              "w": 0.7153
+            },
+            {
+              "t": 26.625,
+              "p": 73.4579,
+              "w": 0.6833
+            },
+            {
+              "t": 27.0,
+              "p": 74.2961,
+              "w": 0.65
+            },
+            {
+              "t": 27.375,
+              "p": 75.0846,
+              "w": 0.6154
+            },
+            {
+              "t": 27.75,
+              "p": 75.8064,
+              "w": 0.5796
+            },
+            {
+              "t": 28.125,
+              "p": 76.4457,
+              "w": 0.5429
+            },
+            {
+              "t": 28.5,
+              "p": 76.9888,
+              "w": 0.5053
+            },
+            {
+              "t": 28.875,
+              "p": 77.4239,
+              "w": 0.4671
+            },
+            {
+              "t": 29.25,
+              "p": 77.7416,
+              "w": 0.4283
+            },
+            {
+              "t": 29.625,
+              "p": 77.9351,
+              "w": 0.3892
+            },
+            {
+              "t": 30.0,
+              "p": 78.0,
+              "w": 0.35
+            }
+          ],
+          "reversal": "drop",
+          "timeMode": "x",
+          "arcSpeed": 12,
+          "smooth": 0.35,
+          "pitchSnap": "off",
+          "scaleId": "major",
+          "scaleRoot": 0,
+          "snapStrength": 0.7,
+          "gainSource": "width",
+          "widthDepth": 1,
+          "baseGain": 0.8,
+          "timbre": {
+            "sine": 0.75,
+            "tri": 0.2,
+            "saw": 0.1,
+            "sqr": 0,
+            "rich": 0.15
+          },
+          "transform": {
+            "transpose": 0,
+            "stretch": 1,
+            "reverse": false,
+            "invert": false
+          },
+          "direct": false
+        }
+      ],
+      "grid": {
+        "timeDiv": 0.5,
+        "pitchDiv": "semitone"
+      },
+      "view": {
+        "tMin": 0,
+        "tMax": 32,
+        "midiMin": 40,
+        "midiMax": 96
+      },
+      "activeStrokeId": "ds_11a",
+      "selectedIds": [
+        "ds_11a"
+      ],
+      "tool": "draw",
+      "drawWidth": 0.7,
+      "seed": 1,
+      "echo": {
+        "count": 3,
+        "dt": 0.5,
+        "dp": -3,
+        "decay": 0.8
+      },
+      "importScale": 0.6
+    },
+    "field": {
+      "flowMode": "2d",
+      "fieldEnabled": true,
+      "fieldCoord": 2,
+      "guideAttraction": 1.6,
+      "wellGrid": "none",
+      "wellStrength": 0,
+      "layers": [
+        {
+          "id": "fl_main",
+          "name": "Main field",
+          "enabled": true,
+          "mode": "add",
+          "amount": 1,
+          "range": {
+            "full": true,
+            "t0": 0,
+            "t1": 4,
+            "m0": 48,
+            "m1": 72
+          },
+          "shape": "rect",
+          "invert": false,
+          "feather": 0.08,
+          "nodes": [
+            {
+              "id": "fn_1",
+              "type": "vortex",
+              "sec": 2.5,
+              "midi": 66,
+              "strength": 1.6,
+              "radius": 0.3
+            },
+            {
+              "id": "fn_2",
+              "type": "vortex",
+              "sec": 5,
+              "midi": 60,
+              "strength": -1.2,
+              "radius": 0.28
+            }
+          ],
+          "turbulence": 0.7,
+          "turbFreq": 3.5,
+          "fieldPhase": 0,
+          "flowAngle": 0,
+          "flowStrength": 0
+        }
+      ],
+      "activeLayerId": "fl_main",
+      "regions": [],
+      "activeRegionId": "",
+      "voices": [
+        {
+          "id": "pv_11a",
+          "name": "Eddy 1",
+          "color": "#34d399",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 60,
+          "f1Midi": 72,
+          "startTime": 0,
+          "duration": 7,
+          "baseGain": 0.7,
+          "mass": 1.0,
+          "drag": 3.8,
+          "launchAngle": 30,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": 0.0,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        },
+        {
+          "id": "pv_11b",
+          "name": "Eddy 2",
+          "color": "#2dd4bf",
+          "solo": false,
+          "muted": false,
+          "f0Midi": 70,
+          "f1Midi": 55,
+          "startTime": 1,
+          "duration": 6.5,
+          "baseGain": 0.6,
+          "mass": 1.6,
+          "drag": 3.8,
+          "launchAngle": -30,
+          "launchSpeed": 1.0,
+          "restitution": 0.75,
+          "boundaryMode": "bounce",
+          "coupling": -0.35,
+          "speedToGain": 0.45,
+          "curvToBright": 0.6,
+          "retroMode": "unfold",
+          "timbre": {
+            "sine": 0.8,
+            "tri": 0.3,
+            "saw": 0.1,
+            "sqr": 0.0,
+            "rich": 0.2
+          }
+        }
+      ],
+      "activeVoiceId": "pv_11a",
+      "view": {
+        "viewMode": "piano",
+        "showArrows": true,
+        "showWells": true,
+        "showGuide": true,
+        "showRegions": true,
+        "showLayers": true,
+        "arrowDensity": 34,
+        "arrowSize": 1,
+        "arrowWidth": 1.1,
+        "tMin": 0,
+        "tMax": 8,
+        "midiMin": 48,
+        "midiMax": 80
+      },
+      "cueSec": 0
+    },
+    "_spaceMaster": {
+      "on": true,
+      "wet": 1,
+      "compensate": true,
+      "doc": {
+        "c": 343,
+        "cScale": 1.0,
+        "airDist": 40,
+        "refDist": 8,
+        "listener": {
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "headingDeg": 0
+        },
+        "length": 48,
+        "bakeRate": 200,
+        "panMode": "hrtf",
+        "seed": 1,
+        "preset": "",
+        "tool": "move",
+        "view": {
+          "cx": 0,
+          "cy": 0,
+          "span": 60
+        },
+        "spatial": {
+          "order": 2,
+          "weighting": "maxre"
+        },
+        "sources": [
+          {
+            "id": "trk_in_11_rise",
+            "name": "Endless rise",
+            "color": "#a78bfa",
+            "path": {
+              "type": "orbit",
+              "cx": 0,
+              "cy": 0,
+              "rx": 10,
+              "ry": 10,
+              "phase": 0,
+              "dir": 1,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 3.927
+            },
+            "start": 0,
+            "duration": 48,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_11_rise",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_11_fall",
+            "name": "Endless fall (fifths)",
+            "color": "#f472b6",
+            "path": {
+              "type": "orbit",
+              "cx": 0,
+              "cy": 0,
+              "rx": 14,
+              "ry": 14,
+              "phase": 180,
+              "dir": -1,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 7.33
+            },
+            "start": 0,
+            "duration": 48,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_11_fall",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_11_tempo",
+            "name": "Fan: one slows, one rushes",
+            "color": "#facc15",
+            "path": {
+              "type": "line",
+              "x0": -18,
+              "y0": 7,
+              "x1": 18,
+              "y1": 7,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 0.75
+            },
+            "start": 0,
+            "duration": 48,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_11_tempo",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_11_stairs",
+            "name": "Devil's staircase (rising)",
+            "color": "#c084fc",
+            "path": {
+              "type": "lissajous",
+              "cx": 0,
+              "cy": 6,
+              "ax": 12,
+              "ay": 8,
+              "a": 1,
+              "b": 2,
+              "delta": 90,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 3.572
+            },
+            "start": 0,
+            "duration": 48,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_11_stairs",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_11_cloud",
+            "name": "Brownian climb",
+            "color": "#94a3b8",
+            "path": {
+              "type": "static",
+              "x": 0,
+              "y": 18,
+              "h": 6
+            },
+            "speed": {
+              "mode": "const",
+              "value": 1
+            },
+            "start": 0,
+            "duration": 48,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_11_cloud",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_11_lines",
+            "name": "Three long falls",
+            "color": "#38bdf8",
+            "path": {
+              "type": "spiral",
+              "cx": 0,
+              "cy": 0,
+              "r0": 22,
+              "r1": 3,
+              "turns": 2,
+              "phase": 90,
+              "dir": 1,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 3.272
+            },
+            "start": 0,
+            "duration": 48,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_11_lines",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_11_wave",
+            "name": "Pulses in a graded medium",
+            "color": "#2dd4bf",
+            "path": {
+              "type": "static",
+              "x": 0,
+              "y": -7,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 1
+            },
+            "start": 0,
+            "duration": 48,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_11_wave",
+              "content": "heard",
+              "bypass": false
+            }
+          },
+          {
+            "id": "trk_in_11_field",
+            "name": "Eddies",
+            "color": "#34d399",
+            "path": {
+              "type": "lissajous",
+              "cx": 0,
+              "cy": 0,
+              "ax": 9,
+              "ay": 9,
+              "a": 3,
+              "b": 2,
+              "delta": 45,
+              "h": 0
+            },
+            "speed": {
+              "mode": "const",
+              "value": 17.11
+            },
+            "start": 0,
+            "duration": 48,
+            "baseGain": 1,
+            "airAbsorb": false,
+            "doppler": true,
+            "distanceGain": true,
+            "pan": true,
+            "input": {
+              "kind": "track",
+              "target": "in_11_field",
+              "content": "heard",
+              "bypass": false
+            }
+          }
+        ],
+        "activeSourceId": "trk_in_11_rise"
+      }
+    }
+  },
+  "manager": {
+    "instances": [
+      {
+        "id": "in_11_rise",
+        "studio": "risset",
+        "name": "Endless rise",
+        "color": "#a78bfa",
+        "doc": null,
+        "gainDb": -4,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 48,
+        "loop": true,
+        "fadeIn": 5,
+        "fadeOut": 5,
+        "inCycle": true
+      },
+      {
+        "id": "in_11_fall",
+        "studio": "risset",
+        "name": "Endless fall (fifths)",
+        "color": "#f472b6",
+        "doc": {
+          "rateHz": -0.03,
+          "lastNonZeroRate": -0.03,
+          "voiceCount": 9,
+          "spanSemitones": 84,
+          "baseMidi": 31,
+          "masterGain": 0.55,
+          "gridMode": "fixed",
+          "fixedStep": 7,
+          "envCenter": 0.55,
+          "envWidth": 0.26,
+          "spectralTilt": -2
+        },
+        "gainDb": -8,
+        "mute": false,
+        "solo": false,
+        "start": 12,
+        "length": 36,
+        "loop": true,
+        "fadeIn": 6,
+        "fadeOut": 5,
+        "inCycle": true
+      },
+      {
+        "id": "in_11_tempo",
+        "studio": "tempo",
+        "name": "Fan: one slows, one rushes",
+        "color": "#facc15",
+        "doc": null,
+        "gainDb": -7,
+        "mute": false,
+        "solo": false,
+        "start": 4,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.3,
+        "fadeOut": 3,
+        "inCycle": true
+      },
+      {
+        "id": "in_11_stairs",
+        "studio": "fractal",
+        "name": "Devil's staircase (rising)",
+        "color": "#c084fc",
+        "doc": null,
+        "gainDb": -9,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": 48,
+        "loop": true,
+        "fadeIn": 2,
+        "fadeOut": 3,
+        "inCycle": true
+      },
+      {
+        "id": "in_11_cloud",
+        "studio": "cloud",
+        "name": "Brownian climb",
+        "color": "#94a3b8",
+        "doc": null,
+        "gainDb": 0,
+        "mute": false,
+        "solo": false,
+        "start": 10,
+        "length": null,
+        "loop": false,
+        "fadeIn": 3,
+        "fadeOut": 3,
+        "inCycle": true
+      },
+      {
+        "id": "in_11_lines",
+        "studio": "glissando",
+        "name": "Three long falls",
+        "color": "#38bdf8",
+        "doc": null,
+        "gainDb": -10,
+        "mute": false,
+        "solo": false,
+        "start": 0,
+        "length": null,
+        "loop": false,
+        "fadeIn": 0.5,
+        "fadeOut": 1,
+        "inCycle": true
+      },
+      {
+        "id": "in_11_wave",
+        "studio": "wave",
+        "name": "Pulses in a graded medium",
+        "color": "#2dd4bf",
+        "doc": null,
+        "gainDb": -4,
+        "mute": false,
+        "solo": false,
+        "start": 18,
+        "length": null,
+        "loop": false,
+        "fadeIn": 3,
+        "fadeOut": 5,
+        "inCycle": true
+      },
+      {
+        "id": "in_11_brush",
+        "studio": "draw",
+        "name": "⌇ Brush (Warp, local)",
+        "color": "#fb7185",
+        "doc": null,
+        "gainDb": 0,
+        "mute": false,
+        "solo": false,
+        "start": 8,
+        "length": 32,
+        "loop": false,
+        "fadeIn": 1,
+        "fadeOut": 2,
+        "inCycle": true,
+        "warp": {
+          "on": true,
+          "params": {
+            "pitch": {
+              "on": true,
+              "sens": 1
+            },
+            "level": {
+              "on": false,
+              "sens": 1
+            },
+            "trem": {
+              "on": false,
+              "sens": 1
+            },
+            "bright": {
+              "on": true,
+              "sens": 0.6
+            }
+          },
+          "targets": [
+            "in_11_cloud",
+            "in_11_stairs",
+            "in_11_lines"
+          ],
+          "rest": "start",
+          "after": "return",
+          "returnSec": 2,
+          "mode": "brush",
+          "radius": 7
+        }
+      },
+      {
+        "id": "in_11_field",
+        "studio": "field",
+        "name": "Eddies",
+        "color": "#34d399",
+        "doc": null,
+        "gainDb": -15,
+        "mute": false,
+        "solo": false,
+        "start": 24,
+        "length": 24,
+        "loop": true,
+        "fadeIn": 3,
+        "fadeOut": 4,
+        "inCycle": true
+      }
+    ],
+    "focus": {
+      "risset": "in_11_rise",
+      "tempo": "in_11_tempo",
+      "fractal": "in_11_stairs",
+      "cloud": "in_11_cloud",
+      "glissando": "in_11_lines",
+      "wave": "in_11_wave",
+      "draw": "in_11_brush",
+      "field": "in_11_field"
+    },
+    "cycleLoop": true,
+    "cycleMode": "fixed",
+    "cycleLen": 48,
+    "open": true,
+    "regions": [],
+    "mods": [
+      {
+        "id": "md_11a",
+        "on": true,
+        "src": {
+          "inst": "in_11_tempo",
+          "kind": "env",
+          "line": "mean",
+          "trig": "onset",
+          "thrDb": -24
+        },
+        "dst": {
+          "inst": "in_11_rise",
+          "param": "gain"
+        },
+        "amount": -9,
+        "invert": false,
+        "attackMs": 15,
+        "releaseMs": 300
+      },
+      {
+        "id": "md_11b",
+        "on": true,
+        "src": {
+          "inst": "in_11_lines",
+          "kind": "pitch",
+          "line": "mean",
+          "trig": "onset",
+          "thrDb": -24
+        },
+        "dst": {
+          "inst": "in_11_wave",
+          "param": "trem"
+        },
+        "amount": 0.8,
+        "invert": false,
+        "attackMs": 10,
+        "releaseMs": 250
+      }
+    ]
+  }
+}

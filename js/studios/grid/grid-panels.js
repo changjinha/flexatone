@@ -24,10 +24,10 @@ import { createTimbreEditor } from '../../ui/timbre-editor.js';
 import { HELP_DB } from '../../ui/option-inspector.js';
 import { createSendButton, createReceiveUnavailable } from '../../ui/trajectory-ui.js';
 import { createWarpStackRack } from '../../ui/warp-stack-ui.js';
-import { LIQUIFY_TOOLS } from '../../modules/space-warp.js';
-import { GRID_PRESET_IDS, GRID_OWN, getGridBakeCount } from './grid-engine.js';
+import { LIQUIFY_TOOLS, BRUSH_AXES, PULL_MODES, REGION_FAR } from '../../modules/space-warp.js';
+import { GRID_PRESET_IDS, GRID_OWN, GRID_TOOLS, GRID_SEL_KINDS, GRID_CELL, getGridBakeCount } from './grid-engine.js';
 import { normalizeDual, resizePane, toggleDualLock, setDualLayout, dualSizes, effectiveLayout, serializeDual, parseDual, DUAL_DEFAULT, DUAL_GAP } from './grid-layout.js';
-import { GRID_ID, getGridParams, editGrid, applyGridPreset, getGridBake, getGridLines, gridSourceStudios, fitGridToLines, gridBakeRuns } from '../grid-studio.js';
+import { GRID_ID, getGridParams, editGrid, applyGridPreset, getGridBake, getGridLines, gridSourceStudios, fitGridToLines, gridBakeRuns, restoreGridSpace } from '../grid-studio.js';
 import { GRID_HELP } from './grid-i18n.js';
 import { createGridCanvases, GRID_VIEW_LIMITS } from './grid-canvases.js';
 import { exportGridJson, exportGridWav } from './grid-audio.js';
@@ -197,12 +197,67 @@ export function mountGridWorkspace(root, hooks) {
       createZoomBar({ onPitch: (f) => setView((vw) => zoomViewPitch(vw, f, null, GRID_VIEW_LIMITS)), onTime: (f) => setView((vw) => zoomViewTime(vw, f, null, GRID_VIEW_LIMITS)), onBoth: (f) => setView((vw) => { zoomViewTime(vw, f, null, GRID_VIEW_LIMITS); zoomViewPitch(vw, f, null, GRID_VIEW_LIMITS); }), onFit: () => fitGrid() }),
       el('label', { class: 'flex items-center gap-1 text-[11px] text-slate-300', dataset: { help: 'grid.shot' } }, [shot, el('button', { class: BTN, text: `📷 ${t('grid.shotBtn')}`, dataset: { help: 'grid.shot' }, on: { click: () => canvases?.screenshot(P().tool.shot) } })]),
     ]);
+    const toolRow = buildToolRow();
     const hudRow = el('div', { class: 'flex flex-wrap items-center gap-3 font-mono text-[11px] text-slate-400', dataset: { help: 'grid.hud' } }, [
       el('span', {}, ['t ', hud.time]), el('span', {}, ['♪ ', hud.note]), el('span', {}, [hud.hz]),
       el('span', { class: 'ml-auto text-[11px] text-slate-500', text: t('grid.canvasHint') }),
     ]);
     canvases = createGridCanvases({ editor, result, hud }, { requestRender: hooks.requestRender, showToast: hooks.showToast });
-    return el('section', { class: SECTION, dataset: { rack: 'grid-window' } }, [toolbar, hudRow, host]);
+    return el('section', { class: SECTION, dataset: { rack: 'grid-window' } }, [toolbar, toolRow, hudRow, host]);
+  }
+
+  // ------------------------------------------------------------------ monitor toolbox: tools, selection, restore
+  const setMode = (mode) => setTool((tl) => { tl.mode = mode; });
+  const clearSel = () => setTool((tl) => { tl.sel = null; });
+  function doRestore() {
+    const res = restoreGridSpace();
+    commit();
+    if (res.ok) hooks.showToast(t(res.scope === 'all' ? 'grid.restore.doneAll' : 'grid.restore.doneSel'));
+    else hooks.showToast(t(`grid.restore.${res.reason}`), res.reason === 'full' ? 'error' : 'info');
+  }
+
+  /** One-line description of the selection. / 선택 영역 요약 */
+  function selInfo(sel) {
+    if (!sel) return t('grid.selNone');
+    const xs = sel.poly.map((q) => q[0]).filter((x) => Math.abs(x) < REGION_FAR / 2);
+    const ys = sel.poly.map((q) => q[1]).filter((y) => Math.abs(y) < REGION_FAR / 2);
+    const tt = (x) => (x * GRID_CELL.ut).toFixed(2);
+    const nn = (y) => midiToNoteName(Math.round(y * GRID_CELL.um));
+    const lo = (a) => Math.min(...a);
+    const hi = (a) => Math.max(...a);
+    if (sel.kind === 'selPitch') return t('grid.selInfo.selPitch', nn(lo(ys)), nn(hi(ys)));
+    if (sel.kind === 'selTime') return t('grid.selInfo.selTime', tt(lo(xs)), tt(hi(xs)));
+    if (sel.kind === 'selBox') return t('grid.selInfo.selBox', tt(lo(xs)), tt(hi(xs)), nn(lo(ys)), nn(hi(ys)));
+    return t('grid.selInfo.selLasso', sel.poly.length);
+  }
+
+  function buildToolRow() {
+    const tools = el('div', { class: 'flex flex-wrap gap-0.5 rounded-lg bg-slate-950 border border-slate-800 p-0.5', dataset: { help: 'grid.tools' } }, GRID_TOOLS.map((mode) => {
+      const b = el('button', { class: 'px-2 py-0.5 rounded text-[11px] whitespace-nowrap', text: t(`grid.tool.${mode}`), title: t(`grid.tool.tip.${mode}`), dataset: { help: mode === 'pull' ? 'grid.pull' : mode === 'brush' ? 'grid.brush' : 'grid.tools' }, on: { click: () => setMode(mode) } });
+      syncers.push(() => { const on = P().tool.mode === mode; b.className = `px-2 py-0.5 rounded text-[11px] whitespace-nowrap ${on ? (mode === 'pull' ? 'bg-orange-600 text-white font-semibold' : mode === 'brush' ? 'bg-violet-600 text-white font-semibold' : 'bg-yellow-500 text-slate-950 font-semibold') : 'text-slate-400 hover:text-white'}`; });
+      return b;
+    }));
+    const info = el('span', { class: 'font-mono text-[11px] text-yellow-200/90 truncate max-w-[16rem]', dataset: { help: 'grid.tools' } });
+    const deselect = el('button', { class: BTN, text: `✕ ${t('grid.selClear')}`, dataset: { help: 'grid.tools' }, on: { click: clearSel } });
+    const feather = el('input', { type: 'number', min: 0, max: 200, step: 0.5, class: 'w-14 px-1 py-0.5 rounded bg-slate-950 border border-slate-700 text-right font-mono text-[11px] text-sky-200', dataset: { help: 'grid.pull' } });
+    feather.addEventListener('keydown', (e) => e.stopPropagation());
+    feather.addEventListener('change', () => setTool((tl) => { tl.feather = clamp(num(feather.value, tl.feather), 0, 200); }));
+    const pullMode = segment(PULL_MODES.map((k) => [k, t(`grid.pullMode.${k}`), 'grid.pull']), () => P().tool.pullMode, (v) => setTool((tl) => { tl.pullMode = v; }), 'orange');
+    const restore = el('button', { class: 'px-2.5 py-1 rounded-lg bg-rose-700 hover:bg-rose-600 text-white text-[11px] font-semibold whitespace-nowrap', dataset: { help: 'grid.restore' }, on: { click: doRestore } });
+    syncers.push(() => {
+      const p = P();
+      info.textContent = selInfo(p.tool.sel);
+      deselect.disabled = !p.tool.sel;
+      deselect.style.opacity = p.tool.sel ? '1' : '0.45';
+      if (document.activeElement !== feather) feather.value = String(p.tool.feather);
+      restore.textContent = t(p.tool.sel ? 'grid.restore.sel' : 'grid.restore.all');
+    });
+    return el('div', { class: 'flex flex-wrap items-center gap-1.5' }, [
+      tools, info, deselect,
+      el('label', { class: 'flex items-center gap-1 text-[11px] text-slate-300', dataset: { help: 'grid.pull' } }, [t('grid.feather'), feather, el('span', { class: 'text-slate-500', text: t('grid.unit.cells') })]),
+      el('span', { class: 'flex items-center gap-1 text-[11px] text-slate-300', dataset: { help: 'grid.pull' } }, [t('grid.pullMode'), pullMode]),
+      el('span', { class: 'ml-auto' }), restore,
+    ]);
   }
 
   function fitGrid() {
@@ -221,6 +276,25 @@ export function mountGridWorkspace(root, hooks) {
       el('div', { class: 'grid grid-cols-2 gap-x-3 gap-y-1' }, [
         slider('grid.brushSize', 'grid.brush', () => num(P().tool.size), (val) => setTool((q) => { q.size = val; }), { min: 1, max: 120, step: 0.5, unit: t('grid.unit.cells'), compact: true, accent: 'accent-violet', def: 10 }),
         slider('grid.brushStrength', 'grid.brush', () => num(P().tool.strength), (val) => setTool((q) => { q.strength = val; }), { min: 0.01, max: 1, step: 0.01, compact: true, accent: 'accent-violet', def: 0.6 }),
+      ]),
+      el('details', { class: 'group rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-1', dataset: { help: 'grid.brushDetail' } }, [
+        el('summary', { class: 'cursor-pointer select-none text-[11px] font-semibold text-violet-200', text: `⚙ ${t('grid.brushDetail')}` }),
+        el('div', { class: 'flex flex-col gap-1.5 pt-1.5' }, [
+          el('div', { class: 'grid grid-cols-2 gap-x-3 gap-y-1' }, [
+            slider('grid.brushHardness', 'grid.brushDetail', () => num(P().tool.hardness), (val) => setTool((q) => { q.hardness = val; }), { min: 0, max: 0.95, step: 0.01, compact: true, accent: 'accent-violet', def: 0 }),
+            slider('grid.brushAspect', 'grid.brushDetail', () => num(P().tool.aspect), (val) => setTool((q) => { q.aspect = val; }), { min: 0.1, max: 10, step: 0.05, compact: true, accent: 'accent-violet', def: 1 }),
+            slider('grid.brushAngle', 'grid.brushDetail', () => num(P().tool.angle), (val) => setTool((q) => { q.angle = val; }), { min: -90, max: 90, step: 1, unit: '°', compact: true, accent: 'accent-violet', def: 0 }),
+            slider('grid.brushSmooth', 'grid.brushDetail', () => num(P().tool.smooth), (val) => setTool((q) => { q.smooth = val; }), { min: 0, max: 0.95, step: 0.01, compact: true, accent: 'accent-violet', def: 0 }),
+          ]),
+          el('div', { class: 'flex flex-wrap items-center gap-1.5 text-[11px] text-slate-300', dataset: { help: 'grid.brushDetail' } }, [
+            t('grid.brushAxis'),
+            segment(BRUSH_AXES.map((k) => [k, t(`grid.brushAxis.${k}`), 'grid.brushDetail']), () => P().tool.axis, (v) => setTool((q) => { q.axis = v; }), 'violet'),
+          ]),
+          el('div', { class: 'flex flex-wrap items-center gap-1.5' }, [
+            toggle('grid.brushClip', 'grid.brushDetail', () => P().tool.clip, () => setTool((q) => { q.clip = !q.clip; })),
+            el('button', { class: BTN, text: `↺ ${t('grid.brushReset')}`, dataset: { help: 'grid.brushDetail' }, on: { click: () => setTool((q) => { Object.assign(q, { liq: 'push', size: 10, strength: 0.6, hardness: 0, aspect: 1, angle: 0, axis: 'both', smooth: 0, clip: true }); }) } }),
+          ]),
+        ]),
       ]),
       el('div', { class: 'flex flex-wrap items-center gap-1.5' }, [
         count,
@@ -317,6 +391,12 @@ export function mountGridWorkspace(root, hooks) {
     if (appState.manager?.open || document.querySelector('dialog[open], .fx-traj-dialog')) return;
     if (e.key === '[' || e.key === ']') { const f = e.key === ']' ? 1.25 : 0.8; setTool((tl) => { tl.size = clamp(Math.round(tl.size * f * 2) / 2, 1, 120); }); return; }
     if (e.key === '\\') setDual(setDualLayout(dual, dual.layout === 'side' ? 'stack' : 'side'));
+    if (e.shiftKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'b') setMode('brush');
+    else if (k === 'v') setMode('pull');
+    else if (k === 's') { const m = P().tool.mode; const i = GRID_SEL_KINDS.indexOf(m); setMode(GRID_SEL_KINDS[(i + 1) % GRID_SEL_KINDS.length]); }
+    else if (e.key === 'Escape' && P().tool.sel) clearSel(); // the app's Esc (stop) still runs / 앱의 Esc(정지)도 그대로 동작
   };
   document.addEventListener('keydown', onKey);
 

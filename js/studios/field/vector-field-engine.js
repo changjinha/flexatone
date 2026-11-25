@@ -26,6 +26,7 @@
  * Guiding curves reuse modules/curve-engine.js (9 engines, Multi-Morph & Custom excluded).
  */
 
+import { extendSampled } from '../../core/line-clip.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq, freqToMidi } from '../../core/units.js';
 import { createDefaultCurveParams } from '../../core/state.js';
@@ -385,7 +386,7 @@ export function fieldPhysicsSignature(params) {
   return JSON.stringify([
     p.flowMode, p.guideAttraction, p.wellGrid, p.wellStrength,
     p.layers || [], p.guiding, p.regions || [],
-    (p.voices || []).map((v) => PHYSICS_KEYS.map((k) => v[k])),
+    (p.voices || []).map((v) => [...PHYSICS_KEYS.map((k) => v[k]), v.link?.on ? v.link.id : 0]),
   ]);
 }
 
@@ -401,9 +402,13 @@ export function bakeFieldVoices(params) {
   if (key === bakeCache.key) return bakeCache.map;
   const map = new Map();
   const bakedSoFar = [];
+  const linkBake = new Map(); // link id → baked points: linked pieces are one trajectory (core/line-clip.js) / 링크 조각 = 같은 궤적
   for (const v of params.voices || []) {
+    const shared = v.link?.on ? linkBake.get(v.link.id) : null;
+    if (shared) { map.set(v.id, shared); continue; } // not integrated again, not felt twice by coupling / 다시 적분하지 않음
     const pts = VectorFieldPluginEngine.bakeVoice(v, params, params.guiding, bakedSoFar);
     map.set(v.id, pts);
+    if (v.link?.on) linkBake.set(v.link.id, pts);
     bakedSoFar.push({ id: v.id, bakedPoints: pts });
   }
   bakeCache = { key, map, bakeCount: bakeCache.bakeCount + 1 };
@@ -425,6 +430,16 @@ export function getBakeCount() {
  * Pure array lookup (no field math). / 베이킹 배열 조회 (벡터장 연산 없음)
  * @returns {{ y: number, gainMod: number, curv: number }}
  */
+/**
+ * lookupBakedSample that also reads past the trajectory's ends (an extended particle, core/line-clip.js):
+ * pitch goes on with the end tangent, speed / curvature hold their end values. / 끝 너머까지 읽기 (접선 연장)
+ */
+export function lookupBakedSampleExt(v, pts, frac) {
+  if (frac >= 0 && frac <= 1) return lookupBakedSample(v, pts, frac);
+  const edge = lookupBakedSample(v, pts, frac < 0 ? 0 : 1);
+  return { ...edge, y: extendSampled((f) => lookupBakedSample(v, pts, f).y, frac) };
+}
+
 export function lookupBakedSample(v, pts, frac) {
   if (!pts || pts.length === 0) return { y: frac, gainMod: 1, curv: 0 };
   const s2g = v.speedToGain ?? 0;

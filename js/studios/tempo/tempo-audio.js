@@ -15,6 +15,8 @@
  * or all at once (offline). Same scheduler for both. / 실시간은 룩어헤드, 오프라인은 일괄 스케줄.
  */
 
+import { applyAdsrToCurve } from '../../core/adsr.js';
+import { timbreSpecAdsr } from '../../modules/timbre-spec.js';
 import { clamp, createSeededRandom } from '../../core/math-utils.js';
 import { midiToFreq, freqToMidi } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -55,7 +57,10 @@ export function getTempoTimeline(doc = getTempoParams(), bake = getTempoBake(doc
  * Schedule the voices from piece time `cueSec` at context time `nowTime`.
  * 큐 지점부터 보이스 곡선을 스케줄.
  */
-export function scheduleTempoVoices(ctx, dest, { doc, bake, nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null }) {
+export function scheduleTempoVoices(ctx, dest, { doc, bake, nowTime, cueSec, nodeList, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 }) {
+  // Tempo Manager rate (pitch kept): piece second s sounds at s / ts; masks / warps read real time
+  // 템포 배속 (음고 유지): 곡 s초 → 실제 s/ts초, 마스크·곡률은 실제 시간
+  const ts = Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1;
   const voiceMod = doc.voiceMod; // per-voice tremolo / vibrato (core/voice-mod.js) / 보이스별 변조
   const { audible, norm } = getTempoTimeline(doc, bake);
   let count = 0;
@@ -72,37 +77,39 @@ export function scheduleTempoVoices(ctx, dest, { doc, bake, nowTime, cueSec, nod
     const m = j1 - j0 + 1;
     const cents = new Float32Array(m);
     const gain = new Float32Array(m);
-    const fadeN = Math.max(1, Math.round(EDGE_FADE_SEC * BAKE_RATE));
+    const fadeN = Math.max(1, Math.round(EDGE_FADE_SEC * ts * BAKE_RATE)); // 8 ms of real time / 실제 8 ms
     const g0 = v.baseGain * norm;
     for (let j = 0; j < m; j++) {
       const mm = bv.midi[j0 + j] + off;
-      const mw = pitchWarp ? freqToMidi(Math.max(1e-3, pitchWarp((j0 + j) / BAKE_RATE, midiToFreq(mm)))) : mm; // Manager Warp / 매니저 곡률
+      const mw = pitchWarp ? freqToMidi(Math.max(1e-3, pitchWarp((j0 + j) / BAKE_RATE / ts, midiToFreq(mm)))) : mm; // Manager Warp / 매니저 곡률
       cents[j] = (mw - ref) * 100;
       let g = bv.gain[j0 + j] * g0;
-      if (j < fadeN && from > bv.uOn + 1e-6) g *= j / fadeN; // started mid-note / 중간 시작 페이드
+      if (j < fadeN && (from > bv.uOn + 1e-6 || bv.clipped)) g *= j / fadeN; // started mid-note or trimmed / 중간 시작·잘린 시작 페이드
       if (m - 1 - j < fadeN) g *= (m - 1 - j) / fadeN;
-      if (ampMask) g *= ampMask((j0 + j) / BAKE_RATE, midiToFreq(mw)); // Manager shape mask / 매니저 모양 마스크
+      if (ampMask) g *= ampMask((j0 + j) / BAKE_RATE / ts, midiToFreq(mw)); // Manager shape mask / 매니저 모양 마스크
       gain[j] = g;
     }
-    const tStart = nowTime + (j0 / BAKE_RATE - cueSec);
-    const dur = (m - 1) / BAKE_RATE;
+    const tStart = nowTime + (j0 / BAKE_RATE - cueSec) / ts;
+    const docDur = (m - 1) / BAKE_RATE;
+    const dur = docDur / ts;
     // Per-voice Sampler: rate = ref / root, the cent curve goes to detune as for the oscillator
     // 보이스별 샘플러: rate = ref / 루트, 센트 곡선은 오실레이터처럼 detune으로
     const smp = timbreSampleSpec(v.timbre);
     const osc = createToneSource(ctx, { sample: smp, wave: smp ? null : buildWave(ctx, v.timbre) });
-    skipSampleRead(osc, (sec) => midiToFreq(bv.midi[clamp(Math.round(sec * BAKE_RATE), 0, bv.midi.length - 1)] + off), bv.uOn, j0 / BAKE_RATE);
+    skipSampleRead(osc, (sec) => midiToFreq(bv.midi[clamp(Math.round(sec * ts * BAKE_RATE), 0, bv.midi.length - 1)] + off), bv.uOn / ts, j0 / BAKE_RATE / ts); // real time / 실제 시간
     osc.frequency.value = clamp(midiToFreq(ref), 10, 20000);
     const gn = ctx.createGain();
     gn.gain.setValueAtTime(0, nowTime);
     const vm = createVoiceModEvaluator(voiceMod, voiceModIndex(v.id ?? bv.index), ref);
     const vt = j0 / BAKE_RATE - bv.uOn; // voice time of the first point / 첫 점의 보이스 시간
     osc.detune.setValueAtTime(cents[0], nowTime);
-    osc.detune.setValueCurveAtTime(voiceModCentsCurve(vm, cents, vt, dur), Math.max(nowTime, tStart), dur);
-    gn.gain.setValueCurveAtTime(voiceModGainCurve(vm, gain, vt, dur), Math.max(nowTime, tStart), dur);
+    osc.detune.setValueCurveAtTime(voiceModCentsCurve(vm, cents, vt, docDur), Math.max(nowTime, tStart), dur);
+    applyAdsrToCurve(timbreSpecAdsr(v.timbre), gain, vt, docDur, bv.uOff - bv.uOn); // timbre ADSR / 음색 ADSR
+    gn.gain.setValueCurveAtTime(voiceModGainCurve(vm, gain, vt, docDur), Math.max(nowTime, tStart), dur);
     if (brightWarp) { // Manager Warp brightness / 매니저 곡률 밝기
       const f0 = clamp(midiToFreq(ref), 10, 20000);
       const fq = Float32Array.from(cents, (c) => f0 * Math.pow(2, c / 1200));
-      const sh = createBrightShelf(ctx, fq, (j) => (j0 + j) / BAKE_RATE, brightWarp, Math.max(nowTime, tStart), dur);
+      const sh = createBrightShelf(ctx, fq, (j) => (j0 + j) / BAKE_RATE / ts, brightWarp, Math.max(nowTime, tStart), dur);
       osc.connect(sh).connect(gn).connect(dest);
       if (nodeList) nodeList.push(sh);
     } else osc.connect(gn).connect(dest);
@@ -232,17 +239,19 @@ export const toggleTempoPlay = transport.togglePlay;
 // Offline render, WAV and JSON / 오프라인 렌더링, WAV, JSON
 // --------------------------------------------------------------------------
 
-export async function renderTempoBuffer({ doc = getTempoParams(), sampleRate = EXPORT_SAMPLE_RATE, channels = 2, outputStage = true, ampMask = null, pitchWarp = null, brightWarp = null } = {}) {
+/** Offline render. timeScale = Tempo Manager rate (pitch kept; clicks keep their sound). / 오프라인 렌더 (timeScale = 음고 유지 배속) */
+export async function renderTempoBuffer({ doc = getTempoParams(), sampleRate = EXPORT_SAMPLE_RATE, channels = 2, outputStage = true, ampMask = null, pitchWarp = null, brightWarp = null, timeScale = 1 } = {}) {
   const bake = getTempoBake(doc);
   const { audible, pulseOn, endSec } = getTempoTimeline(doc, bake);
   if (!audible.length && !pulseOn) return null;
+  const ts = Number.isFinite(timeScale) && timeScale > 0 ? timeScale : 1;
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
-  const ctx = new Offline(channels, Math.ceil((endSec + 0.1) * sampleRate), sampleRate);
+  const ctx = new Offline(channels, Math.ceil((endSec / ts + 0.1) * sampleRate), sampleRate);
   const master = ctx.createGain();
   master.gain.value = OFFLINE_MASTER;
   connectStudioOutput(ctx, master, outputStage ? createOfflineOutput(ctx) : ctx.destination, doc.tremolo); // same tremolo as live / 실시간과 같은 트레몰로
-  scheduleTempoVoices(ctx, master, { doc, bake, nowTime: 0, cueSec: 0, ampMask, pitchWarp, brightWarp });
-  for (const e of buildPulseEvents(doc, bake, 0, endSec)) scheduleClick(ctx, master, e.u, e.i, e.accent, doc);
+  scheduleTempoVoices(ctx, master, { doc, bake, nowTime: 0, cueSec: 0, ampMask, pitchWarp, brightWarp, timeScale: ts });
+  for (const e of buildPulseEvents(doc, bake, 0, endSec)) scheduleClick(ctx, master, e.u / ts, e.i, e.accent, doc);
   return ctx.startRendering();
 }
 

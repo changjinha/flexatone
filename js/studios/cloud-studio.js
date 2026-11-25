@@ -43,11 +43,16 @@ import {
   MAX_BAKE_VOICES,
 } from './cloud/cloud-engine.js';
 
+import { sanitizeModules, moduleEvents } from './cloud/cloud-modules.js';
+
 export const CLOUD_ID = 'cloud';
 
 /** Cloud document (defaults deep-merged with the saved params). / 클라우드 문서 */
 export function getCloudParams() {
-  return normalizeCloudParams(StudioRegistry.has(CLOUD_ID) ? StudioRegistry.getParams(CLOUD_ID) : createDefaultCloudParams());
+  const d = normalizeCloudParams(StudioRegistry.has(CLOUD_ID) ? StudioRegistry.getParams(CLOUD_ID) : createDefaultCloudParams());
+  d.modules = sanitizeModules(d.modules);
+  d.activeModule = Math.max(0, Math.min(d.modules.length - 1, Math.round(Number(d.activeModule) || 0)));
+  return d;
 }
 
 /**
@@ -62,7 +67,8 @@ export function editCloud(fn, { history = true, coalesceKey = null } = {}) {
 
 /** Cached event list of the current document. / 현재 문서의 이벤트 (캐시) */
 export function getCloudEvents(params = getCloudParams()) {
-  return bakeCloudEvents(params);
+  // modules: every audible module's cloud merged (cloud/cloud-modules.js) / 다중 모듈: 병합
+  return Array.isArray(params.modules) && params.modules.length ? moduleEvents({ ...params, modules: sanitizeModules(params.modules) }) : bakeCloudEvents(params);
 }
 
 // --------------------------------------------------------------------------

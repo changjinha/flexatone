@@ -29,23 +29,26 @@ import { buildTimeMap } from '../modules/time-warp.js';
 import { tempoRate, normalizeTempoConfig, tapeSemitones } from '../core/tempo.js';
 import { computeEnclosedLobes, bandWeight } from '../core/shape-select.js';
 import { clamp } from '../core/math-utils.js';
-import { midiToNoteName, freqToMidi } from '../core/units.js';
-import { getVoiceFreqAtNormT } from '../modules/curve-engine.js';
-import { filterAudibleVoices, evaluateVoiceGainAtNormT } from '../modules/gain-bus.js';
+import { midiToNoteName } from '../core/units.js';
+import { evaluateVoiceGainAtNormT } from '../modules/gain-bus.js';
 import { StudioRegistry } from '../studios/registry.js';
-import { getBakedMap, isParticleAudible } from '../studios/field-studio.js';
-import { lookupBakedSample } from '../studios/field/vector-field-engine.js';
 import { phaseToMidi, voiceAmplitude } from '../studios/risset/risset-core.js';
 import { resetRissetRuntime, resolveRissetDoc } from '../studios/risset/risset-audio.js';
 import * as mixer from '../audio/manager-mixer.js';
-import { clipStudioLines, isClipStudio, clipStudioScalesTime } from '../audio/studio-clips.js';
+import { isClipStudio, clipStudioScalesTime } from '../audio/studio-clips.js';
+import { projectStudio, projectionKind, monotonePieces } from '../studios/projection.js';
 import { getMasterTap } from '../audio/output-bus.js';
 import { getAudioCtx } from '../audio/audio-engine.js';
 import { drawCueLine, drawPlayheadLine } from './transport-lines.js';
 import { openMasterVideoDialog } from './manager-video.js';
+import { openTrackExportDialog } from './track-export.js';
 import { stopAllAudio, remountWorkspace } from './studio-host.js';
 import { HELP_DB } from './option-inspector.js';
 import { toggleHelpOverlay } from './help-overlay.js';
+// Space Master (the Manager's spatial master track) / 스페이스 마스터 (매니저의 공간 마스터 트랙)
+import { getSpaceMaster, editSpaceMaster, syncMasterSources } from '../studios/space/space-master-doc.js';
+import { setSpaceDocTarget } from '../studios/space/space-doc.js';
+import { refreshSpaceMaster } from '../audio/space-master.js';
 
 let hooks = { requestRender: () => {}, showToast: () => {}, fitAll: () => {} };
 let panel = null;
@@ -67,7 +70,9 @@ const ui = {
   warpOpen: null, // id of the track whose Warp options panel is open / 곡률 옵션 패널이 열린 트랙
   sel: new Set(), // selected tracks (view only, not saved; separate from M / S) / 선택된 트랙 (보기 전용, M·S와 별개)
   ext: { method: EXTEND_METHODS[0], mult: 1, sec: null }, // Extend tool: method, amount as × cycle or seconds / 연장 도구: 방법, 양(사이클 배수 또는 초)
-  ip: { method: INTERP_METHODS[0], a: null, b: null }, // Interpolate tool: method and the two range ids (null = picked automatically) / 보간 도구: 방법, 두 구간 id
+  ip: { method: INTERP_METHODS[0], a: null, b: null, mode: 'replace' },
+  open: new Set(), // tracks whose strip shows everything past the gain (tempo, cycle, fades, tremolo) / 게인 뒤까지 펼친 트랙
+  colScroll: null, // scroll of the two columns (landscape) / 두 열의 스크롤 위치 // mode: 'replace' mutes what was there, 'add' layers on top / 덮어쓰기·추가 // Interpolate tool: method and the two range ids (null = picked automatically) / 보간 도구: 방법, 두 구간 id
   addOpen: false, // "＋ Add studio" menu open / 스튜디오 추가 메뉴 열림
   gainUnit: 'db', // track fader shown in 'db' or 'sone' (loudness ratio, ×2 per +10 dB) / 트랙 페이더 단위
   scrollTop: 0, // scroll position kept across re-renders / 재렌더 간 스크롤 위치
@@ -148,8 +153,21 @@ Object.assign(I18N.en, {
   'mgr.ipGap': (a, b, d) => `fills ${a} → ${b} s (${d} s)`,
   'mgr.ipApply': 'Interpolate',
   'mgr.ipRemove': 'Remove last',
-  'mgr.ipNeedRanges': 'Make two ranges with “Select range” in the timeline — one on each side of the part to fill. They must not overlap.',
-  'mgr.ipNoGap': 'These two ranges touch or overlap: there is nothing between them to fill.',
+  'mgr.ipNeedRanges': 'Make two ranges with “Select range” in the timeline — one on each side of the part to fill, or two that overlap (the overlap is filled).',
+  'mgr.ipNoGap': 'These two ranges only touch: there is nothing between them to fill.',
+  'mgr.ipOverlap': 'overlap',
+  'mgr.layout.landscape': 'Landscape',
+  'mgr.layout.portrait': 'Portrait',
+  'mgr.layoutTip': 'Landscape: monitor, timeline and tracks on the left, tools on the right · Portrait: one column',
+  'mgr.splitDrag': 'Drag to change the width of the left column',
+  'mgr.more': 'More',
+  'mgr.moreTip': 'Show / hide the rest of the track settings (tempo, cycle, start, length, loop, fades, tremolo)',
+  'mgr.moreAllOpen': 'Open all',
+  'mgr.moreAllClose': 'Close all',
+  'mgr.ipMode.replace': 'Overwrite',
+  'mgr.ipMode.add': 'Add',
+  'mgr.ipModeTip.replace': 'The joined tracks give way inside the filled part (a mute range is added)',
+  'mgr.ipModeTip.add': 'The transition is only layered on top: what was there keeps sounding',
   'mgr.ipDone': (name, from, to, n) => `${name}: ${from} → ${to} s filled (${n} tracks added)`,
   'mgr.ipRemoved': 'Last interpolation removed',
   'mgr.ipErrGap': 'Nothing to fill: pick two ranges with at least 0.1 s between them',
@@ -163,6 +181,12 @@ Object.assign(I18N.en, {
   'mgrHelp.ipMethod.d': 'Everything (the default) carries every variable across: pitch by smooth curves, level, timbre, tremolo and track settings by two layers crossfaded in step, tracks without pitch lines by a dissolve. Pitch glide joins the pitch lines of both sides with smooth curves (new Glissando tracks). Dissolve carries the sound of the left range on and brings the sound of the right range in early (takes) — for any track. The text below the buttons says exactly what the chosen one does.',
   'mgrHelp.ipRange.t': 'The two ranges',
   'mgrHelp.ipRange.d': 'The ranges on the left and right of the part to fill (made with Select range in the timeline). Their order does not matter: the earlier one is the start state. The longer a range, the longer the piece the pitch slope is measured over (a quarter of it, 0.05–0.5 s) and the longer the window Dissolve loops.',
+  'mgrHelp.layout.t': 'Landscape / portrait',
+  'mgrHelp.layout.d': 'Landscape (default): the Master View, the timeline and the track list on the left, Extend, Interpolate, Modulation and the ranges on the right — each column scrolls by itself; drag the line between them to change the width. Portrait: everything in one column, as before.',
+  'mgrHelp.more.t': 'More track settings',
+  'mgrHelp.more.d': 'A track shows its controls up to the gain; ▸ More opens the rest (tempo, cycle, start, length, loop, fades, tremolo). Open all / Close all in the header does every track.',
+  'mgrHelp.ipMode.t': 'Overwrite or add',
+  'mgrHelp.ipMode.d': 'Overwrite (default): inside the filled part the joined tracks give way to the transition (a mute range ⇝ n is added). Add: the transition is layered on top and what was there keeps sounding. With overlapping ranges the overlap itself is filled, from the state just before it to the state just after it.',
   'mgrHelp.ipApply.t': 'Interpolate',
   'mgrHelp.ipApply.d': 'Fills the part between the two ranges (one undo step). It is made from the tracks as they are now: after editing them, remove the interpolation and run it again.',
   'mgrHelp.ipRemove.t': 'Remove last interpolation',
@@ -200,8 +224,21 @@ Object.assign(I18N.ko, {
   'mgr.ipGap': (a, b, d) => `${a} → ${b} 초를 채움 (${d} 초)`,
   'mgr.ipApply': '보간하기',
   'mgr.ipRemove': '마지막 보간 제거',
-  'mgr.ipNeedRanges': '타임라인의 “구간 선택”으로 구간을 두 개 만드세요 — 채울 부분의 양옆에 하나씩. 서로 겹치면 안 됩니다.',
-  'mgr.ipNoGap': '두 구간이 맞닿거나 겹칩니다: 사이에 채울 부분이 없습니다.',
+  'mgr.ipNeedRanges': '타임라인의 “구간 선택”으로 구간을 두 개 만드세요 — 채울 부분의 양옆에 하나씩, 또는 서로 겹치게 (겹친 부분을 채움).',
+  'mgr.ipNoGap': '두 구간이 맞닿기만 합니다: 사이에 채울 부분이 없습니다.',
+  'mgr.ipOverlap': '겹침',
+  'mgr.layout.landscape': '가로 모드',
+  'mgr.layout.portrait': '세로 모드',
+  'mgr.layoutTip': '가로: 왼쪽에 모니터·타임라인·트랙, 오른쪽에 도구 · 세로: 한 열',
+  'mgr.splitDrag': '끌어서 왼쪽 열의 폭 조절',
+  'mgr.more': '더보기',
+  'mgr.moreTip': '트랙의 나머지 설정(템포·사이클·시작·길이·반복·페이드·트레몰로) 열기 / 닫기',
+  'mgr.moreAllOpen': '모두 열기',
+  'mgr.moreAllClose': '모두 닫기',
+  'mgr.ipMode.replace': '덮어쓰기',
+  'mgr.ipMode.add': '추가',
+  'mgr.ipModeTip.replace': '채우는 부분에서 연결된 트랙은 자리를 비킵니다 (뮤트 구간 추가)',
+  'mgr.ipModeTip.add': '전환을 위에 더하기만 합니다: 원래 있던 소리는 계속 울립니다',
   'mgr.ipDone': (name, from, to, n) => `${name}: ${from} → ${to} 초를 채움 (트랙 ${n}개 추가)`,
   'mgr.ipRemoved': '마지막 보간을 제거했습니다',
   'mgr.ipErrGap': '채울 부분이 없습니다: 사이가 0.1초 이상 떨어진 두 구간을 고르세요',
@@ -215,6 +252,12 @@ Object.assign(I18N.ko, {
   'mgrHelp.ipMethod.d': '전체(기본값) = 모든 변수를 옮김: 음고는 매끄러운 곡선으로, 음량·음색·트레몰로·트랙 설정은 위상이 맞는 두 층의 크로스페이드로, 음고 선이 없는 트랙은 디졸브로. 음고 글라이드 = 양쪽의 음고 선을 매끄러운 곡선으로 연결(새 글리산도 트랙). 디졸브 = 왼쪽 구간의 소리를 이어 가고 오른쪽 구간의 소리를 미리 들여옴(테이크) — 어떤 트랙이든 가능. 버튼 아래 글이 고른 방법이 하는 일을 정확히 설명합니다.',
   'mgrHelp.ipRange.t': '두 구간',
   'mgrHelp.ipRange.d': '채울 부분의 왼쪽·오른쪽 구간(타임라인의 구간 선택으로 만듦). 순서는 상관없고 앞선 구간이 시작 상태입니다. 구간이 길수록 음고 기울기를 재는 길이(구간의 ¼, 0.05–0.5초)와 디졸브가 반복하는 창이 길어집니다.',
+  'mgrHelp.layout.t': '가로 / 세로 모드',
+  'mgrHelp.layout.d': '가로(기본): 왼쪽에 마스터 뷰·타임라인·트랙 목록, 오른쪽에 연장·보간·변조·구간 — 열마다 따로 스크롤되며 사이의 선을 끌어 폭을 바꿉니다. 세로: 예전처럼 한 열.',
+  'mgrHelp.more.t': '트랙 설정 더보기',
+  'mgrHelp.more.d': '트랙은 게인까지만 보여 주고, ▸ 더보기로 나머지(템포·사이클·시작·길이·반복·페이드·트레몰로)를 엽니다. 머리줄의 모두 열기 / 모두 닫기는 모든 트랙에 적용.',
+  'mgrHelp.ipMode.t': '덮어쓰기 또는 추가',
+  'mgrHelp.ipMode.d': '덮어쓰기(기본): 채우는 부분에서 연결된 트랙이 전환에 자리를 비킵니다(뮤트 구간 ⇝ n 추가). 추가: 전환을 위에 더하기만 하고 원래 소리는 계속 울립니다. 구간이 겹치면 겹친 부분 자체를 그 직전 상태에서 직후 상태로 채웁니다.',
   'mgrHelp.ipApply.t': '보간하기',
   'mgrHelp.ipApply.d': '두 구간 사이를 채웁니다 (실행 취소 1단계). 지금 상태의 트랙에서 만들어지므로, 트랙을 고친 뒤에는 보간을 제거하고 다시 실행하세요.',
   'mgrHelp.ipRemove.t': '마지막 보간 제거',
@@ -223,7 +266,7 @@ Object.assign(I18N.ko, {
 
 const MGR_HELP_KEYS = ['output', 'gainUnit', 'size', 'check', 'helpBtn', 'cycle', 'cycleLoop', 'stopAll', 'pos', 'serial', 'parallel', 'add', 'export', 'close', 'master', 'shapeTool',
   'spectrum', 'timeline', 'clip', 'rangeTool', 'rule', 'regions', 'regionRow', 'color', 'name', 'studio', 'edit', 'launch', 'mute', 'solo',
-  'gain', 'meter', 'inCycle', 'start', 'length', 'loop', 'fadeIn', 'fadeOut', 'order', 'dup', 'del', 'tempoMaster', 'tempo', 'tape', 'trem', 'tremRate', 'tremDepth', 'warp', 'warpGrid', 'lenMode', 'exportVideo', 'toStart', 'extend', 'extMethod', 'extAmount', 'extApply', 'extRemove', 'take', 'interp', 'ipMethod', 'ipRange', 'ipApply', 'ipRemove'];
+  'gain', 'meter', 'inCycle', 'start', 'length', 'loop', 'fadeIn', 'fadeOut', 'order', 'dup', 'del', 'tempoMaster', 'tempo', 'trem', 'tremRate', 'tremDepth', 'warp', 'warpGrid', 'lenMode', 'exportVideo', 'toStart', 'extend', 'extMethod', 'extAmount', 'extApply', 'extRemove', 'take', 'interp', 'ipMethod', 'ipRange', 'ipApply', 'ipRemove', 'ipMode', 'layout', 'more'];
 
 function registerManagerHelp() {
   const entry = (lang, k) => ({ title: I18N[lang][`mgrHelp.${k}.t`], summary: I18N[lang][`mgrHelp.${k}.d`], detail: '', formula: '' });
@@ -335,6 +378,9 @@ function renderPanel() {
   // 재렌더는 스크롤 상자를 새로 만듦: 스크롤 위치 유지 (트랙 편집 시 맨 위로 튀던 문제)
   const prevScroll = panel.querySelector('.mgr-scroll');
   if (prevScroll) ui.scrollTop = prevScroll.scrollTop;
+  const prevCols = [...panel.querySelectorAll('.mgr-col')].map((c) => c.scrollTop);
+  if (prevCols.length) ui.colScroll = prevCols;
+  const land = mgrLayout.mode !== 'portrait';
   restoreOutputStrip(); // the Loudness Manager strip is moved back before innerHTML drops it / innerHTML 전에 출력 스트립 회수
   panel.innerHTML = `
     <div class="mgr-bar">
@@ -351,29 +397,46 @@ function renderPanel() {
       <button class="mgr-btn" data-act="serial" data-help="mgr.serial">⇢ ${esc(t('mgr.serial'))}</button>
       <button class="mgr-btn" data-act="parallel" data-help="mgr.parallel">⇉ ${esc(t('mgr.parallel'))}</button>
       <span class="mgr-sep"></span>
-      ${addStudioMarkup()}
-      <span class="mgr-sep"></span>
       <button class="mgr-btn" data-act="export" data-help="mgr.export">⬇ ${esc(t('mgr.exportCycle'))}</button>
       <button class="mgr-btn" data-act="exportVideo" data-help="mgr.exportVideo">🎬 ${esc(t('mgr.exportVideo'))}</button>
+      <button class="mgr-btn" data-act="exportTracks" data-help="app.trackExport" title="${esc(t('trx.menuTip'))}">🎚 ${esc(t('trx.title'))}</button>
       <span style="flex:1"></span>
+      <button class="mgr-btn" data-act="mgrLayout" data-help="mgr.layout" title="${esc(t('mgr.layoutTip'))}">⇄ ${esc(t(land ? 'mgr.layout.landscape' : 'mgr.layout.portrait'))}</button>
       ${sizeMarkup()}
       <button class="mgr-btn" data-act="help" data-help="mgr.helpBtn" title="${esc(t('mgr.help'))} (H)">? ${esc(t('mgr.help'))}</button>
       <button class="mgr-btn" data-act="close" data-help="mgr.close" title="${esc(t('mgr.close'))} (M)">✕</button>
     </div>
     <div class="mgr-out" data-help="mgr.output"><span class="mgr-out-label">${esc(t('mgr.output'))}</span><span class="mgr-out-host"></span>
       <span class="mgr-field" data-help="mgr.gainUnit">${esc(t('mgr.gainUnit'))}${['db', 'sone'].map((u) => `<button class="mgr-btn tiny ${ui.gainUnit === u ? 'on' : ''}" data-act="gainUnit" data-unit="${u}">${u === 'db' ? 'dB' : 'sone'}</button>`).join('')}</span></div>
+    ${land ? `
+    <div class="mgr-scroll mgr-split" style="--mgr-left:${mgrLayout.left}%">
+      <div class="mgr-col mgr-col-l custom-scroll">
+        ${masterMarkup()}
+        ${timelineMarkup(C)}
+        ${channelsMarkup()}
+      </div>
+      <div class="mgr-split-bar" data-mgr-split title="${esc(t('mgr.splitDrag'))}"></div>
+      <div class="mgr-col mgr-col-r custom-scroll">
+        ${extendMarkup(C)}
+        ${interpMarkup()}
+        <div class="mgr-mods-host"></div>
+        <div class="mgr-scenes-host"></div>
+        ${regionsMarkup()}
+      </div>
+    </div>` : `
     <div class="mgr-scroll custom-scroll">
       ${masterMarkup()}
       ${timelineMarkup(C)}
       ${extendMarkup(C)}
       ${interpMarkup()}
       <div class="mgr-mods-host"></div>
-      <div class="mgr-scenes-host"></div>
+        <div class="mgr-scenes-host"></div>
       ${regionsMarkup()}
       ${channelsMarkup()}
-    </div>`;
+    </div>`}`;
   const sc = panel.querySelector('.mgr-scroll');
-  if (sc && ui.scrollTop) sc.scrollTop = ui.scrollTop;
+  if (sc && ui.scrollTop && !land) sc.scrollTop = ui.scrollTop;
+  if (land && ui.colScroll) panel.querySelectorAll('.mgr-col').forEach((c, k) => { c.scrollTop = ui.colScroll[k] || 0; });
   mountOutputStrip();
   mountModsCard(panel.querySelector('.mgr-mods-host'), { showToast: hooks.showToast }); // ⇆ Modulation (ui/manager-mods.js)
   mountScenesCard(panel.querySelector('.mgr-scenes-host'), { showToast: hooks.showToast }); // ▶ Scenes (ui/manager-scenes.js)
@@ -415,6 +478,26 @@ function restoreOutputStrip() {
 // 창 크기: 기본 · 전체 화면 · 절반(오른쪽 도킹, 옆에서 스튜디오 계속 사용) + 왼쪽 가장자리 드래그. 보기 설정(localStorage).
 // --------------------------------------------------------------------------
 
+// Layout of the Manager: landscape (default) = window + timeline + track list on the left, tools on the right;
+// portrait = one column as before. A view preference (localStorage). / 가로(기본) = 왼쪽 윈도우·타임라인·트랙, 오른쪽 도구; 세로 = 한 열
+const LAYOUT_KEY = 'flexatone.mgrLayout.v1';
+const mgrLayout = (() => {
+  try { const o = JSON.parse(globalThis.localStorage?.getItem(LAYOUT_KEY) || '{}'); return { mode: o.mode === 'portrait' ? 'portrait' : 'landscape', left: clamp(Number(o.left) || 66, 35, 85) }; } catch { return { mode: 'landscape', left: 66 }; }
+})();
+function saveMgrLayout() {
+  try { globalThis.localStorage?.setItem(LAYOUT_KEY, JSON.stringify(mgrLayout)); } catch { /* session only */ }
+}
+/** Drag the line between the two columns. / 두 열 사이 선 끌기 */
+function onSplitDown(e, bar) {
+  e.preventDefault();
+  const box = bar.parentElement;
+  const r = box.getBoundingClientRect();
+  const move = (ev) => { mgrLayout.left = clamp(((ev.clientX - r.left) / Math.max(1, r.width)) * 100, 35, 85); box.style.setProperty('--mgr-left', `${mgrLayout.left}%`); };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); saveMgrLayout(); drawMaster(); globalThis.dispatchEvent(new Event('resize')); };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
 const SIZE_KEY = 'flexatone.mgrSize.v2'; // v2: full screen is the default (2026-11-23) / 기본 = 전체 화면
 const SIZES = ['float', 'half', 'full'];
 const SIZE_ICONS = { float: '▭', half: '◨', full: '⛶' };
@@ -422,7 +505,7 @@ const SIZE_ICONS = { float: '▭', half: '◨', full: '⛶' };
 function loadSize() {
   try {
     const o = JSON.parse(globalThis.localStorage?.getItem(SIZE_KEY) || '{}');
-    return { mode: SIZES.includes(o.mode) ? o.mode : 'full', width: Number(o.width) >= 320 ? Number(o.width) : null, anchor: o.anchor === 'left' ? 'left' : null };
+    return { mode: SIZES.includes(o.mode) ? o.mode : 'full', width: Number(o.width) >= 320 ? Number(o.width) : null, anchor: o.anchor === 'left' ? 'left' : null, offset: Number.isFinite(o.offset) ? o.offset : null };
   } catch { return { mode: 'full', width: null }; }
 }
 let size = loadSize();
@@ -448,9 +531,11 @@ function applySize() {
   panel.style.width = w ? `${w}px` : '';
   // anchored against the side opposite the dragged edge / 끈 가장자리 반대쪽에 고정
   const anchorLeft = w && size.anchor === 'left' && size.mode !== 'half';
-  const gap = size.mode === 'full' ? '0px' : '12px';
-  panel.style.left = w ? (anchorLeft ? gap : 'auto') : '';
-  panel.style.right = w ? (anchorLeft ? 'auto' : gap) : '';
+  // the anchored side keeps where it was (px from that screen edge) / 고정된 쪽은 원래 위치 유지
+  const gapPx = size.mode === 'full' ? 0 : 12;
+  const off = Number.isFinite(size.offset) ? Math.max(0, Math.min(size.offset, globalThis.innerWidth - (w || 0))) : gapPx;
+  panel.style.left = w ? (anchorLeft ? `${off}px` : 'auto') : '';
+  panel.style.right = w ? (anchorLeft ? 'auto' : `${size.mode === 'half' ? 0 : off}px`) : '';
   const docked = open && size.mode === 'half';
   document.body.classList.toggle('mgr-docked', docked);
   document.body.style.setProperty('--mgr-dock-w', docked ? `${Math.round(panel.getBoundingClientRect().width + 12)}px` : '0px');
@@ -460,7 +545,7 @@ function applySize() {
     edge.className = `mgr-edge ${side}`;
     edge.title = t('mgr.size.drag');
     edge.addEventListener('pointerdown', (e) => onEdgeDown(e, side));
-    edge.addEventListener('dblclick', () => { size.width = null; size.anchor = null; saveSize(); applySize(); drawMaster(); globalThis.dispatchEvent(new Event('resize')); });
+    edge.addEventListener('dblclick', () => { size.width = null; size.anchor = null; size.offset = null; saveSize(); applySize(); drawMaster(); globalThis.dispatchEvent(new Event('resize')); });
     panel.appendChild(edge);
   }
 }
@@ -470,6 +555,7 @@ function setSizeMode(mode) {
   size.mode = mode;
   size.width = null; // a size button gives the mode's own width / 크기 버튼 = 그 모드의 기본 폭
   size.anchor = null;
+  size.offset = null;
   saveSize();
   renderPanel();
   globalThis.dispatchEvent(new Event('resize')); // studio canvases re-measure beside a docked Manager / 캔버스 재측정
@@ -480,6 +566,7 @@ function onEdgeDown(e, side = 'l') {
   e.preventDefault();
   const r = panel.getBoundingClientRect();
   size.anchor = side === 'l' ? 'right' : 'left';
+  size.offset = Math.round(side === 'l' ? globalThis.innerWidth - r.right : r.left);
   const move = (ev) => {
     const raw = side === 'l' ? r.right - ev.clientX : ev.clientX - r.left;
     size.width = Math.round(clamp(raw, 360, globalThis.innerWidth));
@@ -488,7 +575,7 @@ function onEdgeDown(e, side = 'l') {
   const up = () => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
-    if (size.width >= globalThis.innerWidth - 4) { size.width = null; size.anchor = null; applySize(); } // dragged back to the edge / 끝까지 끌면 원래대로
+    if (size.width >= globalThis.innerWidth - 4) { size.width = null; size.anchor = null; size.offset = null; applySize(); } // dragged back to the edge / 끝까지 끌면 원래대로
     saveSize();
     drawMaster();
     globalThis.dispatchEvent(new Event('resize'));
@@ -551,8 +638,6 @@ function tempoControl(who, cfg, help, label) {
     <button class="mgr-btn tiny ${bpm ? '' : 'on'}" data-act="tempoMode" data-tempo-mode="rate" ${data} title="×">${esc(t('mgr.tempoRate'))}</button><button class="mgr-btn tiny ${bpm ? 'on' : ''}" data-act="tempoMode" data-tempo-mode="bpm" ${data}>${esc(t('mgr.tempoBpm'))}</button>
     <input type="number" ${bpm ? 'min="10" max="960" step="1"' : 'min="0.1" max="8" step="0.05"'} value="${bpm ? +c.bpm.toFixed(2) : +c.rate.toFixed(3)}" data-tempo-field="${bpm ? 'bpm' : 'rate'}" ${data} style="width:64px">
     ${bpm ? `<span class="mgr-muted">${esc(t('mgr.tempoRef'))}</span><input type="number" min="10" max="960" step="1" value="${+c.refBpm.toFixed(2)}" data-tempo-field="refBpm" ${data} style="width:56px">` : ''}
-    <button class="mgr-btn tiny ${c.tape ? 'on' : ''}" data-act="tempoTape" ${data} title="${esc(t('mgr.tapeTip'))}">${esc(t('mgr.tape'))}</button>
-    ${c.tape ? `<span class="mgr-muted">${esc(t('mgr.glide'))}</span><input type="number" min="0" max="10" step="0.1" value="${+c.glideSec.toFixed(2)}" data-tempo-field="glideSec" ${data} style="width:52px">` : ''}
     <button class="mgr-btn tiny" data-act="tempoReset" ${data} title="${esc(t('mgr.tempoReset'))}">↺</button></span>`;
 }
 
@@ -575,9 +660,39 @@ function masterMarkup() {
         ${s ? `<button class="mgr-btn" data-act="shapeCancel">${esc(t('mgr.cancel'))}</button>` : ''}
         <span class="mgr-hint ${cls}" id="mgrMasterHint">${esc(hint)}</span>
       </div>
-      <div class="mgr-canvas-wrap" data-help="mgr.master"><canvas id="mgrMaster" style="height:280px;cursor:${s ? 'crosshair' : 'col-resize'}"></canvas><span class="mgr-readout mgr-mono" id="mgrReadout"></span></div>
+      <div class="mgr-canvas-wrap" data-help="mgr.master"><canvas id="mgrMaster" style="height:280px;cursor:${s || ui.tool === 'range' ? 'crosshair' : 'col-resize'}"></canvas><span class="mgr-readout mgr-mono" id="mgrReadout"></span></div>
       <div class="mgr-canvas-wrap" style="border-top:1px solid #1e293b" data-help="mgr.spectrum"><canvas id="mgrSpectrum" style="height:84px"></canvas><span class="mgr-readout" style="top:4px">${esc(t('mgr.spectrum'))}</span></div>
+    </section>${spaceMasterMarkup()}`;
+}
+
+/**
+ * Space Master strip: its own place next to the Master View (Space also stays in "Add studio" as an
+ * ordinary track). On = every track is a source of the master Space scene (audio/space-master.js).
+ * 스페이스 마스터 스트립: 마스터 뷰 옆의 전용 자리 ("스튜디오 추가"의 스페이스는 그대로 일반 트랙).
+ */
+function spaceMasterMarkup() {
+  const m = getSpaceMaster();
+  const n = m.doc.sources.filter((x) => x.input?.kind === 'track' && !x.input.bypass).length;
+  const state = m.on ? t('mgr.spaceMasterOn', n, t(`space.panMode.${m.doc.panMode}`)) : t('mgr.spaceMasterOff');
+  return `
+    <section class="mgr-card" data-rack="mgr-space-master" data-help="space.master">
+      <div class="mgr-card-head">
+        <h3>⌖ ${esc(t('mgr.spaceMaster'))}</h3>
+        <button class="mgr-btn play ${m.on ? 'on' : ''}" data-act="smPower" data-help="space.master">${m.on ? '■' : '▶'} ${esc(t('env.on'))}</button>
+        <button class="mgr-btn" data-act="smEdit" data-help="space.master">${esc(t('mgr.spaceMasterEdit'))}</button>
+        <span class="mgr-hint ${m.on ? '' : 'warn'}">${esc(state)}</span>
+        <span class="mgr-hint">${esc(t('mgr.spaceMasterHint'))}</span>
+      </div>
     </section>`;
+}
+
+/** One Space Master source per track (new tracks get a place on the arc). / 트랙마다 마스터 음원 하나 */
+function syncSpaceMaster() {
+  const m = getSpaceMaster();
+  const C = mixer.cycleLength();
+  const len = C > 0 && Number.isFinite(C) ? C : 30;
+  const next = syncMasterSources(m.doc, listInstances().map((i) => ({ id: i.id, name: i.name, color: i.color })), len);
+  if (next) editSpaceMaster((d) => { d.doc.sources = next; if (!next.some((x) => x.id === d.doc.activeSourceId)) d.doc.activeSourceId = next[0]?.id || ''; d.doc.length = Math.max(d.doc.length, Math.min(300, len)); }, { history: false });
 }
 
 function timelineMarkup(C) {
@@ -699,7 +814,7 @@ function interpPick() {
     for (let i = 0; i < ranges.length; i++) for (let j = i + 1; j < ranges.length; j++) { const g = interpGap(ranges[i], ranges[j]); if (g) pairs.push(g); }
     // the selected range first, then the closest pair / 선택된 구간 우선, 그다음 가장 가까운 쌍
     pairs.sort((x, y) => (Number(y.A === sel || y.B === sel) - Number(x.A === sel || x.B === sel)) || x.gap - y.gap);
-    if (pairs[0]) { a = pairs[0].A; b = pairs[0].B; }
+    if (pairs[0]) { a = pairs[0].srcA || pairs[0].A; b = pairs[0].srcB || pairs[0].B; } // overlap: the ranges themselves, not their side windows / 겹침: 원래 구간
   } else if (!a || !b) {
     const one = a || b;
     const other = ranges.filter((r) => interpGap(one, r)).sort((x, y) => interpGap(one, x).gap - interpGap(one, y).gap)[0] || null;
@@ -720,15 +835,17 @@ function interpMarkup() {
   const methods = INTERP_METHODS.map((id, k) => `<button class="mgr-btn ext ${ui.ip.method === id ? 'on' : ''}" data-act="ipMethod" data-method="${id}" ${k === 0 ? 'data-help="mgr.ipMethod"' : ''} title="${esc(t(`mgr.ipDef.${id}`))}">${k + 1} ${esc(t(`mgr.ip.${id}`))}</button>`).join('');
   const sel = (which, cur) => `<select data-ip-range="${which}" ${ranges.length ? '' : 'disabled'}>${ranges.map((r) => `<option value="${r.id}" ${cur?.id === r.id ? 'selected' : ''}>${esc(r.name)} · ${fmt(r.t0, 1)}–${fmt(r.t1, 1)}s</option>`).join('')}</select>`;
   const ok = !!gap && gap.gap >= INTERP_MIN_GAP;
-  const status = ranges.length < 2 ? t('mgr.ipNeedRanges') : ok ? t('mgr.ipGap', fmt(gap.g0, 1), fmt(gap.g1, 1), fmt(gap.gap, 1)) : t('mgr.ipNoGap');
+  const status = ranges.length < 2 ? t('mgr.ipNeedRanges') : ok ? `${gap.overlap ? `${t('mgr.ipOverlap')} · ` : ''}${t('mgr.ipGap', fmt(gap.g0, 1), fmt(gap.g1, 1), fmt(gap.gap, 1))}` : t('mgr.ipNoGap');
+  const modes = ['replace', 'add'].map((md) => `<button class="mgr-btn tiny ${ui.ip.mode === md ? 'on' : ''}" data-act="ipMode" data-mode="${md}" data-help="mgr.ipMode" title="${esc(t(`mgr.ipModeTip.${md}`))}">${esc(t(`mgr.ipMode.${md}`))}</button>`).join('');
   return `
     <section class="mgr-card mgr-extend" data-rack="mgr-interp" data-help="mgr.interp">
       <div class="mgr-card-head">
         <h3>⇝ ${esc(t('mgr.interp'))}</h3>
         ${methods}
         <span class="mgr-sep"></span>
-        <span class="mgr-field" data-help="mgr.ipRange">${esc(t('mgr.ipFrom'))} ${sel('a', gap ? gap.A : a)} ${esc(t('mgr.ipTo'))} ${sel('b', gap ? gap.B : b)}</span>
+        <span class="mgr-field" data-help="mgr.ipRange">${esc(t('mgr.ipFrom'))} ${sel('a', gap ? gap.srcA || gap.A : a)} ${esc(t('mgr.ipTo'))} ${sel('b', gap ? gap.srcB || gap.B : b)}</span>
         <span class="mgr-mono mgr-muted">${esc(status)}</span>
+        <span class="mgr-field" data-help="mgr.ipMode">${modes}</span>
         <button class="mgr-btn play" data-act="ipApply" data-help="mgr.ipApply" ${ok ? '' : 'disabled'}>⇝ ${esc(t('mgr.ipApply'))}</button>
         <button class="mgr-btn" data-act="ipRemove" data-help="mgr.ipRemove" ${isInterpLog(last) ? '' : 'disabled'}>↶ ${esc(t('mgr.ipRemove'))}</button>
       </div>
@@ -870,6 +987,8 @@ function channelsMarkup() {
         ${inst.take?.on ? `<button class="mgr-btn tiny take ${inst.take.rev || inst.take.mirror ? 'on' : ''}" data-act="takeRev" data-help="mgr.take" data-id="${inst.id}" title="${esc(t('mgr.takeTip', fmt(inst.take.at, 1), fmt(inst.take.at + inst.take.len, 1)))}">${inst.take.mirror ? '◁' : inst.take.rev ? '◀' : '▶'} ${esc(t(inst.take.mirror ? 'mgr.takeMirror' : inst.take.rev ? 'mgr.takeRev' : 'mgr.takeFwd'))}</button>` : ''}
         <span class="mgr-field"${h('gain')}>${esc(t('mgr.gain'))} <input type="range" min="-60" max="12" step="0.5" value="${inst.gainDb}" data-default="0" data-field="gainDb" data-id="${inst.id}">${gainBox(inst)}</span>
         <span class="mgr-meter"${h('meter')}><i data-meter="${inst.id}"></i></span>
+        <button class="mgr-btn tiny mgr-more-btn ${ui.open.has(inst.id) ? 'on' : ''}" data-act="stripMore"${h('more')} data-id="${inst.id}" title="${esc(t('mgr.moreTip'))}">${ui.open.has(inst.id) ? '▾' : '▸'} ${esc(t('mgr.more'))}</button>
+        <span class="mgr-strip-more ${ui.open.has(inst.id) ? 'open' : ''}">
         <span class="mgr-sep"></span>
         ${tempoControl(inst.id, inst.tempo, 'tempo', t('mgr.tempo'))}<span class="mgr-mono mgr-muted" data-tempo-eff="${inst.id}">${esc(t('mgr.tempoEff', +contentRate(inst).toFixed(3)))}</span>
         <button class="mgr-btn tiny ${inst.inCycle ? 'on' : ''}" data-act="inCycle"${h('inCycle')} data-id="${inst.id}">⟲ ${esc(t('mgr.inCycle'))}</button>
@@ -881,6 +1000,7 @@ function channelsMarkup() {
         <button class="mgr-btn tiny ${inst.tremolo?.on ? 'on' : ''}" data-act="trem"${h('trem')} data-id="${inst.id}">〰 ${esc(t('mgr.trem'))}</button>
         <span class="mgr-field"${h('tremRate')}>${esc(t('mgr.tremRate'))} <input type="number" step="0.1" min="0.05" max="40" value="${fmt(inst.tremolo?.rate ?? 5)}" data-field="tremRate" data-id="${inst.id}" style="width:56px"></span>
         <span class="mgr-field"${h('tremDepth')}>${esc(t('mgr.tremDepth'))} <input type="number" step="0.05" min="0" max="1" value="${fmt(inst.tremolo?.depth ?? 0.5)}" data-field="tremDepth" data-id="${inst.id}" style="width:56px"></span>
+        </span>
         <span style="flex:1"></span>
         <button class="mgr-btn tiny" data-act="up"${h('order')} data-id="${inst.id}" ${idx === 0 ? 'disabled' : ''} title="${esc(t('mgr.moveUp'))}">↑</button>
         <button class="mgr-btn tiny" data-act="down" data-id="${inst.id}" ${idx === instances.length - 1 ? 'disabled' : ''} title="${esc(t('mgr.moveDown'))}">↓</button>
@@ -893,7 +1013,10 @@ function channelsMarkup() {
   const selInfo = ui.sel.size
     ? `<span class="mgr-chip warp">${esc(t('mgr.selCount', ui.sel.size))}</span><button class="mgr-btn tiny" data-act="selClear">${esc(t('mgr.selClear'))}</button><span class="mgr-hint">${esc(t('mgr.selUsedBy'))}</span>`
     : `<span class="mgr-hint">${esc(t('mgr.selHint'))}</span>`;
-  return `<section class="mgr-card" data-rack="mgr-channels"><div class="mgr-card-head">${selAll}<h3>☰ ${esc(t('mgr.channels'))}</h3>${selInfo}</div>${strips}</section>`;
+  const allOpen = instances.length && instances.every((i) => ui.open.has(i.id));
+  const moreAll = `<button class="mgr-btn tiny" data-act="stripMoreAll" data-help="mgr.more" title="${esc(t('mgr.moreTip'))}">${allOpen ? '▾' : '▸'} ${esc(t(allOpen ? 'mgr.moreAllClose' : 'mgr.moreAllOpen'))}</button>`;
+  // ＋ Add studio lives with the tracks it adds / 스튜디오 추가는 트랙 목록에
+  return `<section class="mgr-card" data-rack="mgr-channels"><div class="mgr-card-head">${selAll}<h3>☰ ${esc(t('mgr.channels'))}</h3>${addStudioMarkup()}${moreAll}${selInfo}</div>${strips}</section>`;
 }
 
 /** Selected tracks (checkboxes) that still exist, in track order — shared by every tool that acts on "the selection". */
@@ -938,6 +1061,8 @@ async function onClick(e) {
       case 'cycle': await toggleManagerCycle(); break;
       case 'cycleLoop': setManagerPref({ cycleLoop: !appState.manager.cycleLoop }); break;
       case 'stopAll': mixer.stopAllManager(); break;
+      case 'smPower': syncSpaceMaster(); editSpaceMaster((d) => { d.on = !d.on; }); refreshSpaceMaster(); break;
+      case 'smEdit': syncSpaceMaster(); setSpaceDocTarget('master'); toggleManagerPanel(false); document.querySelector('#studioTabs [data-studio="space"]')?.click(); hooks.requestRender(['all']); break;
       case 'serial': arrangeCycle('serial', mixer.ownClipLength); break;
       case 'parallel': arrangeCycle('parallel', mixer.ownClipLength); break;
       case 'lenMode': {
@@ -968,6 +1093,7 @@ async function onClick(e) {
         break;
       }
       case 'exportVideo': openMasterVideoDialog({ hooks }); break;
+      case 'exportTracks': openTrackExportDialog({ hooks, scope: 'manager' }); break;
       case 'toStart': await mixer.seekCycle(0); break;
       case 'edit': if (inst) editInstance(inst); break;
       case 'launch': if (inst) { const was = mixer.isLaunched(id); const ok = await mixer.toggleLaunch(id); if (!was && !ok) hooks.showToast(t('toast.noAudio'), 'error'); } break;
@@ -1006,6 +1132,10 @@ async function onClick(e) {
         break;
       }
       case 'ipMethod': ui.ip.method = el.dataset.method; renderPanel(); break;
+      case 'stripMore': { const id = el.dataset.id; if (ui.open.has(id)) ui.open.delete(id); else ui.open.add(id); renderPanel(); break; }
+      case 'stripMoreAll': { const ids = listInstances().map((i) => i.id); const all = ids.length && ids.every((id) => ui.open.has(id)); ui.open = new Set(all ? [] : ids); renderPanel(); break; }
+      case 'mgrLayout': mgrLayout.mode = mgrLayout.mode === 'portrait' ? 'landscape' : 'portrait'; saveMgrLayout(); renderPanel(); globalThis.dispatchEvent(new Event('resize')); break;
+      case 'ipMode': ui.ip.mode = el.dataset.mode === 'add' ? 'add' : 'replace'; renderPanel(); break;
       case 'ipApply': {
         const { gap } = interpPick();
         if (!gap) { hooks.showToast(t('mgr.ipErrGap'), 'error'); break; }
@@ -1016,7 +1146,7 @@ async function onClick(e) {
           measure.lines = geometry().lines.filter((l) => !l.warpSrc).map((l) => ({ instId: l.inst.id, key: l.key, name: l.name, pts: l.pts }));
           measure.voiceGain = lineEnvelopeAt;
         }
-        const res = interpolateRanges(ui.ip.method, gap.A, gap.B, measure);
+        const res = interpolateRanges(ui.ip.method, gap.A, gap.B, measure, { mode: ui.ip.mode });
         if (res.ok) hooks.showToast(t('mgr.ipDone', t(`mgr.ip.${ui.ip.method}`), fmt(res.from, 1), fmt(res.to, 1), res.added));
         else hooks.showToast(t(res.error === 'gap' ? 'mgr.ipErrGap' : res.error === 'lines' ? 'mgr.ipErrLines' : 'mgr.ipErrEmpty'), 'error');
         break;
@@ -1030,8 +1160,7 @@ async function onClick(e) {
       case 'dup': if (inst) { const n = addInstance(inst.studio, { from: id }); if (n) hooks.showToast(t('mgr.added', n.name)); } break;
       case 'del': if (inst && !removeInstance(id)) hooks.showToast(t('mgr.cannotRemoveLast', studioShortName(inst.studio)), 'error'); break;
       case 'tempoMode': patchTempoOf(el.dataset.tempo, { mode: el.dataset.tempoMode }); break;
-      case 'tempoTape': patchTempoOf(el.dataset.tempo, { tape: !(el.classList.contains('on')) }); break;
-      case 'tempoReset': patchTempoOf(el.dataset.tempo, { mode: 'rate', rate: 1, tape: false }); break;
+      case 'tempoReset': patchTempoOf(el.dataset.tempo, { mode: 'rate', rate: 1 }); break;
       case 'rangeTool': ui.tool = ui.tool === 'range' ? null : 'range'; renderPanel(); break;
       case 'rule': e.stopPropagation(); setRegionRule(el.dataset.region, id); ui.selRegion = el.dataset.region; break;
       case 'selRegion': if (e.target.closest('input,button,[data-act="rule"]') === null) { ui.selRegion = el.dataset.region; renderPanel(); } break;
@@ -1126,7 +1255,7 @@ function onChange(e) {
   }
   if (el.dataset.tempoField) {
     const v = Number(el.value);
-    if (Number.isFinite(v) && (v > 0 || el.dataset.tempoField === 'glideSec')) patchTempoOf(el.dataset.tempo, { [el.dataset.tempoField]: v });
+    if (Number.isFinite(v) && v > 0) patchTempoOf(el.dataset.tempo, { [el.dataset.tempoField]: v });
     hooks.requestRender(['manager']);
     return;
   }
@@ -1183,6 +1312,8 @@ const snap = (sec, fine) => (fine ? Math.round(sec * 100) / 100 : Math.round(sec
 
 function onPointerDown(e) {
   if (e.button !== 0) return;
+  const bar = e.target.closest('[data-mgr-split]');
+  if (bar) { onSplitDown(e, bar); return; }
   const canvas = e.target.closest('#mgrMaster');
   if (canvas) { onMasterDown(e, canvas); return; }
   const track = e.target.closest('.mgr-tl-track');
@@ -1195,8 +1326,8 @@ function onPointerDown(e) {
     startDrag();
     return;
   }
-  if (track.closest('.mgr-tl-ruler')) {
-    // Ruler: click / drag = move the playhead / 눈금자: 클릭·드래그 = 플레이헤드 이동
+  if (track.closest('.mgr-tl-ruler') && ui.tool !== 'range') {
+    // Ruler: click / drag = move the playhead (not while Select range is on) / 눈금자: 플레이헤드 이동 (구간 선택 중 제외)
     startScrub(e, (ev) => trackSec(track, ev.clientX), trackSec(track, e.clientX));
     return;
   }
@@ -1238,6 +1369,7 @@ function paintDraft() {
   const d = ui.drag;
   const a = Math.min(d.t0, d.t1);
   const b = Math.max(d.t0, d.t1);
+  if (d.paint) { d.paint(a, b); return; }
   d.draft.style.left = pct(a);
   d.draft.style.width = `calc(${pct(b)} - ${pct(a)})`;
 }
@@ -1247,7 +1379,7 @@ function startDrag() {
     const d = ui.drag;
     if (!d) return;
     if (d.kind === 'range') {
-      d.t1 = snap(trackSec(d.track, ev.clientX), ev.shiftKey);
+      d.t1 = snap(d.secAt ? d.secAt(ev) : trackSec(d.track, ev.clientX), ev.shiftKey);
       paintDraft();
       return;
     }
@@ -1359,42 +1491,22 @@ function clipGeometry(inst, L, depth = 0) {
   const nat = mixer.naturalLength(inst);
   out.nat = nat;
   if (!(nat > 0.02)) return out;
-  // Clip studios are blocks unless they provide pitch lines (Wave: ridge tracks). / 음고 선을 제공하면 선으로 표시
-  const clipLines = inst.studio !== 'glissando' && inst.studio !== 'field' ? clipStudioLines(inst.studio, resolveDocParams(inst)) : null;
-  if (inst.studio !== 'glissando' && inst.studio !== 'field' && !(clipLines && clipLines.length)) { out.block = true; return out; }
+  // The studio projects itself onto the Master's time × pitch grid (studios/projection.js); a studio without a
+  // projection — or a clip studio whose adapter gives no lines — is drawn as a block.
+  // 스튜디오가 스스로 격자에 투영 (studios/projection.js). 투영이 없거나 선이 없으면 블록.
+  const paths = projectStudio(inst.studio, getInstanceDoc(inst), { fromDoc: true });
+  if (projectionKind(inst.studio) === 'block' || (isClipStudio(inst.studio) && !paths.length)) { out.block = true; return out; }
   const reps = inst.loop ? Math.min(40, Math.ceil(L / nat)) : 1;
   // Varispeed clip studios shift pitch by the whole rate (as the mixer plays them) / varispeed 스튜디오는 전체 배속만큼 음고 이동
   const vari = isClipStudio(inst.studio) && !clipStudioScalesTime(inst.studio);
   const semis = tapeSemitones(vari ? channelRates(inst).rate : channelRates(inst).tape);
   const rate = contentRate(inst); // Tempo Manager: document time → real time / 문서 시간 → 실제 시간
   const base = [];
-  if (clipLines) {
-    for (const ln of clipLines) base.push({ key: ln.key, name: ln.name, pts: ln.pts.map((q) => ({ t: q.t / rate, m: q.m + semis })) });
-  } else if (inst.studio === 'glissando') {
-    const voices = filterAudibleVoices(getInstanceDoc(inst)?.voices || []).filter((v) => v.duration > 0.002);
-    for (const v of voices) {
-      const n = clamp(Math.ceil(v.duration * 40), 24, 240);
-      const pts = [];
-      for (let k = 0; k <= n; k++) {
-        const tn = k / n;
-        pts.push({ t: (v.startTime + tn * v.duration) / rate, m: freqToMidi(getVoiceFreqAtNormT(v, tn)) + semis });
-      }
-      base.push({ key: v.id, name: v.name, pts });
-    }
-  } else {
-    const params = resolveDocParams(inst);
-    const baked = getBakedMap(params);
-    for (const v of params.voices || []) {
-      if (!isParticleAudible(v, params) || v.duration <= 0.02) continue;
-      const ptsB = baked.get(v.id);
-      const pts = [];
-      for (let k = 0; k <= 120; k++) {
-        const f = k / 120;
-        const y = lookupBakedSample(v, ptsB, f).y;
-        pts.push({ t: (v.startTime + f * v.duration) / rate, m: v.f0Midi + y * (v.f1Midi - v.f0Midi) + semis });
-      }
-      base.push({ key: v.id, name: v.name, pts });
-    }
+  // Each path is cut into its monotone pieces (single-valued m(t)); a reversal / S¹ wrap / gap makes more pieces.
+  // 경로를 시간 단조 조각(m(t) 함수)으로 나눔 — 역행·래핑·끊김은 조각이 더 생김
+  for (const path of paths) {
+    const pieces = monotonePieces(path.pts);
+    pieces.forEach((piece, k) => base.push({ key: pieces.length > 1 ? `${path.key}#${k}` : path.key, name: path.name, pts: piece.map((q) => ({ t: q.t / rate, m: q.m + semis })) }));
   }
   // Warp: a Warp track shows its own (unbent) lines; a target shows what it sounds like — a looping
   // clip is rendered pass by pass, so every repeat is bent at its own cycle time
@@ -2103,6 +2215,25 @@ function onMasterDown(e, c) {
   const g = geometry();
   const v = viewMap(c, g);
   const p = canvasPoint(e, c);
+  if (!s && ui.tool === 'range') {
+    // Select range is on: a drag on the Master View draws a range; the playhead stays where it is
+    // 구간 선택 중: 마스터 뷰 드래그 = 구간 그리기, 플레이헤드는 움직이지 않음
+    e.preventDefault();
+    const draft = document.createElement('div');
+    draft.className = 'mgr-draft';
+    c.parentElement.appendChild(draft);
+    const secAt = (ev) => clamp(v.invX(canvasPoint(ev, c).x), 0, ui.viewLen);
+    const t0 = snap(secAt(e), e.shiftKey);
+    const paint = (a, b) => {
+      const k = c.clientWidth / Math.max(1, v.w); // canvas px → CSS px / 캔버스 → CSS 픽셀
+      draft.style.left = `${c.offsetLeft + v.X(a) * k}px`;
+      draft.style.width = `${Math.max(1, (v.X(b) - v.X(a)) * k)}px`;
+    };
+    ui.drag = { kind: 'range', t0, t1: t0, draft, secAt, paint };
+    paintDraft();
+    startDrag();
+    return;
+  }
   if (!s) { startScrub(e, (ev) => v.invX(canvasPoint(ev, c).x), p.x >= v.padL ? v.invX(p.x) : 0); return; }
   if (s.b) {
     // Toggle the enclosed area under the pointer / 클릭한 닫힌 영역 토글

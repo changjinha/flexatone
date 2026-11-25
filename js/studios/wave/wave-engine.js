@@ -11,6 +11,8 @@
  *   wave  u_tt = c(x)²·(u_xx − D·u_xxxx) − γ·u_t        D ≥ 0 (stiff-string sign: well-posed)
  *   kg    u_tt = c(x)²·u_xx − m²·u − γ·u_t              Klein–Gordon
  *   sg    u_tt = c(x)²·u_xx − m²·sin u − γ·u_t          sine-Gordon (kink width c/m)
+ *   schrod  i·ψ_t = −D·ψ_xx + V(x)·ψ            Schrödinger (D = ħ/2m in st²/s); the field is |ψ|²
+ *   diffusion  u_t = ν·u_xx + G, wall u(0,t) = A·cos 2πft   heat / Stokes' 2nd problem / Poiseuille start-up
  *   gs    u_t = Du·u_xx − u·v² + F·(1 − u),  v_t = Dv·v_xx + u·v² − (F + k)·v   Gray–Scott
  *
  * Numerics / 수치 방법
@@ -34,7 +36,11 @@ import { timbreSpecExtras } from '../../modules/timbre-spec.js';
 import { normalizeTremolo } from '../../core/tremolo-config.js';
 import { normalizeVoiceMod } from '../../core/voice-mod.js';
 
-export const WAVE_EQS = Object.freeze(['wave', 'kg', 'sg', 'gs']);
+export const WAVE_EQS = Object.freeze(['wave', 'kg', 'sg', 'gs', 'schrod', 'diffusion']);
+/** Potentials of the Schrödinger equation. / 슈뢰딩거 퍼텐셜 종류 */
+export const WAVE_POTENTIALS = Object.freeze(['zero', 'harmonic', 'barrier', 'curve']);
+/** Equations whose baked field is a non-negative density / profile (no wave sign). / 부호 없는 장 */
+export const isWaveFieldEq = (eq) => eq === 'gs' || eq === 'schrod' || eq === 'diffusion';
 export const WAVE_BOUNDARIES = Object.freeze(['fixed', 'free', 'absorbing', 'periodic']);
 export const WAVE_INIT_KINDS = Object.freeze(['gauss', 'tri', 'box', 'standing', 'kink', 'noise']);
 export const WAVE_SONIFY_MODES = Object.freeze(['spectral', 'ridge']);
@@ -42,7 +48,7 @@ export const WAVE_SOURCES = Object.freeze(['abs', 'energy']);
 export const WAVE_COLORS = Object.freeze(['signed', 'abs', 'energy']);
 export const WAVE_ENGINES = Object.freeze(['auto', 'oscillators']);
 export const WAVE_NX = Object.freeze([64, 96, 128, 192, 256]);
-export const WAVE_PRESET_IDS = Object.freeze(['pulse', 'chord', 'kink', 'medium', 'bloom']);
+export const WAVE_PRESET_IDS = Object.freeze(['pulse', 'chord', 'kink', 'medium', 'bloom', 'well', 'oscillator', 'packet', 'tunnel', 'stokes', 'poiseuille']);
 export const WAVE_TIMBRE_WAVES = Object.freeze(['sine', 'tri', 'saw', 'sqr', 'rich']);
 
 /** Largest baked matrix (frames × Nx); the bake rate is lowered to stay below it. / 행렬 상한 */
@@ -99,6 +105,10 @@ export function createDefaultWaveParams() {
     init: [createWaveInit('gauss', { x: 0.5, width: 2, amp: 1 })],
     drivers: [],
     gs: { Du: 0.036, Dv: 0.018, F: 0.03, k: 0.057 },
+    // Schrödinger: D = ħ/2m [st²/s]; vmax = group velocity at init velocity 1 [st/s]; V0 [1/s]; omega = ladder spacing Ω [rad/s]
+    qm: { D: 2, vmax: 6, V: 'zero', V0: 1.6, vx: 0.65, vw: 0.03, omega: 1 },
+    // Diffusion: ν [st²/s]; wall = oscillating left boundary (Stokes' 2nd problem); force G [1/s] (Poiseuille start-up)
+    dif: { nu: 40, wallHz: 1, wallAmp: 1, force: 0 },
     sonify: {
       mode: 'spectral',
       source: 'abs',
@@ -152,6 +162,61 @@ export function createWavePreset(id) {
     d.boundary = 'free';
     d.init = [createWaveInit('gauss', { x: 0.5, width: 2, amp: 1 })];
     d.sonify.ampPower = 1.5;
+    d.view.color = 'abs';
+  } else if (id === 'well') {
+    // Infinite potential well: modes 1 + 2 + 3 → quantum revival (E_n ∝ n²)
+    d.eq = 'schrod';
+    d.boundary = 'fixed';
+    d.pLo = 60;
+    d.pHi = 72;
+    d.qm.D = 40;
+    d.length = 12;
+    d.view.midiMin = 58;
+    d.view.midiMax = 74;
+    d.init = [createWaveInit('standing', { mode: 1, amp: 1 }), createWaveInit('standing', { mode: 2, amp: 0.8 }), createWaveInit('standing', { mode: 3, amp: 0.6 })];
+    d.sonify.source = 'energy';
+    d.view.color = 'energy';
+  } else if (id === 'oscillator') {
+    // Coherent state of the harmonic oscillator: a Gaussian that never spreads, period 2π/Ω
+    d.eq = 'schrod';
+    d.boundary = 'absorbing';
+    d.Nx = 256; // fine grid: the packet reaches k ≈ 2 rad/st at the bottom of the well
+    d.qm.V = 'harmonic';
+    d.qm.omega = 1;
+    d.init = [createWaveInit('gauss', { x: 0.35, width: 2, amp: 1 })];
+    d.sonify.source = 'energy';
+    d.view.color = 'energy';
+  } else if (id === 'packet') {
+    // Free Gaussian wave packet: group velocity glides, dispersion spreads it into a cloud
+    d.eq = 'schrod';
+    d.boundary = 'absorbing';
+    d.init = [createWaveInit('gauss', { x: 0.2, width: 1.5, amp: 1, velocity: 0.8 })];
+    d.sonify.source = 'energy';
+    d.view.color = 'energy';
+  } else if (id === 'tunnel') {
+    // Packet hits a finite barrier: reflected + transmitted parts (quantum tunnelling)
+    d.eq = 'schrod';
+    d.boundary = 'absorbing';
+    d.qm.V = 'barrier';
+    d.qm.V0 = 1.6;
+    d.init = [createWaveInit('gauss', { x: 0.25, width: 2, amp: 1, velocity: 0.5 })];
+    d.sonify.source = 'energy';
+    d.sonify.ampPower = 0.6;
+    d.view.color = 'energy';
+  } else if (id === 'stokes') {
+    // Stokes' 2nd problem: the lowest pitch oscillates, a damped shear wave diffuses upward
+    d.eq = 'diffusion';
+    d.boundary = 'absorbing';
+    d.init = [];
+    d.dif = { nu: 40, wallHz: 1, wallAmp: 1, force: 0 };
+    d.view.color = 'signed';
+  } else if (id === 'poiseuille') {
+    // Start-up of plane Poiseuille flow: u(0) = u(L) = 0, constant pressure gradient → parabola
+    d.eq = 'diffusion';
+    d.boundary = 'fixed';
+    d.init = [];
+    d.dif = { nu: 30, wallHz: 1, wallAmp: 0, force: 0.067 };
+    d.sonify.source = 'abs';
     d.view.color = 'abs';
   }
   return d;
@@ -219,6 +284,23 @@ export function sanitizeWaveParams(raw) {
     F: roundTo(num(g.F, d.gs.F, 0.001, 0.12), 5),
     k: roundTo(num(g.k, d.gs.k, 0.01, 0.08), 5),
   };
+  const q = s.qm || {};
+  p.qm = {
+    D: roundTo(num(q.D, d.qm.D, 0.05, 400), 4),
+    vmax: roundTo(num(q.vmax, d.qm.vmax, 0.5, 20), 3),
+    V: pick(q.V, WAVE_POTENTIALS, d.qm.V),
+    V0: roundTo(num(q.V0, d.qm.V0, 0, 60), 4),
+    vx: roundTo(num(q.vx, d.qm.vx, 0, 1), 4),
+    vw: roundTo(num(q.vw, d.qm.vw, 0.005, 0.6), 4),
+    omega: roundTo(num(q.omega, d.qm.omega, 0.05, 20), 4),
+  };
+  const df = s.dif || {};
+  p.dif = {
+    nu: roundTo(num(df.nu, d.dif.nu, 0.05, 400), 4),
+    wallHz: roundTo(num(df.wallHz, d.dif.wallHz, 0.05, 20), 4),
+    wallAmp: roundTo(num(df.wallAmp, d.dif.wallAmp, 0, 1), 4),
+    force: roundTo(num(df.force, d.dif.force, -1, 1), 5),
+  };
   const so = s.sonify || {};
   p.sonify = {
     mode: pick(so.mode, WAVE_SONIFY_MODES, d.sonify.mode),
@@ -260,7 +342,7 @@ export function wavePhysics(p) {
     eq: p.eq, Nx: p.Nx, pLo: p.pLo, pHi: p.pHi, length: p.length, bakeRate: p.bakeRate, simSpeed: p.simSpeed,
     speed: p.speed, cfl: p.cfl, c: p.c.customPoints.map((q) => [q.x, q.y]), cLo: p.cLo, cHi: p.cHi,
     damping: p.damping, dispersion: p.dispersion, mass: p.mass, boundary: p.boundary,
-    init: p.init, drivers: p.drivers, gs: p.gs, seed: p.seed,
+    init: p.init, drivers: p.drivers, gs: p.gs, qm: p.qm, dif: p.dif, seed: p.seed,
   };
 }
 
@@ -618,6 +700,230 @@ export function createGsSim(cfg) {
 }
 
 // ==========================================================================
+// 3b. Schrödinger and diffusion solvers / 슈뢰딩거·확산 풀이기
+// ==========================================================================
+
+/** Hermite function H_n(ξ)·e^(−ξ²/2) by the stable three-term recurrence (unnormalised). / 에르미트 함수 */
+export function hermiteFunction(n, xi) {
+  let a = 1;
+  let b = 2 * xi;
+  if (n === 0) return a * Math.exp(-0.5 * xi * xi);
+  for (let k = 1; k < n; k++) {
+    const c = 2 * xi * b - 2 * k * a;
+    a = b;
+    b = c;
+  }
+  // rescale by √(2ⁿ n!) so that all modes have a comparable peak (≈ 1) / 모드 크기 정규화
+  let norm = 1;
+  for (let k = 1; k <= n; k++) norm *= Math.sqrt(2 * k);
+  return (b / norm) * Math.exp(-0.5 * xi * xi);
+}
+
+/** Harmonic ground-state length ℓ = √(2D/Ω) (st) — a Gaussian of this width is a coherent state. / 조화 진동자 길이 */
+export const harmonicLength = (qm) => Math.sqrt((2 * qm.D) / Math.max(1e-9, qm.omega));
+
+/** Potential V(x) [1/s] on the grid. / 격자 위 퍼텐셜 */
+export function potentialProfile(p, N, dx) {
+  const V = new Float64Array(N);
+  const L = (N - 1) * dx;
+  const qm = p.qm;
+  if (qm.V === 'harmonic') {
+    const kappa = (qm.omega * qm.omega) / (4 * qm.D);
+    for (let i = 0; i < N; i++) { const r = i * dx - 0.5 * L; V[i] = kappa * r * r; }
+  } else if (qm.V === 'barrier') {
+    const xb = qm.vx * L;
+    const hw = 0.5 * qm.vw * L;
+    const e = Math.max(dx, 0.15);
+    for (let i = 0; i < N; i++) { const r = i * dx - xb; V[i] = qm.V0 * 0.5 * (Math.tanh((r + hw) / e) - Math.tanh((r - hw) / e)); }
+  } else if (qm.V === 'curve') {
+    for (let i = 0; i < N; i++) V[i] = qm.V0 * clamp(evaluateCurveObjectY(p.c, N > 1 ? i / (N - 1) : 0, { raw: true }), 0, 1);
+  }
+  return V;
+}
+
+/** Initial ψ₀ = Σ items (envelope · e^(i·k·(x − x₀)), k = velocity·vmax/2D). Returns {re, im}. / 초기 파동함수 */
+export function buildSchrodInitial(p, N, dx) {
+  const re = new Float64Array(N);
+  const im = new Float64Array(N);
+  const rng = createSeededRandom(p.seed);
+  const f = new Float64Array(N);
+  const c = new Float64Array(N).fill(1);
+  const L = (N - 1) * dx;
+  for (const it of p.init) {
+    let vel = 0;
+    if (it.kind === 'standing' && p.qm.V === 'harmonic') {
+      const ell = harmonicLength(p.qm);
+      for (let i = 0; i < N; i++) f[i] = it.amp * hermiteFunction(Math.max(0, it.mode - 1), (i * dx - 0.5 * L) / ell);
+    } else {
+      vel = initShape(it, { ...p, eq: 'schrod' }, N, dx, c, rng, f);
+    }
+    // Lattice-exact momentum: the 3-point Laplacian has group velocity (2D/dx)·sin(k·dx), so pick k that
+    // gives the requested velocity on the grid. / 격자 군속도 (2D/dx)·sin(k·dx)가 요청 속도가 되는 k
+    const vg = clamp(vel, -1, 1) * p.qm.vmax;
+    const k = Math.sign(vg) * Math.asin(clamp((Math.abs(vg) * dx) / (2 * p.qm.D), 0, 0.98)) / dx;
+    const x0 = it.x * L;
+    for (let i = 0; i < N; i++) {
+      const ph = k * (i * dx - x0);
+      re[i] += f[i] * Math.cos(ph);
+      im[i] += f[i] * Math.sin(ph);
+    }
+  }
+  return { re, im };
+}
+
+/**
+ * Crank–Nicolson Schrödinger solver  i·ψ_t = (−D∂ₓₓ + V − iΓ)ψ  (unitary for Γ = 0, unconditionally stable).
+ * fixed = Dirichlet ψ = 0 (infinite well), free = Neumann, absorbing = complex absorbing potential Γ at both
+ * ends, periodic → treated as fixed. `dtReq` is split into sub-steps (≤ 16) for phase accuracy.
+ * CN 슈뢰딩거 풀이기: 놓인 경계(fixed)=무한 우물, absorbing=복소 흡수 퍼텐셜. periodic은 fixed로 처리.
+ */
+export function createSchrodSim(cfg) {
+  const { N, dx, D, V } = cfg;
+  const boundary = cfg.boundary === 'periodic' ? 'fixed' : cfg.boundary || 'fixed';
+  const idx2 = 1 / (dx * dx);
+  const gam = new Float64Array(N);
+  if (boundary === 'absorbing') {
+    const nAbs = Math.max(4, Math.round(0.12 * N));
+    const gmax = (60 * D) / ((nAbs * dx) * (nAbs * dx));
+    for (let i = 0; i < nAbs; i++) {
+      const q = ((nAbs - i) / nAbs) ** 2;
+      gam[i] = gmax * q;
+      gam[N - 1 - i] = gmax * q;
+    }
+  }
+  let vmaxAbs = 0;
+  for (let i = 0; i < N; i++) vmaxAbs = Math.max(vmaxAbs, Math.abs(V[i]));
+  const eChar = vmaxAbs + D * Math.min(4 * idx2, 36);
+  const dtReq = Math.max(1e-6, cfg.dtReq || 0.01);
+  const sub = clamp(Math.ceil((dtReq * eChar) / 0.5), 1, 16);
+  const dt = dtReq / sub;
+  const hd = 0.5 * dt;
+  // H as tridiagonal (lo, di = hr + i·hi, up); A = I + (i dt/2)H, B = I − (i dt/2)H.
+  const aLoR = new Float64Array(N), aLoI = new Float64Array(N), aUpR = new Float64Array(N), aUpI = new Float64Array(N);
+  const bLoR = new Float64Array(N), bLoI = new Float64Array(N), bUpR = new Float64Array(N), bUpI = new Float64Array(N);
+  const aDiR = new Float64Array(N), aDiI = new Float64Array(N), bDiR = new Float64Array(N), bDiI = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    const edge = i === 0 || i === N - 1;
+    if (edge && boundary !== 'free') { aDiR[i] = 1; bDiR[i] = 0; continue; } // Dirichlet row: ψ stays 0
+    const lo = -D * idx2 * (i === N - 1 && boundary === 'free' ? 2 : 1);
+    const up = -D * idx2 * (i === 0 && boundary === 'free' ? 2 : 1);
+    const hr = 2 * D * idx2 + V[i];
+    const hi = -gam[i];
+    // i·(dt/2)·z = (−hd·zi) + i·(hd·zr)
+    if (i > 0) { aLoR[i] = 0; aLoI[i] = hd * lo; bLoR[i] = 0; bLoI[i] = -hd * lo; }
+    if (i < N - 1) { aUpR[i] = 0; aUpI[i] = hd * up; bUpR[i] = 0; bUpI[i] = -hd * up; }
+    aDiR[i] = 1 - hd * hi; aDiI[i] = hd * hr;
+    bDiR[i] = 1 + hd * hi; bDiI[i] = -hd * hr;
+  }
+  // Thomas forward elimination (constant matrix): c'_i = up_i/den_i, den_i = di_i − lo_i·c'_{i−1}
+  const cpR = new Float64Array(N), cpI = new Float64Array(N), idR = new Float64Array(N), idI = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    let dR = aDiR[i], dI = aDiI[i];
+    if (i > 0) {
+      dR -= aLoR[i] * cpR[i - 1] - aLoI[i] * cpI[i - 1];
+      dI -= aLoR[i] * cpI[i - 1] + aLoI[i] * cpR[i - 1];
+    }
+    const m = dR * dR + dI * dI;
+    idR[i] = dR / m; idI[i] = -dI / m;
+    cpR[i] = aUpR[i] * idR[i] - aUpI[i] * idI[i];
+    cpI[i] = aUpR[i] * idI[i] + aUpI[i] * idR[i];
+  }
+  const re = Float64Array.from(cfg.re0);
+  const im = Float64Array.from(cfg.im0);
+  if (boundary !== 'free') { re[0] = im[0] = re[N - 1] = im[N - 1] = 0; }
+  const rR = new Float64Array(N), rI = new Float64Array(N), dpR = new Float64Array(N), dpI = new Float64Array(N);
+  const sim = {
+    N, dx, dt, sub,
+    /** Phase accuracy number dt·E_char (≤ 1 is accurate). / 위상 정확도 지표 */
+    cfl: dt * eChar,
+    clamped: sub >= 16 && (dtReq / 16) * eChar > 0.5,
+    t: 0,
+    steps: 0,
+    get re() { return re; },
+    get im() { return im; },
+    /** ∫|ψ|² dx. / 전체 확률 */
+    norm() {
+      let s = 0;
+      for (let i = 0; i < N; i++) s += re[i] * re[i] + im[i] * im[i];
+      return s * dx;
+    },
+    step() {
+      for (let i = 0; i < N; i++) {
+        let xr = bDiR[i] * re[i] - bDiI[i] * im[i];
+        let xi = bDiR[i] * im[i] + bDiI[i] * re[i];
+        if (i > 0) { xr += bLoR[i] * re[i - 1] - bLoI[i] * im[i - 1]; xi += bLoR[i] * im[i - 1] + bLoI[i] * re[i - 1]; }
+        if (i < N - 1) { xr += bUpR[i] * re[i + 1] - bUpI[i] * im[i + 1]; xi += bUpR[i] * im[i + 1] + bUpI[i] * re[i + 1]; }
+        rR[i] = xr; rI[i] = xi;
+      }
+      for (let i = 0; i < N; i++) {
+        let tr = rR[i], ti = rI[i];
+        if (i > 0) {
+          tr -= aLoR[i] * dpR[i - 1] - aLoI[i] * dpI[i - 1];
+          ti -= aLoR[i] * dpI[i - 1] + aLoI[i] * dpR[i - 1];
+        }
+        dpR[i] = tr * idR[i] - ti * idI[i];
+        dpI[i] = tr * idI[i] + ti * idR[i];
+      }
+      re[N - 1] = dpR[N - 1]; im[N - 1] = dpI[N - 1];
+      for (let i = N - 2; i >= 0; i--) {
+        re[i] = dpR[i] - (cpR[i] * re[i + 1] - cpI[i] * im[i + 1]);
+        im[i] = dpI[i] - (cpR[i] * im[i + 1] + cpI[i] * re[i + 1]);
+      }
+      sim.t += dt;
+      sim.steps++;
+    },
+  };
+  return sim;
+}
+
+/**
+ * Diffusion solver  u_t = ν·u_xx + G  (explicit Euler, ν·Δt/dx² ≤ 0.45).
+ * The left end is the oscillating wall u(0,t) = A·cos 2πft (Stokes' 2nd problem) for fixed / absorbing;
+ * the right end is u = 0 (fixed) or outflow (absorbing). free = no flux, periodic = wrap (wall ignored).
+ * 확산 풀이기: 왼쪽 끝이 진동하는 벽(스톡스 제2문제), G는 압력 구배(푸아죄유 시동).
+ */
+export function createDiffSim(cfg) {
+  const { N, dx, nu, boundary } = cfg;
+  const G = cfg.force || 0;
+  const wallAmp = cfg.wallAmp || 0;
+  const w = 2 * Math.PI * (cfg.wallHz || 0);
+  const dtReq = Math.max(1e-6, cfg.dtReq || 0.01);
+  const dtLimit = (0.45 * dx * dx) / Math.max(nu, 1e-9);
+  const sub = Math.max(1, Math.ceil(dtReq / dtLimit - 1e-9));
+  const dt = dtReq / sub;
+  const periodic = boundary === 'periodic';
+  const driven = boundary === 'fixed' || boundary === 'absorbing';
+  const r = (nu * dt) / (dx * dx);
+  let u = Float64Array.from(cfg.u0);
+  let un = new Float64Array(N);
+  const wall = (t) => wallAmp * Math.cos(w * t);
+  if (driven) u[0] = wall(0);
+  if (boundary === 'fixed') u[N - 1] = 0;
+  const sim = {
+    N, dx, dt, sub,
+    cfl: r,
+    clamped: sub > 1,
+    t: 0,
+    steps: 0,
+    get u() { return u; },
+    step() {
+      for (let i = 0; i < N; i++) {
+        const l = i > 0 ? i - 1 : periodic ? N - 1 : 1;
+        const rr = i < N - 1 ? i + 1 : periodic ? 0 : N - 2;
+        un[i] = u[i] + r * (u[l] - 2 * u[i] + u[rr]) + dt * G;
+      }
+      sim.t += dt;
+      if (driven) un[0] = wall(sim.t);
+      if (boundary === 'fixed') un[N - 1] = 0;
+      else if (boundary === 'absorbing') un[N - 1] = un[N - 2];
+      const tmp = u; u = un; un = tmp;
+      sim.steps++;
+    },
+  };
+  return sim;
+}
+
+// ==========================================================================
 // 4. Edit-time bake + signature cache / 에디팅 시점 베이킹과 시그니처 캐시
 // ==========================================================================
 
@@ -694,7 +1000,9 @@ export function simulateWave(p, sig = waveSignature(p)) {
   const U = new Float32Array(frames * N);
   const W = new Float32Array(frames * N);
   const c = mediumProfile(p, N);
-  const { u0, v0 } = buildInitialState(p, N, dx, c);
+  const quantum = p.eq === 'schrod';
+  const diffusion = p.eq === 'diffusion';
+  const { u0, v0 } = quantum || diffusion ? { u0: new Float64Array(N), v0: new Float64Array(N) } : buildInitialState(p, N, dx, c);
   const dtau = p.simSpeed / rate; // model seconds per frame / 프레임당 모델 시간
   const drivers = p.drivers.map((d) => ({ ...d, t0: d.t0 * p.simSpeed, dur: d.dur * p.simSpeed }));
   let uMax = 1e-12;
@@ -703,7 +1011,44 @@ export function simulateWave(p, sig = waveSignature(p)) {
   let finite = true;
   let sim;
 
-  if (p.eq === 'gs') {
+  if (quantum) {
+    const psi0 = buildSchrodInitial(p, N, dx);
+    sim = createSchrodSim({ N, dx, D: p.qm.D, V: potentialProfile(p, N, dx), boundary: p.boundary, re0: psi0.re, im0: psi0.im, dtReq: dtau });
+    for (let f = 0; f < frames; f++) {
+      if (f > 0) for (let s2 = 0; s2 < sim.sub; s2++) sim.step();
+      const row = f * N;
+      for (let i = 0; i < N; i++) {
+        const w = sim.re[i] * sim.re[i] + sim.im[i] * sim.im[i];
+        U[row + i] = w;
+        W[row + i] = w;
+        if (w > uMax) uMax = w;
+      }
+    }
+    wMax = uMax;
+  } else if (diffusion) {
+    if (p.init.length) {
+      const rng = createSeededRandom(p.seed);
+      const f0 = new Float64Array(N);
+      for (const it of p.init) {
+        initShape(it, { ...p, eq: 'diffusion' }, N, dx, c, rng, f0);
+        for (let i = 0; i < N; i++) u0[i] += f0[i];
+      }
+    }
+    sim = createDiffSim({ N, dx, nu: p.dif.nu, boundary: p.boundary, wallHz: p.dif.wallHz, wallAmp: p.dif.wallAmp, force: p.dif.force, u0, dtReq: dtau });
+    for (let f = 0; f < frames; f++) {
+      if (f > 0) for (let s2 = 0; s2 < sim.sub; s2++) sim.step();
+      const row = f * N;
+      for (let i = 0; i < N; i++) {
+        const val = sim.u[i];
+        U[row + i] = val;
+        const w = val * val;
+        W[row + i] = w;
+        const av = val < 0 ? -val : val;
+        if (av > uMax) uMax = av;
+        if (w > wMax) wMax = w;
+      }
+    }
+  } else if (p.eq === 'gs') {
     const tu = GS_TU_PER_SEC;
     sim = createGsSim({
       N, dx, boundary: p.boundary, Du: p.gs.Du, Dv: p.gs.Dv, F: p.gs.F, k: p.gs.k, dtReq: dtau * tu, u0, v0,

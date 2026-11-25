@@ -38,6 +38,11 @@ export const MOD_TARGETS = Object.freeze({
   'cloud.width': { unit: '× range', min: -1, max: 1, step: 0.05, def: 0.5, studio: 'cloud', doc: true },
   'cloud.collapse': { unit: '× range', min: -1, max: 1, step: 0.05, def: 0.8, studio: 'cloud', doc: true },
   'cloud.center': { unit: '× range', min: -1, max: 1, step: 0.05, def: 0.3, studio: 'cloud', doc: true },
+  // Space document targets (audio/space-mod.js): written into the clip's document, so the clip re-bakes / 스페이스 문서 대상
+  'space.c': { unit: '× c', min: -0.95, max: 0.95, step: 0.01, def: -0.4, studio: 'space', doc: true },
+  'space.yaw': { unit: '°', min: -720, max: 720, step: 1, def: 90, studio: 'space', doc: true },
+  'space.air': { unit: '×', min: -4, max: 4, step: 0.05, def: 1.5, studio: 'space', doc: true },
+  'space.width': { unit: '', min: -1, max: 1, step: 0.05, def: 0.6, studio: 'space', doc: true },
 });
 export const MOD_TARGET_IDS = Object.freeze(Object.keys(MOD_TARGETS));
 

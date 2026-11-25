@@ -18,6 +18,9 @@
  * Monitor: Speed → Gain (green) and Curvature → Bright (rose, dashed) over the baked s-axis.
  */
 
+import { trimClip, splitByClip } from '../../core/line-clip.js';
+import { drawUnplayed } from '../../ui/line-link.js';
+import { lookupBakedSampleExt } from './vector-field-engine.js';
 import { clamp } from '../../core/math-utils.js';
 import { midiToFreq, freqToMidi, midiToNoteName } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -25,7 +28,7 @@ import { appState, endHistoryGesture } from '../../core/state.js';
 import { VectorFieldPluginEngine, evalGuidingCurve, lookupBakedSample, hasRetrograde, particleFrame } from './vector-field-engine.js';
 import { T_REF, P_REF, layerSdf } from './field-layers.js';
 import { regionSdf, REGION_TARGETS } from './field-regions.js';
-import { getFieldParams, editField, getActiveParticle, isParticleAudible, getBakedMap } from '../field-studio.js';
+import { getFieldParams, editField, getActiveParticle, isParticleAudible, getBakedMap, particleWindow, splitParticle } from '../field-studio.js';
 import { drawCueLine, drawPlayheadLine } from '../../ui/transport-lines.js';
 import { wheelNavigate } from '../../ui/view-nav.js';
 import { attachLocate, cueOrAudition } from '../../ui/locate-tool.js';
@@ -362,6 +365,29 @@ function drawRegions(ctx, m, params, v, activeId) {
  * Create the Field canvases inside `els` = { main, monitor, hud: { time, note, hz, vec, retro } }.
  * @returns {{ render: () => void, destroy: () => void }}
  */
+/**
+ * A particle's trajectory on screen split by its play range (core/line-clip.js): played lines, unplayed
+ * (ghost) lines, and the played start / end points. Sample i of the bake sits at u = i / (n − 1); an
+ * extension past the ends follows the end tangent on the heard time axis.
+ * 입자 궤적을 재생 구간으로 나눔: 재생 선, 비재생(연한) 선, 재생 시작·끝 점.
+ */
+function particleScreenLines(pv, pts, m) {
+  const n = pts.length;
+  const c = pv.clip;
+  const u0 = Number.isFinite(c?.u0) ? c.u0 : 0;
+  const u1 = Number.isFinite(c?.u1) ? c.u1 : 1;
+  const P = [];
+  const at = (u) => { const q = m.normToScreen(pv, u, lookupBakedSampleExt(pv, pts, u).y); return { x: q.px, y: q.py, u }; };
+  if (u0 < 0) for (let k = 0; k < 24; k++) P.push(at(u0 + (-u0 * k) / 24));
+  for (let i = 0; i < n; i++) { const q = m.normToScreen(pv, pts[i].t, pts[i].y); P.push({ x: q.px, y: q.py, u: n > 1 ? i / (n - 1) : 0 }); }
+  if (u1 > 1) for (let k = 1; k <= 24; k++) P.push(at(1 + ((u1 - 1) * k) / 24));
+  if (!c) return { played: P.length > 1 ? [P] : [], ghost: [], start: P[0] || null, end: P[P.length - 1] || null };
+  const { played, ghost } = splitByClip(P, c);
+  const first = played[0]?.[0] || null;
+  const lastLine = played[played.length - 1];
+  return { played, ghost, start: first, end: lastLine ? lastLine[lastLine.length - 1] : null };
+}
+
 export function createFieldCanvases(els, { requestRender }) {
   const mainCtx = els.main.getContext('2d');
   const monCtx = els.monitor.getContext('2d');
@@ -384,12 +410,9 @@ export function createFieldCanvases(els, { requestRender }) {
       const m = fieldMetrics(els.main, params.view);
       const baked = getBakedMap(params);
       return params.voices.map((pv) => {
-        const pts = baked.get(pv.id) || [];
-        const poly = [];
-        for (let i = 0; i < pts.length; i += 3) { const q = m.normToScreen(pv, pts[i].t, pts[i].y); poly.push({ x: q.px, y: q.py }); }
-        const a = m.normToScreen(pv, 0, 0);
-        const b = m.normToScreen(pv, 1, 1);
-        return { id: pv.id, color: pv.color, poly, start: { x: a.px, y: a.py }, end: { x: b.px, y: b.py } };
+        // the played part only (core/line-clip.js) / 재생 부분만
+        const L = particleScreenLines(pv, baked.get(pv.id) || [], m);
+        return { id: pv.id, color: pv.color, poly: L.played, start: L.start, end: L.end };
       });
     },
     toWorld(p) {
@@ -399,7 +422,18 @@ export function createFieldCanvases(els, { requestRender }) {
       return { sec: a.sec, midi: params.view.viewMode === 'piano' ? a.midi : null };
     },
     begin: (id) => ({ ...getFieldParams().voices.find((x) => x.id === id) }),
-    startOf: (id) => getFieldParams().voices.find((x) => x.id === id)?.startTime,
+    startOf: (id) => { const v = getFieldParams().voices.find((x) => x.id === id); return v ? particleWindow(v).s0 : undefined; },
+    // ⌘ + drag: trim / extend along the trajectory; double-click: ✂ split (core/line-clip.js) / 줄이기·늘리기, 자르기
+    trim(id, side, w) {
+      const o = w.orig;
+      editField((d) => {
+        const v = d.voices.find((x) => x.id === id);
+        if (!v) return;
+        const c = trimClip(o.clip, o.startTime, o.duration, side, w.sec, { minDur: 0.1 });
+        if (c) v.clip = c; else delete v.clip;
+      }, { coalesceKey: `field-trim-${side}` });
+    },
+    split: (id, sec) => splitParticle(id, sec),
     select(id) { if (getFieldParams().activeVoiceId !== id) editField((d) => { d.activeVoiceId = id; }, { history: false }); },
     apply(id, kind, w) {
       const o = w.orig;
@@ -464,18 +498,18 @@ export function createFieldCanvases(els, { requestRender }) {
       const pts = baked.get(pv.id) || [];
       if (!pts.length) continue;
       const isAct = v && pv.id === v.id;
+      const L = particleScreenLines(pv, pts, m);
+      drawUnplayed(ctx, L.ghost, pv.color, isAct); // trimmed parts: faint (◌) / 잘린 부분: 연하게
       ctx.save();
       ctx.globalAlpha = isParticleAudible(pv, params) ? (isAct ? 1 : 0.55) : 0.22;
       ctx.strokeStyle = pv.color;
       ctx.lineWidth = isAct ? 3 : 1.8;
       if (isAct) { ctx.shadowColor = pv.color; ctx.shadowBlur = 8; }
-      ctx.beginPath();
-      pts.forEach((p, i) => {
-        const sc = m.normToScreen(pv, p.t, p.y);
-        if (i === 0) ctx.moveTo(sc.px, sc.py);
-        else ctx.lineTo(sc.px, sc.py);
-      });
-      ctx.stroke();
+      for (const line of L.played) {
+        ctx.beginPath();
+        line.forEach((q, i) => { if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y); });
+        ctx.stroke();
+      }
       ctx.shadowBlur = 0;
       if (isAct) {
         // Retrograde loops (time running backwards) in magenta / 시간 역행 구간 강조
@@ -493,7 +527,7 @@ export function createFieldCanvases(els, { requestRender }) {
           }
         }
       }
-      const p0 = m.normToScreen(pv, pts[0].t, pts[0].y);
+      const p0 = L.start ? { px: L.start.x, py: L.start.y } : m.normToScreen(pv, pts[0].t, pts[0].y);
       ctx.fillStyle = '#0f172a';
       ctx.strokeStyle = pv.color;
       ctx.lineWidth = 2;

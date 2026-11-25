@@ -9,11 +9,20 @@
  * 모든 컨트롤에 data-help(인스펙터)가 있고, 숫자 입력은 number-scrub이 처리.
  */
 
+import { lineLinkControl, createGhostToggle } from '../../ui/line-link.js';
+import { setLineLink } from '../../core/line-clip.js';
+import { FIELD_PRESET_IDS, createFieldPreset } from './field-presets.js';
+import { HELP_DB } from '../../ui/option-inspector.js';
+
+HELP_DB['fpreset.select'] = {
+  en: { title: 'Field preset', summary: 'Replaces the whole Field document with a ready-made field: particles, force nodes, wells, guiding curve and view.', detail: 'One undo step. Default · Vortex choir · Gravity wells · Pure glide (physics off) · Storm · Mirror (retrograde). Choosing a preset again starts it fresh.', formula: '' },
+  ko: { title: '필드 프리셋', summary: '필드 문서 전체를 미리 만든 장으로 바꿉니다: 입자, 힘 노드, 우물, 가이드 곡선, 보기.', detail: '실행 취소 1단계. 기본 · 소용돌이 합창 · 중력 우물 · 순수 글리산도(물리 끔) · 폭풍 · 거울(역행). 같은 프리셋을 다시 고르면 처음 상태로 시작합니다.', formula: '' },
+};
 import { clamp, roundTo } from '../../core/math-utils.js';
 import { midiToNoteName, noteNameToMidi } from '../../core/units.js';
 import { t, getLang } from '../../core/i18n.js';
 import { endHistoryGesture } from '../../core/state.js';
-import { PARAM_SCHEMAS, getEngineLabel } from '../../modules/curve-engine.js';
+import { PARAM_SCHEMAS, schemaVisible, getEngineLabel } from '../../modules/curve-engine.js';
 import { StudioRegistry } from '../registry.js';
 import { el, num } from '../../ui/panels.js';
 import { createStudioControls, STUDIO_BTN as BTN } from '../../ui/studio-controls.js';
@@ -25,19 +34,12 @@ import { createStudioTremoloRack } from '../../ui/studio-tremolo.js';
 import { normalizeTremolo } from '../../core/tremolo-config.js';
 import { GUIDING_ENGINES, NODE_TYPES, WELL_GRIDS, BOUNDARY_MODES, RETRO_MODES, createParticleVoice, createForceNode, createFieldLayer, FIELD_STEPS, getBakeCount } from './vector-field-engine.js';
 import { LAYER_MODES, LAYER_SHAPES } from './field-layers.js';
-import { FIELD_ID, getFieldParams, editField, getActiveParticle } from '../field-studio.js';
+import { FIELD_ID, getFieldParams, editField, getActiveParticle, FIELD_LINK_KEYS } from '../field-studio.js';
 import { voiceGainControl } from '../../ui/voice-gain.js';
 import { createFieldCanvases } from './field-canvases.js';
 import { createLocateButtons } from '../../ui/locate-tool.js';
 import { REGION_SHAPES, REGION_TARGETS, REGION_GAIN_MAX, createFieldRegion } from './field-regions.js';
 import { exportBakedJson } from './field-audio.js';
-import { FIELD_PRESET_IDS, createFieldPreset } from './field-presets.js';
-import { HELP_DB } from '../../ui/option-inspector.js';
-
-HELP_DB['fpreset.select'] = {
-  en: { title: 'Field preset', summary: 'Replaces the whole Field document with a ready-made field: particles, force nodes, wells, guiding curve and view.', detail: 'One undo step. Default · Vortex choir · Gravity wells · Pure glide (physics off) · Storm · Mirror (retrograde). Choosing a preset again starts it fresh.', formula: '' },
-  ko: { title: '필드 프리셋', summary: '필드 문서 전체를 미리 만든 장으로 바꿉니다: 입자, 힘 노드, 우물, 가이드 곡선, 보기.', detail: '실행 취소 1단계. 기본 · 소용돌이 합창 · 중력 우물 · 순수 글리산도(물리 끔) · 폭풍 · 거울(역행). 같은 프리셋을 다시 고르면 처음 상태로 시작합니다.', formula: '' },
-};
 
 const SECTION = 'bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col gap-2';
 
@@ -86,13 +88,24 @@ export function mountFieldWorkspace(root, hooks) {
         const x = getFieldParams().voices.find((y) => y.id === v.id);
         if (x) info.textContent = `${midiToNoteName(x.f0Midi)} → ${midiToNoteName(x.f1Midi)} · m=${num(x.mass).toFixed(1)} · ${num(x.duration).toFixed(1)}s`;
       });
+      // 🔗 linked piece + play range (ui/line-link.js) / 링크·재생 구간
+      const linkSlot = el('span', { class: 'inline-flex' });
+      let linkKey = '';
+      syncers.push(() => {
+        const all = getFieldParams().voices;
+        const x = all.find((y) => y.id === v.id);
+        const k = x ? JSON.stringify([x.link, x.clip, all.filter((y) => y.link?.id && y.link.id === x.link?.id).length]) : '';
+        if (k === linkKey) return;
+        linkKey = k;
+        linkSlot.replaceChildren(...[x && lineLinkControl(x, all, (onL) => { editField((d) => setLineLink(d.voices, v.id, onL, FIELD_LINK_KEYS)); commit(); })].filter(Boolean));
+      });
       return el('div', {
         class: `min-w-[200px] rounded-xl border p-2 flex flex-col gap-1 cursor-pointer transition ${on ? 'bg-slate-900 border-sky-500 shadow-md' : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'}`,
         dataset: { help: 'field.particleCard' },
         on: { click: () => editField((d) => { d.activeVoiceId = v.id; }, { history: false }) },
       }, [
         el('div', { class: 'flex items-center justify-between' }, [
-          el('div', { class: 'flex items-center gap-1.5' }, [el('span', { class: 'w-2.5 h-2.5 rounded-full', style: `background:${v.color}` }), el('span', { class: 'text-xs font-bold text-slate-100', text: v.name })]),
+          el('div', { class: 'flex items-center gap-1.5' }, [el('span', { class: 'w-2.5 h-2.5 rounded-full', style: `background:${v.color}` }), el('span', { class: 'text-xs font-bold text-slate-100', text: v.name }), linkSlot]),
           el('div', { class: 'flex gap-1' }, [flag('solo', 'S', 'bg-amber-500 text-slate-950 border-amber-400'), flag('muted', 'M', 'bg-rose-600 text-white border-rose-500')]),
         ]),
         info,
@@ -168,9 +181,12 @@ export function mountFieldWorkspace(root, hooks) {
     });
     const locateBtns = createLocateButtons();
     syncers.push(locateBtns.sync);
+    const ghostBtn = createGhostToggle(); // ◌ unplayed parts faint / hidden / 재생 안 하는 부분
+    syncers.push(ghostBtn.sync);
     const toolbar = el('div', { class: 'flex flex-wrap items-center gap-1.5' }, [
       fieldBtn,
       ...locateBtns,
+      ghostBtn,
       el('div', { class: 'flex gap-0.5 rounded-lg bg-slate-950 border border-slate-800 p-0.5' }, viewSeg),
       fieldOnlyRack(toggle('field.arrows', 'field.arrows', () => getFieldParams().view.showArrows, () => setView((vw) => { vw.showArrows = !vw.showArrows; }))),
       toggle('field.wells', 'field.wellGrid', () => getFieldParams().view.showWells, () => setView((vw) => { vw.showWells = !vw.showWells; })),
@@ -224,6 +240,7 @@ export function mountFieldWorkspace(root, hooks) {
     const g = params.guiding;
     const parts = [];
     for (const s of PARAM_SCHEMAS[g.engine] || []) {
+      if (!schemaVisible(s, g)) continue;
       if (s.type === 'range') {
         parts.push(slider(s.labelKey, `guide.${g.engine}`, () => num(getFieldParams().guiding[s.key], s.default), (val, ck) => editField((d) => {
           d.guiding[s.key] = s.integer ? Math.round(val) : val;
@@ -636,7 +653,7 @@ export function mountFieldWorkspace(root, hooks) {
   function structureKey() {
     const p = getFieldParams();
     const layers = (p.layers || []).map((L) => `${L.id}:${L.name}:${L.id === p.activeLayerId ? `${L.mode}:${L.range?.full !== false}:${(L.nodes || []).map((n) => n.id).join('+')}` : ''}`).join(',');
-    return [getLang(), p.activeVoiceId, p.guiding.engine, p.voices.map((v) => v.id).join(','), layers, p.activeLayerId || '', (p.regions || []).map((r) => r.id).join(','), p.activeRegionId || ''].join('|');
+    return [getLang(), p.activeVoiceId, p.guiding.engine, p.guiding.flowKind, p.voices.map((v) => v.id).join(','), layers, p.activeLayerId || '', (p.regions || []).map((r) => r.id).join(','), p.activeRegionId || ''].join('|');
   }
 
   return {

@@ -322,11 +322,29 @@ export function attackDistances(sub, s, loop) {
 // ==========================================================================
 
 /** Rate function of one voice (×speed, clamped ≥ RATE_MIN). / 보이스 i의 템포 곡선 r_i(u) */
+/**
+ * Position of voice i among the lines of the document: linked pieces (🔗, core/line-clip.js) of one voice
+ * count once, so cutting a voice changes neither its own tempo nor the phasing / convergence of the
+ * others. / 줄 번호: 링크된 조각은 한 번만 세므로 자르기가 템포·위상·수렴을 바꾸지 않음
+ */
+export function voiceLineIndex(doc, i) {
+  const seen = new Map();
+  let n = -1;
+  for (let j = 0; j <= i && j < doc.voices.length; j++) {
+    const l = doc.voices[j]?.link;
+    if (l?.on && seen.has(l.id)) { if (j === i) return seen.get(l.id); continue; }
+    n++;
+    if (l?.on) seen.set(l.id, n);
+  }
+  return Math.max(0, n);
+}
+
 export function voiceRateFn(doc, i) {
   const v = doc.voices[i];
   const tp = v.tempo;
   const T = doc.length;
-  const phase = doc.phasing?.enabled ? 1 + i * num(doc.phasing.epsilon, 0) : 1;
+  const li = voiceLineIndex(doc, i);
+  const phase = doc.phasing?.enabled ? 1 + li * num(doc.phasing.epsilon, 0) : 1;
   if (tp.mode === 'curve') {
     const lo = clampRate(tp.lo);
     const hi = clampRate(tp.hi);
@@ -338,7 +356,7 @@ export function voiceRateFn(doc, i) {
     } };
   }
   const base = tp.mode === 'converge'
-    ? convergeRatio(doc, i) * num(doc.converge?.r0, 0.25)
+    ? convergeRatio(doc, li) * num(doc.converge?.r0, 0.25)
     : num(tp.ratio, 1);
   const r = clampRate(base * phase);
   return { constRate: r, fn: () => r };
@@ -454,7 +472,7 @@ function subjectSignature(sub) {
 export function tempoSignature(doc, sub) {
   return JSON.stringify([
     doc.length, subjectSignature(sub), doc.converge, doc.phasing,
-    doc.voices.map((v) => [...TIMING_KEYS.map((k) => v[k]), v.tempo]),
+    doc.voices.map((v) => [...TIMING_KEYS.map((k) => v[k]), v.tempo, v.clip || 0]),
   ]);
 }
 
@@ -475,16 +493,22 @@ export function bakeTempo(doc, sub) {
   const voices = doc.voices.map((v, i) => {
     const tr = buildTrack(doc, i);
     // audible window: s ≥ 0 and (loop or s < L), u ∈ [0, T] / 발음 구간
-    const uOn = clamp(invertS(tr, 0), 0, T);
-    const uOff = v.loop ? T : clamp(invertS(tr, L), 0, T);
-    const sOn = evalS(tr, uOn);
-    const sOff = evalS(tr, uOff);
+    const uOn0 = clamp(invertS(tr, 0), 0, T);
+    const uOff0 = v.loop ? T : clamp(invertS(tr, L), 0, T);
+    // Play range (core/line-clip.js): a part of the audible window, trim only / 재생 구간 (줄이기만)
+    const cu0 = clamp(Number.isFinite(v.clip?.u0) ? v.clip.u0 : 0, 0, 1);
+    const cu1 = clamp(Number.isFinite(v.clip?.u1) ? v.clip.u1 : 1, cu0, 1);
+    const clipped = !!v.clip && (cu0 > 1e-9 || cu1 < 1 - 1e-9);
+    const uOn = uOn0 + cu0 * (uOff0 - uOn0);
+    const uOff = uOn0 + cu1 * (uOff0 - uOn0);
+    const sOn = evalS(tr, uOn0);
+    const sOff = evalS(tr, uOff0);
     const has = uOff - uOn > 1e-4 && sOff > 0;
     const segments = [];
     if (has) {
       for (let k = Math.max(0, Math.floor(sOn / L)); k * L < sOff - 1e-9; k++) {
-        const a = Math.max(uOn, invertS(tr, k * L));
-        const b = Math.min(uOff, invertS(tr, (k + 1) * L));
+        const a = Math.max(uOn0, invertS(tr, k * L));
+        const b = Math.min(uOff0, invertS(tr, (k + 1) * L));
         if (b - a > 1e-6) segments.push({ k, u0: a, u1: b });
         if (!v.loop) break;
       }
@@ -502,18 +526,20 @@ export function bakeTempo(doc, sub) {
     // audio curves / 오디오 곡선
     const midi = new Float32Array(nS);
     const gain = new Float32Array(nS);
+    const gainAll = clipped ? new Float32Array(nS) : gain; // whole window, for the faint drawing / 연한 그리기용 전체
     let first = -1;
     for (let j = 0; j < nS; j++) {
       const u = Math.min(T, j / BAKE_RATE);
       const s = evalS(tr, u);
-      if (!has || u < uOn - 1e-9 || u > uOff + 1e-9 || s < 0) { gain[j] = 0; midi[j] = NaN; continue; }
+      if (!has || u < uOn0 - 1e-9 || u > uOff0 + 1e-9 || s < 0) { gain[j] = 0; midi[j] = NaN; continue; }
       const k = Math.floor(s / L);
       const tau = s - k * L;
       midi[j] = subjectMidiAt(sub, tau, k === 0);
       const r = rateAt(tr, u);
       const { since, to } = attackDistances(sub, s, v.loop);
       const g = Math.min(1, since / r / ATTACK_SEC) * Math.min(1, to / r / RELEASE_SEC);
-      gain[j] = clamp(g, 0, 1);
+      gainAll[j] = clamp(g, 0, 1);
+      gain[j] = u < uOn - 1e-9 || u > uOff + 1e-9 ? 0 : gainAll[j];
       if (first < 0) first = j;
     }
     // hold pitch where silent (no glide into an entry) / 무음 구간은 음고 유지
@@ -522,8 +548,8 @@ export function bakeTempo(doc, sub) {
     if (first > 0) for (let j = 0; j < first; j++) midi[j] = midi[first];
     let lo = Infinity;
     let hi = -Infinity;
-    for (let j = 0; j < nS; j++) if (gain[j] > 0) { lo = Math.min(lo, midi[j]); hi = Math.max(hi, midi[j]); }
-    return { id: v.id, index: i, track: tr, uOn, uOff, has, segments, loopStarts, beats, accents, midi, gain, midiLo: lo, midiHi: hi };
+    for (let j = 0; j < nS; j++) if (gainAll[j] > 0) { lo = Math.min(lo, midi[j]); hi = Math.max(hi, midi[j]); }
+    return { id: v.id, index: i, track: tr, uOn, uOff, uOn0, uOff0, clipped, has, segments, loopStarts, beats, accents, midi, gain, gainAll, midiLo: lo, midiHi: hi };
   });
   const result = { key, T, L, beat: sub.beat, rate: BAKE_RATE, samples: nS, voices, subject: sub, map: new Map(voices.map((b) => [b.id, b])) };
   cache = { key, result, count: cache.count + 1, ms: (globalThis.performance || Date).now() - t0 };

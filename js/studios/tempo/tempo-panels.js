@@ -9,11 +9,13 @@
  * 모든 컨트롤에 data-help가 있고, 슬라이더 드래그 1회 = 실행 취소 1단계.
  */
 
+import { lineLinkControl, createGhostToggle } from '../../ui/line-link.js';
+import { setLineLink } from '../../core/line-clip.js';
 import { clamp, roundTo } from '../../core/math-utils.js';
 import { midiToNoteName, noteNameToMidi } from '../../core/units.js';
 import { t, getLang } from '../../core/i18n.js';
 import { endHistoryGesture } from '../../core/state.js';
-import { PARAM_SCHEMAS, getEngineLabel } from '../../modules/curve-engine.js';
+import { PARAM_SCHEMAS, schemaVisible, getEngineLabel } from '../../modules/curve-engine.js';
 import { StudioRegistry } from '../registry.js';
 import { el, num } from '../../ui/panels.js';
 import { createStudioControls, STUDIO_BTN as BTN } from '../../ui/studio-controls.js';
@@ -28,7 +30,8 @@ import {
   MAX_TEMPO_VOICES, MAX_SUBJECT_NOTES, LENGTH_MIN, LENGTH_MAX,
   createTempoVoice, createTempoCurve, randomSubjectNotes, convergeRatio, getTempoBakeCount, getLastBakeMs, rateAt,
 } from './tempo-engine.js';
-import { TEMPO_ID, getTempoParams, editTempo, getActiveTempoVoice, getTempoBake, getBakePlan, resolveSubject } from '../tempo-studio.js';
+import { TEMPO_ID, getTempoParams, editTempo, getActiveTempoVoice, getTempoBake, getBakePlan, resolveSubject, TEMPO_LINK_KEYS } from '../tempo-studio.js';
+import { voiceGainControl } from '../../ui/voice-gain.js';
 import { createTempoCanvases } from './tempo-canvases.js';
 import { createLocateButtons } from '../../ui/locate-tool.js';
 import { exportTempoJson, exportTempoWav } from './tempo-audio.js';
@@ -156,16 +159,28 @@ export function mountTempoWorkspace(root, hooks) {
         const x = d.voices.find((y) => y.id === v.id);
         return x ? `${t(`tempo.mode.${x.tempo.mode}`)} ${voiceRateLabel(x, i, d)}` : '';
       }, 'tempo.voiceCard', 'text-[11px] font-mono text-slate-300 truncate');
+      // 🔗 linked piece + play range (ui/line-link.js) / 링크·재생 구간
+      const linkSlot = el('span', { class: 'inline-flex' });
+      let linkKey = '';
+      syncers.push(() => {
+        const all = getTempoParams().voices;
+        const x = all.find((y) => y.id === v.id);
+        const k = x ? JSON.stringify([x.link, x.clip, all.filter((y) => y.link?.id && y.link.id === x.link?.id).length]) : '';
+        if (k === linkKey) return;
+        linkKey = k;
+        linkSlot.replaceChildren(...[x && lineLinkControl(x, all, (onL) => { editTempo((d) => setLineLink(d.voices, v.id, onL, TEMPO_LINK_KEYS)); commit(); })].filter(Boolean));
+      });
       return el('div', {
         class: `min-w-[170px] rounded-xl border p-2 flex flex-col gap-1 cursor-pointer transition ${on ? 'bg-slate-900 border-pink-500 shadow-md' : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'}`,
         dataset: { help: 'tempo.voiceCard' },
         on: { click: () => editTempo((d) => { d.activeVoiceId = v.id; }, { history: false }) },
       }, [
         el('div', { class: 'flex items-center justify-between gap-2' }, [
-          el('div', { class: 'flex items-center gap-1.5 min-w-0' }, [el('span', { class: 'w-2.5 h-2.5 rounded-full shrink-0', style: `background:${v.color}` }), el('span', { class: 'text-xs font-bold text-slate-100 truncate', text: `${i + 1} · ${v.name}` })]),
+          el('div', { class: 'flex items-center gap-1.5 min-w-0' }, [el('span', { class: 'w-2.5 h-2.5 rounded-full shrink-0', style: `background:${v.color}` }), el('span', { class: 'text-xs font-bold text-slate-100 truncate', text: `${i + 1} · ${v.name}` }), linkSlot]),
           el('div', { class: 'flex gap-1' }, [flag('solo', 'S', 'bg-amber-500 text-slate-950 border-amber-400'), flag('muted', 'M', 'bg-rose-600 text-white border-rose-500')]),
         ]),
         line,
+        el('div', { class: 'flex justify-end' }, [voiceGainControl({ get: () => getTempoParams().voices.find((y) => y.id === v.id)?.baseGain ?? 0.7, set: (val, ck) => editTempo((dd) => { const x = dd.voices.find((y) => y.id === v.id); if (x) x.baseGain = val; }, { coalesceKey: `tempo-gain-${v.id}` }), commit, push: (fn) => syncers.push(fn), def: 0.7 })]),
       ]);
     });
     const add = () => {
@@ -196,8 +211,9 @@ export function mountTempoWorkspace(root, hooks) {
       commit();
     };
     const del = deleteActiveVoice;
-    return el('section', { class: SECTION }, [
+    return el('section', { class: SECTION, dataset: { window: 'list', rack: 'tempo-voices' } }, [
       el('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+        el('h2', { class: 'text-xs font-bold uppercase tracking-wider text-sky-300', text: t('modlist.title') }), // shared name of the voice list / 보이스 목록의 공용 이름
         el('span', { class: 'px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-300', text: t('tempo.voiceCount', doc.voices.length) }),
         el('div', { class: 'flex flex-wrap gap-1.5' }, [
           el('button', { class: BTN, text: `+ ${t('tempo.addVoice')}`, dataset: { help: 'tempo.voiceEdit' }, on: { click: add } }),
@@ -223,6 +239,9 @@ export function mountTempoWorkspace(root, hooks) {
     canvases = createTempoCanvases({ timeline, score, phase, roll, hud }, { requestRender: hooks.requestRender });
     const locateBtns = createLocateButtons(); // shared ✥ Locate / 🧲 Snap / 공용 이동·스냅
     syncers.push(locateBtns.sync);
+    const ghostBtn = createGhostToggle(); // ◌ unplayed parts / 재생 안 하는 부분
+    syncers.push(ghostBtn.sync);
+    locateBtns.push(ghostBtn);
     const head = (titleKey, color, extra = []) => el('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [el('h3', { class: `text-xs font-semibold ${color}`, text: t(titleKey) }), el('div', { class: 'flex items-center gap-2' }, extra)]);
     return el('div', { class: 'lg:col-span-7 flex flex-col gap-3 min-w-0' }, [
       el('section', { class: SECTION }, [
@@ -349,6 +368,7 @@ export function mountTempoWorkspace(root, hooks) {
     const eng = v.tempo.curve.engine;
     const getC = () => getActiveTempoVoice().tempo.curve;
     for (const s of PARAM_SCHEMAS[eng] || []) {
+      if (!schemaVisible(s, v.tempo.curve)) continue;
       if (s.type === 'range') {
         parts.push(slider(s.labelKey, 'tempo.curve', () => num(getC()[s.key], s.default), (val, ck) => editActive((x) => { x.tempo.curve[s.key] = s.integer ? Math.round(val) : val; }, ck), { min: s.softMin ?? s.min, max: s.softMax ?? s.max, step: s.step, accent: 'accent-pink' }));
       } else if (s.type === 'select') {
@@ -448,7 +468,7 @@ export function mountTempoWorkspace(root, hooks) {
   function structureKey() {
     const p = getTempoParams();
     const v = getActiveTempoVoice(p);
-    return [getLang(), p.activeVoiceId, p.voices.map((x) => x.id).join(','), p.subject.notes.length, p.subject.source, resolveSubject(p).fallback, v.tempo.mode, v.tempo.curve.engine].join('|');
+    return [getLang(), p.activeVoiceId, p.voices.map((x) => x.id).join(','), p.subject.notes.length, p.subject.source, resolveSubject(p).fallback, v.tempo.mode, v.tempo.curve.engine, v.tempo.curve.flowKind].join('|');
   }
 
   return {

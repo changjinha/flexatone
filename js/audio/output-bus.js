@@ -211,6 +211,12 @@ export function attachOutputBus(ctx) {
   return fader;
 }
 
+/** Post-limiter master output (what the speakers get), or null before the first live context. Tapped by the
+ * studio video export (ui/studio-video.js). / 리미터 뒤 마스터 출력 (스튜디오 동영상 내보내기가 녹음) */
+export function getMasterOutput() {
+  return bus?.out || null;
+}
+
 /** Node every live studio connects to instead of ctx.destination. / 실시간 출력 입력 노드 */
 export function getOutputBus(ctx) {
   return bus && bus.ctx === ctx ? bus.fader : ctx.destination;

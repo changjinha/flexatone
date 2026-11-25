@@ -18,13 +18,17 @@ import { clamp } from '../../core/math-utils.js';
 import { TIMBRE_WAVES } from '../../core/state.js';
 import { normalizeTremolo } from '../../core/tremolo-config.js';
 import { timbreSpecExtras } from '../../modules/timbre-spec.js';
-import { sanitizeWarpStack, createWarpStage, warpPolyline, stackVariants, stackStep, isIdentityStack, LIQUIFY_TOOLS } from '../../modules/space-warp.js';
+import { sanitizeWarpStack, createWarpStage, warpPolyline, stackVariants, stackStep, isIdentityStack, sanitizeRegion, LIQUIFY_TOOLS, BRUSH_AXES, PULL_MODES } from '../../modules/space-warp.js';
 
 export const GRID_PRESET_IDS = Object.freeze(['flat', 'lens', 'ripple', 'twirl', 'stairs', 'stutter', 'dotted', 'fifths', 'rough', 'everything']);
 export const GRID_OWN = 'own';
 export const GRID_MAX_RUNS = 600;
 /** One cell = 125 ms × 0.5 semitone: the unit in which brushes are round. / 셀 = 125 ms × 0.5 반음 (브러시가 원형인 단위) */
 export const GRID_CELL = Object.freeze({ ut: 0.125, um: 0.5 });
+/** Tools of the Editor monitor: the brush, four selections (pitch band = whole time range, time band =
+ * whole pitch range, free box, lasso) and Pull. / Editor 모니터의 도구: 브러시, 선택 4종, 당기기 */
+export const GRID_TOOLS = Object.freeze(['brush', 'selPitch', 'selTime', 'selBox', 'selLasso', 'pull']);
+export const GRID_SEL_KINDS = Object.freeze(['selPitch', 'selTime', 'selBox', 'selLasso']);
 
 const fin = (x, d) => (Number.isFinite(Number(x)) ? Number(x) : d);
 const oneOf = (v, list, d) => (list.includes(v) ? v : d);
@@ -56,7 +60,7 @@ function sanitizeTimbre(raw) {
   const out = {};
   for (const k of TIMBRE_WAVES) out[k] = clamp(fin(raw?.[k], DEFAULT_TIMBRE[k] ?? 0), 0, 1);
   const x = timbreSpecExtras(raw);
-  return { ...out, mode: x.mode === 'func' ? 'func' : 'mix', func: x.func };
+  return { ...out, mode: x.mode === 'func' ? 'func' : 'mix', func: x.func, ...(x.adsr ? { adsr: x.adsr } : {}) };
 }
 
 /** View that shows a range. / 범위 전체가 보이는 뷰 */
@@ -92,11 +96,27 @@ export function sanitizeGridParams(raw) {
       tMin, tMax: Math.max(tMin + 0.25, fin(v.tMax, fit.tMax)), midiMin, midiMax: Math.max(midiMin + 3, fin(v.midiMax, fit.midiMax)),
       showGrid: v.showGrid !== false, showGhost: v.showGhost !== false, showStrokes: v.showStrokes !== false,
     },
-    tool: { liq: oneOf(tl.liq, LIQUIFY_TOOLS, 'push'), size: clamp(fin(tl.size, 10), 1, 120), strength: clamp(fin(tl.strength, 0.6), 0.01, 1), shot: oneOf(tl.shot, ['result', 'editor', 'both'], 'result') },
+    tool: {
+      mode: oneOf(tl.mode, GRID_TOOLS, 'brush'),
+      liq: oneOf(tl.liq, LIQUIFY_TOOLS, 'push'), size: clamp(fin(tl.size, 10), 1, 120), strength: clamp(fin(tl.strength, 0.6), 0.01, 1),
+      // brush details (defaults = the round brush of 0.44) / 브러시 상세값 (기본값 = 0.44의 둥근 브러시)
+      hardness: clamp(fin(tl.hardness, 0), 0, 0.95), aspect: clamp(fin(tl.aspect, 1), 0.1, 10), angle: clamp(fin(tl.angle, 0), -90, 90),
+      axis: oneOf(tl.axis, BRUSH_AXES, 'both'), smooth: clamp(fin(tl.smooth, 0), 0, 0.95), clip: tl.clip !== false,
+      // selection (cells, original space) + Pull / 선택 영역 (셀, 원래 공간) + 당기기
+      sel: sanitizeSelection(tl.sel), feather: clamp(fin(tl.feather, 4), 0, 200), pullMode: oneOf(tl.pullMode, PULL_MODES, 'move'),
+      shot: oneOf(tl.shot, ['result', 'editor', 'both'], 'result'),
+    },
     tremolo: normalizeTremolo(raw?.tremolo),
   };
   if (raw?.voiceMod) out.voiceMod = JSON.parse(JSON.stringify(raw.voiceMod));
   return out;
+}
+
+/** A stored selection { kind, poly } (cells) or null. / 저장된 선택 영역 */
+export function sanitizeSelection(raw) {
+  if (!raw || !GRID_SEL_KINDS.includes(raw.kind)) return null;
+  const r = sanitizeRegion({ poly: raw.poly, feather: 0 });
+  return r ? { kind: raw.kind, poly: r.poly } : null;
 }
 
 /** Domain of the space for a set of lines: the manual range, or the lines' extent rounded outwards. / 공간의 영역 */
@@ -190,7 +210,7 @@ export function warpedGridLines(doc, dom, { tStep = 1, mStep = 12, samples = 64 
   const pre = stackVariants(doc.space, env);
   const combo = pre.combos[0] || [];
   const one = (t, m) => {
-    const q = { t, m, g: 1, pan: 0, tag: 0 };
+    const q = { t, m, g: 1, pan: 0, tag: 0, ot: t, om: m, og: 1, vp: true };
     for (let s = 0; s < pre.plans.length; s++) {
       const { it, fns } = pre.plans[s];
       if (it.type === 'halftone' || it.type === 'chroma') continue; // gain and copies do not bend the grid / 게인·복제는 격자를 휘지 않음

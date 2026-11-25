@@ -17,6 +17,9 @@
  * Double-click = set the cue. / 더블클릭 = 큐 지정
  */
 
+import { trimClip } from '../../core/line-clip.js';
+import { drawUnplayed } from '../../ui/line-link.js';
+import { strokeSpan, processStroke } from './draw-engine.js';
 import { clamp, roundTo } from '../../core/math-utils.js';
 import { midiToFreq, midiToNoteName } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -26,7 +29,7 @@ import {
   pieceWidthAt, applyTransform, cutRaw, STROKE_COLORS, DRAW_CELL,
 } from './draw-engine.js';
 import { createWarpStage, LIQUIFY_MAX_OPS } from '../../modules/space-warp.js';
-import { getDrawParams, editDraw, getActiveStroke, isStrokeAudible, getProcessedMap } from '../draw-studio.js';
+import { getDrawParams, editDraw, getActiveStroke, isStrokeAudible, getProcessedMap, splitStroke } from '../draw-studio.js';
 import { drawCueLine, drawPlayheadLine } from '../../ui/transport-lines.js';
 import { attachLocate, cueOrAudition } from '../../ui/locate-tool.js';
 import { sizeCanvas } from '../../ui/canvas-size.js';
@@ -66,6 +69,14 @@ function piecePolyline(m, piece, n = 0) {
     const sec = piece.t0 + (i / k) * piece.dur;
     out.push({ x: m.timeToX(sec), y: m.midiToY(piecePitchAt(piece, sec)), w: pieceWidthAt(piece, sec) });
   }
+  return out;
+}
+
+/** Screen polyline of an unplayed part { piece, a, b } of a stroke. / 재생 안 하는 부분의 폴리라인 */
+function ghostPolyline(m, g) {
+  const k = clamp(Math.ceil((m.timeToX(g.b) - m.timeToX(g.a)) / 3), 6, 300);
+  const out = [];
+  for (let i = 0; i <= k; i++) { const sec = g.a + ((g.b - g.a) * i) / k; out.push({ x: m.timeToX(sec), y: m.midiToY(piecePitchAt(g.piece, sec)) }); }
   return out;
 }
 
@@ -158,7 +169,19 @@ export function createDrawCanvases(els, hooks) {
       const m = drawMetrics(els.main, getDrawParams().view);
       return { sec: m.xToTime(p.x), midi: m.yToMidi(p.y) };
     },
-    begin: (id) => { const s = getDrawParams().strokes.find((x) => x.id === id); return { raw: s.raw.map((q) => ({ ...q })), tp: Number(s.transform?.transpose) || 0 }; },
+    begin: (id) => { const s = getDrawParams().strokes.find((x) => x.id === id); return { raw: s.raw.map((q) => ({ ...q })), tp: Number(s.transform?.transpose) || 0, clip: s.clip ? { ...s.clip } : undefined, span: strokeSpan(processStroke(s)) }; },
+    // ⌘ + drag: trim / extend along the drawn line; double-click: ✂ split (core/line-clip.js) / 줄이기·늘리기, 자르기
+    trim(id, side, w) {
+      const sp = w.orig.span;
+      if (!sp) return;
+      editDraw((d) => {
+        const s = d.strokes.find((x) => x.id === id);
+        if (!s) return;
+        const c = trimClip(w.orig.clip, sp.S0, sp.D, side, w.sec);
+        if (c) s.clip = c; else delete s.clip;
+      }, { coalesceKey: `draw-trim-${side}` });
+    },
+    split: (id, sec) => splitStroke(id, sec),
     startOf(id) {
       // First sounding time of the processed stroke / 처리된 획의 첫 소리 시점
       const res = getProcessedMap(getDrawParams()).get(id);
@@ -242,6 +265,8 @@ export function createDrawCanvases(els, hooks) {
       if (!res) continue;
       const lines = res.pieces.map((pc) => piecePolyline(m, pc));
       polys.set(s.id, lines);
+      // Unplayed parts of a trimmed stroke: faint (◌) (core/line-clip.js) / 잘린 부분: 연하게
+      if (res.ghost?.length) drawUnplayed(ctx, res.ghost.map((g) => ghostPolyline(m, g)), s.color, s.id === active?.id);
       const audible = isStrokeAudible(s, params);
       const isSel = sel.has(s.id);
       if (isSel) for (const pl of lines) strokePath(pl, '#f8fafc', 0.22, 1.9);

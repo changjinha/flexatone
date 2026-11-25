@@ -364,6 +364,7 @@ const ENGINE_SUMMARY = {
   expo: ['Exponential or logarithmic glide (fast start or fast finish).', '지수/로그 글리산도 (빠른 시작 또는 빠른 끝).'],
   trig: ['A slice of a trigonometric function mapped to 0 → 1.', '삼각함수 구간을 0 → 1로 매핑한 곡선.'],
   formula: ['Your own expression f(t; a, b, c …).', '직접 쓰는 수식 f(t; a, b, c …).'],
+  flow: ['Fluid-dynamics profiles: Poiseuille, Blasius, Rankine, Stokes.', '유체역학 프로파일: 푸아죄유, 블라지우스, 랭킨, 스톡스.'],
 };
 
 /** Glissando curve engine entry (tabs + parameter rack). / 글리산도 곡선 엔진 도움말 */

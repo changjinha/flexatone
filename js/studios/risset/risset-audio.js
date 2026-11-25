@@ -26,10 +26,12 @@ import { getOutputBus, createOfflineOutput } from '../../audio/output-bus.js';
 import { ensureAudioCtx, getAudioCtx, encodeWav, triggerDownload, TRANSPORT_FADE_SEC } from '../../audio/audio-engine.js';
 import { getRissetParams } from '../risset-studio.js';
 import { runtimeStepScale } from '../../modules/tempo-manager.js';
-import { createRissetRuntime, stepRuntime, phaseToFreq, outputScale, createDefaultRissetParams, sanitizeRissetParams, cloneRuntime, buildControlFrame, weightOf, createBakedRuntime, MAX_SLOTS } from './risset-core.js';
-import { RissetVoiceBank, buildRissetWorkletSource, RISSET_PROCESSOR } from './risset-voicebank.js';
+import { createRissetRuntime, stepRuntime, phaseToFreq, outputScale, createDefaultRissetParams, sanitizeRissetParams, cloneRuntime, buildControlFrame, weightOf, createBakedRuntime, MAX_SLOTS, tremoloNodeCfg, eqNodesFor } from './risset-core.js';
+import { RissetVoiceBank, buildRissetWorkletSource, RISSET_PROCESSOR, RISSET_KERNELS } from './risset-voicebank.js';
+import { composeKernelSource, isSelfContained } from '../../modules/sources/kernel-source.js';
 import { sanitizeEqNode } from './peq-envelope.js';
 import { createTremoloNode } from '../../audio/tremolo-node.js';
+import { claimMirror } from '../../audio/time-mirror.js';
 
 const runtimeBox = { rt: null, scrubbing: false };
 let live = null; // { master, eq: BiquadFilterNode[], out, voices: [{ osc, gain }] }
@@ -118,7 +120,7 @@ function buildEq(ctx, nodes, input, output) {
 }
 
 function syncEq(ctx, params, live) {
-  const nodes = params.eqNodes;
+  const nodes = eqNodesFor(params); // none while the regions carry their own EQ / 영역별 EQ면 없음
   if (live.eq.length !== nodes.length) {
     try { live.master.disconnect(); } catch { /* ignore */ }
     live.eq.forEach((n) => { try { n.disconnect(); } catch { /* ignore */ } });
@@ -180,7 +182,7 @@ function createPass(ctx, params, rt, dest, getExtraTremolo = null) {
   out.gain.linearRampToValueAtTime(1, ctx.currentTime + TRANSPORT_FADE_SEC);
   // Tremolo stages after the transport fade: the studio's own, then (Manager) the channel's.
   // 트레몰로 단계: 스튜디오 자체 → (매니저) 트랙 트레몰로
-  const trem = createTremoloNode(ctx, params.tremolo);
+  const trem = createTremoloNode(ctx, tremoloNodeCfg(params)); // off when the regions carry their own (bank) / 영역별이면 끔
   const extra = getExtraTremolo ? createTremoloNode(ctx, getExtraTremolo()) : null;
   out.connect(trem.node);
   if (extra) { trem.node.connect(extra.node); extra.node.connect(dest); } else trem.node.connect(dest);
@@ -196,7 +198,7 @@ function createPass(ctx, params, rt, dest, getExtraTremolo = null) {
   } else {
     master.gain.value = outputScale(params, rt.eff);
   }
-  pass.eq = buildEq(ctx, params.eqNodes, master, out);
+  pass.eq = buildEq(ctx, eqNodesFor(params), master, out);
   lastEngine = kind;
   updatePass(params, rt, pass);
   return pass;
@@ -246,7 +248,7 @@ function updatePass(params, rt, pass, ampMul = null, warpHz = null) {
   const ctx = getAudioCtx();
   if (!ctx || !pass) return;
   syncEq(ctx, params, pass);
-  pass.trem?.update(params.tremolo);
+  pass.trem?.update(tremoloNodeCfg(params));
   if (pass.extra) pass.extra.update(pass.getExtraTremolo?.());
   if (pass.kind === 'worklet') {
     const frame = buildControlFrame(params, rt);
@@ -377,6 +379,7 @@ export async function toggleRissetAudio() {
  */
 export async function renderRissetBuffer({ seconds, sampleRate = 48000, params: paramsIn = null, runtime = null, outputStage = true, ampMask = null, pitchWarp = null, timeScale = 1, extraTremolo = null } = {}) {
   const params = paramsIn || getRissetParams();
+  const mir = claimMirror(); // settings retrograde: control frames played in reverse order / 설정 역행: 제어 프레임 역순
   const dur = clamp(Number(seconds ?? params.exportSec) || 15, 1, 180);
   const frames = Math.ceil(dur * sampleRate);
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
@@ -386,13 +389,13 @@ export async function renderRissetBuffer({ seconds, sampleRate = 48000, params: 
   // 동역학이 켜지면 사전 적분 배열로 재현 가능한 렌더, 아니면 현재 상태부터.
   const baked = runtime ? null : createBakedRuntime(params, (dur + 0.1) * timeScale); // Tempo Manager: runtime time = real × rate
   const live0 = baked || runtime || (paramsIn ? createRissetRuntime(params) : getRissetRuntime());
-  renderBankInto(params, baked || cloneRuntime(live0), buf.getChannelData(0), sampleRate, { ampMask, pitchWarp, timeScale });
+  renderBankInto(params, baked || cloneRuntime(live0), buf.getChannelData(0), sampleRate, { ampMask, pitchWarp, timeScale, mirrorH: mir ? Math.min(dur, mir.H ?? dur) : null });
   const src = ctx.createBufferSource();
   src.buffer = buf;
   // Same LFO graph as the live pass (studio tremolo, then the Manager channel's) / 실시간과 같은 LFO 그래프
-  const trem = createTremoloNode(ctx, params.tremolo);
+  const trem = createTremoloNode(ctx, tremoloNodeCfg(params));
   const extra = extraTremolo ? createTremoloNode(ctx, extraTremolo) : null;
-  buildEq(ctx, params.eqNodes, src, trem.node);
+  buildEq(ctx, eqNodesFor(params), src, trem.node);
   if (extra) { trem.node.connect(extra.node); extra.node.connect(outputStage ? createOfflineOutput(ctx) : ctx.destination); } else trem.node.connect(outputStage ? createOfflineOutput(ctx) : ctx.destination);
   src.start(0);
   return ctx.startRendering();
@@ -403,16 +406,35 @@ export async function renderRissetBuffer({ seconds, sampleRate = 48000, params: 
  * every `block` samples. Shared by the offline render and the self-checks.
  * 런타임 → 보이스 뱅크 → 출력 배열 (오프라인·자가진단 공용).
  */
-export function renderBankInto(params, rt, out, sampleRate, { block = 64, ampMask = null, pitchWarp = null, step = true, timeScale = 1 } = {}) {
+export function renderBankInto(params, rt, out, sampleRate, { block = 64, ampMask = null, pitchWarp = null, step = true, timeScale = 1, mirrorH = null } = {}) {
+  if (mirrorH) block = 256; // fewer stored frames / 저장 프레임 수 줄임
   const bank = new RissetVoiceBank(sampleRate, MAX_SLOTS);
   const tmp = new Float32Array(block);
   const dtBlock = runtimeStepScale(block / sampleRate, timeScale); // runtime clock per block (Tempo Manager) / 블록당 런타임 시간
   rt.timeScale = timeScale;
-  for (let s0 = 0; s0 < out.length; s0 += block) {
+  const frameAt = (s0) => {
     if (step) stepRuntime(params, rt, s0 === 0 ? 0 : dtBlock, { running: true });
     const frame = buildControlFrame(params, rt);
     if (pitchWarp) warpShiftFrame(params, frame, (hz) => pitchWarp(s0 / sampleRate, hz));
     if (ampMask) for (let j = 0; j < frame.n; j++) frame.slots[j * 4 + 2] *= ampMask(s0 / sampleRate, phaseToFreq(params, frame.slots[j * 4]) * (frame.shift ? Math.pow(2, frame.shift[j] / 12) : 1));
+    return frame;
+  };
+  // Settings retrograde (audio/time-mirror.js): the field is stepped forwards over [0, H], then the bank
+  // plays its frames last first — the voices glide back, each oscillator still runs forwards.
+  // 설정 역행: [0, H]를 순방향으로 진행해 프레임을 모은 뒤 마지막 프레임부터 재생 (발진기는 순방향).
+  let mirrored = null;
+  if (mirrorH) {
+    const count = Math.max(1, Math.ceil((mirrorH * sampleRate) / block));
+    mirrored = new Array(count);
+    for (let i = 0; i < count; i++) {
+      const f = structuredClone(frameAt(i * block));
+      for (let j = 0; j < f.n; j++) f.slots[j * 4 + 1] = -f.slots[j * 4 + 1]; // glide velocity runs backwards / 활주 속도 반전
+      mirrored[i] = f;
+    }
+  }
+  for (let s0 = 0, i = 0; s0 < out.length; s0 += block, i++) {
+    const frame = mirrored ? mirrored[Math.max(0, mirrored.length - 1 - i)] : frameAt(s0);
+    if (mirrored && i >= mirrored.length) break; // past H: silence / H 이후는 무음
     bank.setControl(frame);
     const len = Math.min(block, out.length - s0);
     bank.process(tmp, len);
@@ -438,10 +460,19 @@ export async function exportRissetWav({ download = true } = {}) {
 const rmsOf = (a, from = 0) => { let e = 0; for (let i = from; i < a.length; i++) e += a[i] * a[i]; return Math.sqrt(e / Math.max(1, a.length - from)); };
 
 registerSelfCheck('Risset A-1: voice bank is self-contained (worklet Blob source)', (a) => {
-  const src = RissetVoiceBank.toString();
-  a.ok(!/\bimport\b|\brequire\(|\bdocument\b|\bwindow\b/.test(src), 'no imports / DOM in the class');
+  for (const cls of RISSET_KERNELS) a.ok(isSelfContained(cls), `no imports / DOM in ${cls.name}`);
   a.ok(buildRissetWorkletSource().includes('registerProcessor'), 'processor registered');
-  a.ok(new Function(`${src}; return new RissetVoiceBank(48000, 4);`)() !== null, 'class compiles standalone');
+  // The composed classes alone (no module scope) must build a bank and render a pulse block (D-2).
+  // 조립된 클래스만으로 뱅크 생성 + 펄스 블록 렌더 (모듈 스코프 없이)
+  const make = new Function(`${composeKernelSource(RISSET_KERNELS)}; return (n) => new RissetVoiceBank(48000, n);`)();
+  const bank = make(4);
+  a.ok(bank !== null, 'class compiles standalone');
+  bank.setControl({ n: 1, scale: 0.5, base: 48, span: 24, env: { enabled: false }, wave: { morph: 1, duty: 0.3 }, slots: new Float32Array([0.5, 0, 1, 1]) });
+  const out = new Float32Array(128);
+  bank.process(out, 128);
+  let e = 0;
+  for (const v of out) e += v * v;
+  a.ok(e > 0 && Number.isFinite(e), 'standalone bank renders the pulse kernel');
 }, { group: 'audio' });
 
 registerSelfCheck('Risset A-1: wrap continuity, 1/√N level, v = 0 phase', (a) => {

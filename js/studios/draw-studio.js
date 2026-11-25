@@ -15,6 +15,7 @@
  * Imports: core/*, modules/*, studios/registry.js, studios/draw/*.js (pure only).
  */
 
+import { splitClip, syncLinkedAfterEdit } from '../core/line-clip.js';
 import { roundTo, deepClone } from '../core/math-utils.js';
 import { midiToFreq } from '../core/units.js';
 import { appState, registerSelfCheck, withIsolatedState, createInitialState, resetHistory, serializeProject, loadProjectData } from '../core/state.js';
@@ -39,6 +40,8 @@ import {
   snapTarget,
   smoothToEpsilon,
   SCALE_IDS,
+  GEOMETRY_KEYS,
+  strokeSpan,
 } from './draw/draw-engine.js';
 import { timbreSpecToVoiceFields } from '../modules/timbre-spec.js';
 
@@ -68,7 +71,10 @@ export function getDrawParams() {
  */
 export function editDraw(fn, { history = true, coalesceKey = null } = {}) {
   const draft = deepClone(getDrawParams());
+  const before = draft.strokes.some((s) => s.link?.on) ? deepClone(draft.strokes) : null;
   fn(draft);
+  // 🔗 linked pieces of one stroke keep one drawn shape (core/line-clip.js) / 링크된 조각은 같은 모양 유지
+  if (before) syncLinkedAfterEdit(before, draft.strokes, GEOMETRY_KEYS, draft.activeStrokeId);
   return StudioRegistry.setParams(DRAW_ID, draft, { history, coalesceKey });
 }
 
@@ -90,9 +96,46 @@ export function getProcessedMap(params = getDrawParams()) {
   return processDoc(params);
 }
 
+/**
+ * ✂ Cut a stroke at `sec` into two linked strokes (Locate double-click). Both keep the drawn line; their
+ * play ranges split what was played. / 획을 sec에서 링크된 두 획으로 자르기
+ */
+export function splitStroke(id, sec) {
+  const params = getDrawParams();
+  const s0 = params.strokes.find((x) => x.id === id);
+  const sp = s0 ? strokeSpan(processStroke(s0)) : null;
+  if (!sp) return false;
+  let ok = false;
+  editDraw((d) => {
+    const i = d.strokes.findIndex((x) => x.id === id);
+    const s = d.strokes[i];
+    if (!s) return;
+    const cl = splitClip(s.clip, sp.S0, sp.D, sec);
+    if (!cl) return;
+    const linkId = s.link?.id || `ln_${Math.random().toString(36).slice(2, 8)}`;
+    const b = deepClone(s);
+    b.id = `st_${Math.random().toString(36).slice(2, 9)}`;
+    b.name = `${String(s.name || 'Stroke').replace(/ ✂\d+$/, '')} ✂${Math.max(1, d.strokes.filter((x) => x.link?.id === linkId).length) + 1}`.slice(0, 40);
+    b.solo = false;
+    s.link = { id: linkId, on: true };
+    b.link = { id: linkId, on: true };
+    if (cl[0]) s.clip = cl[0]; else delete s.clip;
+    if (cl[1]) b.clip = cl[1]; else delete b.clip;
+    d.strokes.splice(i + 1, 0, b);
+    d.activeStrokeId = b.id;
+    d.selectedIds = [b.id];
+    ok = true;
+  });
+  return ok;
+}
+
 /** One stroke piece → Glissando Voice. / 획 조각 → 글리산도 보이스 */
 export function pieceToGlissandoVoice(stroke, piece, pieceIndex, pieceCount, helpers, index) {
+  // A clipped piece (play range) keeps its clip; its gain envelope is read on the whole piece like the curve
+  // 잘린 조각은 클립을 유지하고, 게인 엔벨로프는 곡선처럼 조각 전체 기준
+  const whole = piece.full ? { ...piece, t0: piece.full.t0, dur: piece.full.dur } : piece;
   return helpers.createDefaultVoice(index, {
+    ...(piece.curve?.clip ? { clip: { ...piece.curve.clip } } : {}),
     name: pieceCount > 1 ? `${stroke.name} ${pieceIndex + 1}` : stroke.name,
     color: stroke.color,
     solo: !!stroke.solo,
@@ -112,7 +155,7 @@ export function pieceToGlissandoVoice(stroke, piece, pieceIndex, pieceCount, hel
     inverse: false,
     customPoints: deepClone(piece.customPoints),
     gainMode: 'points',
-    gainPoints: pieceGainPoints(piece, stroke, 16),
+    gainPoints: pieceGainPoints(whole, stroke, 16),
   });
 }
 

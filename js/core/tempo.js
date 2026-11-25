@@ -14,10 +14,9 @@
  *   tempo = { mode: 'rate' | 'bpm', rate: 1, bpm: 120, refBpm: 120 }
  *   rate  = playback speed factor (2 = twice as fast, half as long). Pitch is NOT changed:
  *           time is rescaled inside the studio document, not by resampling.
- *   tape  = false: pitch is kept (default).  true: TAPE mode — pitch follows the speed like a
- *           varispeed tape (rate 0.5 = half speed AND one octave down). glideSec > 0 makes live
- *           speed changes glide like a tape machine spooling up / slowing down.
- *           tape = true: 테이프 모드 — 속도와 음고가 함께 변함 (0.5× = 한 옥타브 아래). glideSec = 속도 변화가 테이프처럼 미끄러지는 시간.
+ *   tape / glideSec: retired (always false / 0). A tempo never changes pitch; older projects that
+ *           stored tape: true load with pitch kept. The fields stay so every { rate, tape, doc } caller works.
+ *           tape / glideSec: 폐지 (항상 false / 0). 템포는 음고를 바꾸지 않음 — 예전 프로젝트의 tape: true도 음고 유지로 로드.
  *   mode 'rate': the user edits `rate` (×).        mode 'bpm': rate = bpm / refBpm.
  *   mode 'length' (duration lock, the Sone-Lock analogue): rate = natural length / lockSec, so the content
  *           lasts exactly lockSec. Only a caller that knows the natural length can resolve it
@@ -50,8 +49,8 @@ export function normalizeTempoConfig(src) {
     rate: num(o.rate, TEMPO_RATE_MIN, TEMPO_RATE_MAX, d.rate),
     bpm: num(o.bpm, TEMPO_BPM_MIN, TEMPO_BPM_MAX, d.bpm),
     refBpm: num(o.refBpm, TEMPO_BPM_MIN, TEMPO_BPM_MAX, d.refBpm),
-    tape: o.tape === true,
-    glideSec: num(o.glideSec, 0, TAPE_GLIDE_MAX, d.glideSec),
+    tape: false, // retired: pitch is always kept / 폐지: 음고는 항상 유지
+    glideSec: 0,
     lockSec: num(o.lockSec, 0, TEMPO_LOCK_MAX, d.lockSec),
   };
 }
@@ -106,22 +105,19 @@ export function patchTempo(cur, patch, naturalSec = null) {
 }
 
 /**
- * Split the speed of a track into what the document clock does and what the tape does.
- * Levels with `tape: true` change pitch with their rate; the others keep pitch.
- *   rate = total speed (master × instance)   tape = product of the tape levels' rates (pitch ratio)
- *   doc  = rate / tape (pitch-preserving time scale to render into the document)   glide = longest glide of a tape level
- * 트랙 속도를 문서 시간(음고 유지)과 테이프(음고 동반)로 분리.
+ * Speed of a track: rate = total speed (master × instance), all of it rendered into the document
+ * (doc = rate, pitch kept). tape = 1 and glide = 0 always (Tape mode is retired).
+ * 트랙 속도: 전부 문서 시간으로 렌더 (음고 유지). tape = 1, glide = 0 (테이프 모드 폐지).
  */
 export function splitRates(...cfgs) {
   let rate = 1;
-  let tape = 1;
-  let glide = 0;
+  const tape = 1;
+  const glide = 0;
   for (const c of cfgs) {
     if (!c) continue;
     const n = normalizeTempoConfig(c);
     const r = tempoRate(n);
     rate *= r;
-    if (n.tape) { tape *= r; glide = Math.max(glide, n.glideSec); }
   }
   return { rate, tape, doc: rate / tape, glide };
 }

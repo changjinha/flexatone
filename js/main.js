@@ -20,6 +20,9 @@ import './studios/fractal-studio.js'; // registers the Fractal Studio plugin / �
 import './studios/wave-studio.js'; // registers the Wave Studio plugin (PDE on the pitch axis) / 웨이브 스튜디오 등록
 import './studios/grid-studio.js'; // registers the Grid Studio plugin (painted raster + image effects) / 그리드 스튜디오 등록
 import './ui/workspaces.js'; // studio workspaces (UI + audio tier) / 스튜디오 작업 공간
+import './audio/instance-render.js'; // registers the instance → buffer renderer (Space imports) / 인스턴스 → 버퍼 렌더러 등록
+import './audio/space-master.js'; // Space Master: spatial master track of the Manager (track output router) / 스페이스 마스터 (트랙 출력 라우터)
+import './studios/chaos/chaos-space-curve.js'; // Chaos phase-space trajectories as Space paths (curve links) / 카오스 궤적을 스페이스 경로로
 import { t, LANG_TEXT_MAP, LANGUAGES, nextLang, getLang } from './core/i18n.js';
 import {
   appState,
@@ -34,6 +37,12 @@ import {
   duplicateVoice,
   endHistoryGesture,
   loadProjectData,
+  parseProjectData,
+  listProjectStudios,
+  filterProjectStudios,
+  mergeProjectStudios,
+  summarizeProjectStudio,
+  serializeProject,
 } from './core/state.js';
 import { StudioRegistry } from './studios/registry.js';
 import {
@@ -49,6 +58,8 @@ import { renderTremoloPanel } from './ui/tremolo-panel.js';
 import { initStudioHost, syncStudioLayout, isWorkspaceActive, renderWorkspace, activeTransport, stopAllAudio, fitWorkspace } from './ui/studio-host.js';
 import { takeScreenshot } from './ui/screenshot.js';
 import { initRackLayout, syncRackLayout, resetRackLayout } from './ui/rack-layout.js';
+import { initStudioMonitors, renderStudioMonitors } from './ui/studio-monitors.js';
+import { initShortcutHelp, toggleShortcutHelp, renderShortcutButton } from './ui/shortcut-help.js';
 import { initTrajectoryUi } from './ui/trajectory-ui.js';
 import { initSendRouter } from './ui/send-router.js';
 import { initStudioTempoUi } from './ui/studio-tempo-ui.js';
@@ -64,7 +75,10 @@ import { initManagerPanel, renderManagerPanel, toggleManagerPanel, isManagerOpen
 import { stopAllManager } from './audio/manager-mixer.js';
 import { ensureManager } from './core/manager-state.js';
 import { initAutosave, markFileSaved, hasUnsavedFileChanges } from './core/autosave.js';
-import { saveProjectToFile, initReloadGuard } from './ui/project-file.js';
+import { initFileNameChip, setProjectFileName } from './ui/file-name-chip.js';
+import { openStudioVideoDialog } from './ui/studio-video.js';
+import { openTrackExportDialog } from './ui/track-export.js';
+import { saveProjectToFile, initReloadGuard, askSaveBeforeLoad, askLoadStudios } from './ui/project-file.js';
 
 /** Transport of the active studio (Glissando, Field, …). / 활성 스튜디오 트랜스포트 */
 const tp = () => activeTransport();
@@ -124,6 +138,12 @@ function requestRender(scopes = ['all']) {
   else requestAnimationFrame(flush);
 }
 
+/** Render the given scopes right now (offline video render: one frame per call). / 지금 바로 렌더 (오프라인 동영상) */
+function renderNow(scopes = ['transport']) {
+  for (const s of scopes) dirty.add(s);
+  flush();
+}
+
 function flush() {
   frameRequested = false;
   const scopes = new Set(dirty);
@@ -132,6 +152,7 @@ function flush() {
     if (scopes.has('all') || scopes.has('lang')) applyLanguage();
     syncStudioLayout();
     syncRackLayout(); // movable racks: re-apply saved places / 이동 랙 위치 재적용
+    renderShortcutButton();
     renderHeader();
     renderOutputPanel(scopes);
     renderManagerPanel(scopes);
@@ -145,6 +166,7 @@ function flush() {
       }
       if (!(scopes.size === 1 && scopes.has('transport'))) renderTremoloPanel();
     }
+    renderStudioMonitors(scopes); // voice list + timeline + Send & export in every studio / 모든 스튜디오의 보이스 목록·타임라인·후처리
   } catch (err) {
     console.error('[Flexatone] render error:', err);
   }
@@ -186,6 +208,8 @@ function renderHeader() {
   setToggle($('btnLocateMode'), appState.locateMode);
   setToggle($('btnSelectMode'), appState.selectMode);
   setToggle($('btnLegatoJoin'), appState.legatoJoin !== false);
+  const sj = $('selectSampleJoin');
+  if (sj && document.activeElement !== sj) sj.value = appState.sampleJoin || 'restart';
   const glide = $('inputJoinGlide');
   if (glide && document.activeElement !== glide) glide.value = String(appState.joinGlideMs ?? 12);
   setToggle($('btnLocateSnap'), appState.locateSnap);
@@ -245,11 +269,22 @@ async function onLoadFile(evt) {
   stopAllAudio();
   stopAllManager();
   try {
-    const res = loadProjectData(await file.text());
+    let data = parseProjectData(await file.text());
+    // A file with several studios: choose which ones to load / 스튜디오가 여러 개면 불러올 것 선택
+    const studios = listProjectStudios(data);
+    if (studios.length > 1) {
+      const keep = await askLoadStudios(studios);
+      if (!keep) return; // cancelled — nothing changes / 취소
+      if (keep.length < studios.length) data = filterProjectStudios(data, keep);
+    }
+    const before = serializeProject({ samples: false }); // to come back to / 되돌아가기용
+    const res = loadProjectData(data);
     if (!res.ok) {
       showToast(t('toast.loadError'), 'error');
       return;
     }
+    setPreviousWork(before);
+    setProjectFileName(file.name);
     ensureManager();
     StudioRegistry.activate(StudioRegistry.resolveStudioId());
     fitAllViewport();
@@ -259,6 +294,43 @@ async function onLoadFile(evt) {
     console.error(err);
     showToast(t('toast.loadError'), 'error');
   }
+}
+
+// ---- Back to the previous work / 이전 작업으로 돌아가기 ----------------------
+// Loading a file replaces the document, so the work it replaced is kept here (this tab only) and the
+// "Previous" button lets you take studios of it back. Restoring swaps, so it can be undone the same way.
+let previousWork = null;
+
+function setPreviousWork(snap) {
+  previousWork = snap;
+  const b = $('btnPrevWork');
+  if (b) b.disabled = !snap;
+}
+
+async function onPrevWork() {
+  const prev = previousWork;
+  if (!prev) return;
+  const studios = listProjectStudios(prev);
+  const cur = serializeProject({ samples: false });
+  const keep = await askLoadStudios(studios, {
+    titleKey: 'prevWork.title', bodyKey: 'prevWork.body', okKey: 'prevWork.ok',
+    summary: (id) => {
+      const a = summarizeProjectStudio(prev, id);
+      const b = summarizeProjectStudio(cur, id);
+      const unit = (x) => t(x.kind === 'voices' ? 'prevWork.voices' : 'prevWork.instances', x.count);
+      return t('prevWork.sum', unit(a), unit(b), a.names.join(', '));
+    },
+  });
+  if (!keep) return;
+  stopAllAudio();
+  stopAllManager();
+  const res = loadProjectData(mergeProjectStudios(cur, prev, keep));
+  if (!res.ok) { showToast(t('toast.loadError'), 'error'); return; }
+  setPreviousWork(cur);
+  ensureManager();
+  StudioRegistry.activate(StudioRegistry.resolveStudioId());
+  fitAllViewport();
+  showToast(t('prevWork.done'));
 }
 
 function onStudioTab(id) {
@@ -286,9 +358,19 @@ function bindHeader() {
   });
   on('btnNewProject', 'click', onNewProject);
   on('btnSaveProject', 'click', onSaveProject);
-  on('btnLoadProject', 'click', () => $('fileLoadProject').click());
+  // Offer to save the current work before a project (or preset) replaces it / 불러오기 전에 현재 작업 저장 여부 확인
+  on('btnLoadProject', 'click', () => askSaveBeforeLoad({ showToast, pickFile: () => $('fileLoadProject').click() }));
   on('fileLoadProject', 'change', onLoadFile);
-  on('btnExportWav', 'click', onExportWav);
+  on('btnPrevWork', 'click', onPrevWork);
+  // Export ▾ → WAV / MP4 below the button / 내보내기 ▾ → 아래의 WAV / MP4
+  const exportMenu = $('exportMenu');
+  const setExportMenu = (open) => { exportMenu?.classList.toggle('hidden', !open); $('btnExport')?.setAttribute('aria-expanded', open ? 'true' : 'false'); };
+  on('btnExport', 'click', (e) => { e.stopPropagation(); setExportMenu(exportMenu?.classList.contains('hidden')); });
+  document.addEventListener('click', (e) => { if (!e.target.closest?.('#exportMenuWrap')) setExportMenu(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setExportMenu(false); });
+  on('btnExportWav', 'click', () => { setExportMenu(false); onExportWav(); });
+  on('btnExportVideo', 'click', () => { setExportMenu(false); openStudioVideoDialog({ hooks: { showToast, renderNow } }); });
+  on('btnExportTracks', 'click', () => { setExportMenu(false); openTrackExportDialog({ hooks: { showToast } }); });
   on('btnLangToggle', 'click', () => setLanguage(nextLang()));
   on('btnLayoutReset', 'click', () => showToast(t('toast.layoutReset', resetRackLayout()))); // positions only / 위치만 초기화
   on('btnLayoutToggle', 'click', () => setPref('layout', appState.layout === 'portrait' ? 'landscape' : 'portrait', ['layout', 'canvas']));
@@ -311,6 +393,7 @@ function bindHeader() {
     setPref('selectMode', !appState.selectMode, ['canvas', 'view', 'panels']);
   });
   on('btnLegatoJoin', 'click', () => setPref('legatoJoin', appState.legatoJoin === false, ['view']));
+  on('selectSampleJoin', 'change', (e) => setPref('sampleJoin', e.target.value, ['view']));
   on('inputJoinGlide', 'change', (e) => setPref('joinGlideMs', Math.max(0, Math.min(200, Math.round(Number(e.target.value) || 0))), ['view']));
   on('btnLocateSnap', 'click', () => setPref('locateSnap', !appState.locateSnap, ['view']));
   on('btnScrubAudio', 'click', () => setPref('scrubAudio', !appState.scrubAudio, ['view']));
@@ -359,6 +442,7 @@ async function onSpace() {
  *   L / F        loop / fit all
  *   M            Manager window                      매니저 창
  *   H            Help mode (ui/help-overlay.js)      도움말 모드
+ *   ?            Keyboard shortcut list (ui/shortcut-help.js)  단축키 목록
  *   Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl/⌘+Y  undo / redo
  */
 function bindKeyboard() {
@@ -418,6 +502,10 @@ function bindKeyboard() {
       case 'M':
         toggleManagerPanel();
         break;
+      case '?':
+        e.preventDefault();
+        toggleShortcutHelp(); // keyboard shortcut list / 단축키 목록
+        break;
       case 'f':
       case 'F':
         if (ws) fitWorkspace();
@@ -450,7 +538,9 @@ function boot() {
   initOutputPanel();
   initManagerPanel({ requestRender, showToast, fitAll: fitAllViewport });
   initCanvases({ requestRender, showToast });
+  initStudioMonitors({ showToast, renderNow });
   initRackLayout();
+  initShortcutHelp();
   initTrajectoryUi({ showToast, requestRender });
   initSendRouter({ showToast }); // ⇄ Sends: send / receive order tool / 보내기 순서 도구
   initStudioTempoUi(); // ⏱ studio tempo on the header transport / 스튜디오 템포
@@ -470,7 +560,8 @@ function boot() {
 /** Bring back the autosaved project (same steps as loading a file). / 자동 저장본 복원 */
 async function restoreSession() {
   const res = await initAutosave();
-  if (!res.restored) return;
+  initFileNameChip(); // loaded file name at the right of the header / 헤더 오른쪽의 파일 이름
+  if (!res.restored) { setProjectFileName(''); return; }
   ensureManager();
   StudioRegistry.activate(StudioRegistry.resolveStudioId());
   fitAllViewport();

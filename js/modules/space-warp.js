@@ -132,8 +132,14 @@ function liquifySamples(ops) {
     const k = clamp(op.strength, 0, 1);
     const pts = op.pts || [];
     if (!pts.length || !(k > 0)) continue;
+    // ellipse of the brush: aspect = width (time) / height (pitch), turned by angle / 브러시 타원
+    const asp = Math.sqrt(clamp(op.aspect ?? 1, 0.1, 10));
+    const rx = R * asp;
+    const ry = R / asp;
+    const th = ((op.angle || 0) * Math.PI) / 180;
+    const base = { tool: op.tool, rx, ry, ca: Math.cos(th), sa: Math.sin(th), h: clamp(op.hardness || 0, 0, 0.95), ax: op.axis || 'both', k, mask: op.mask || null, reach: Math.max(rx, ry) };
     const path = [pts[0]];
-    const step = Math.max(0.25, R / 4);
+    const step = Math.max(0.25, Math.min(rx, ry) / 4);
     for (let i = 1; i < pts.length; i++) {
       const [ax, ay] = path[path.length - 1];
       const [bx, by] = pts[i];
@@ -141,18 +147,30 @@ function liquifySamples(ops) {
       for (let q = 1; q <= n; q++) path.push([ax + ((bx - ax) * q) / n, ay + ((by - ay) * q) / n]);
     }
     for (let i = op.tool === 'push' ? 1 : 0; i < path.length; i++) {
-      hit.push({ tool: op.tool, x: path[i][0], y: path[i][1], R, k, dx: i ? path[i][0] - path[i - 1][0] : 0, dy: i ? path[i][1] - path[i - 1][1] : 0 });
+      hit.push({ ...base, x: path[i][0], y: path[i][1], dx: i ? path[i][0] - path[i - 1][0] : 0, dy: i ? path[i][1] - path[i - 1][1] : 0 });
     }
   }
   prepCache.set(ops, hit);
   return hit;
 }
 
+/** Brush fall-off at normalised distance² d2 (< 1) with a hard core h: 1 inside h, (1 − s²)² outside. / 브러시 감쇠 */
+export function brushFalloff(d2, h = 0) {
+  if (!(h > 0)) return (1 - d2) * (1 - d2);
+  const d = Math.sqrt(d2);
+  if (d <= h) return 1;
+  const s = (d - h) / (1 - h);
+  return (1 - s * s) * (1 - s * s);
+}
+
 /**
  * Displacement (cells) of the liquify strokes at cell position (x, y): the strokes are replayed in
  * order. Push adds the brush movement, twirl / pinch / bloat act around the brush centre,
- * reconstruct scales what is there back towards zero. Fall-off (1 − (d / R)²)².
- * 리퀴파이 스트로크의 변위 (셀 단위): 스트로크를 순서대로 재생. 감쇠 (1 − (d/R)²)².
+ * reconstruct scales what is there back towards zero. Fall-off (1 − (d / R)²)² (a hard core keeps
+ * full strength inside it); the brush may be an ellipse (aspect, angle), act on one axis only, and
+ * be confined to a region (mask).
+ * 리퀴파이 스트로크의 변위 (셀 단위): 스트로크를 순서대로 재생. 감쇠 (1 − (d/R)²)² (단단함 = 중심부 100 %),
+ * 타원 브러시(비율·각도), 한 축만 (시간/음고), 영역 안에서만 (마스크).
  */
 export function liquifyDisplacement(ops, x, y) {
   let dx = 0;
@@ -162,15 +180,41 @@ export function liquifyDisplacement(ops, x, y) {
     const s = list[i];
     const ex = x - s.x;
     const ey = y - s.y;
-    const d2 = (ex * ex + ey * ey) / (s.R * s.R);
+    if (Math.abs(ex) >= s.reach || Math.abs(ey) >= s.reach) continue;
+    const u = (ex * s.ca + ey * s.sa) / s.rx;
+    const v = (ey * s.ca - ex * s.sa) / s.ry;
+    const d2 = u * u + v * v;
     if (d2 >= 1) continue;
-    const f = (1 - d2) * (1 - d2) * s.k;
-    if (s.tool === 'push') { dx += f * s.dx; dy += f * s.dy; }
-    else if (s.tool === 'twirlCW' || s.tool === 'twirlCCW') { const th = (s.tool === 'twirlCW' ? -0.12 : 0.12) * f; dx += -ey * th; dy += ex * th; }
-    else if (s.tool === 'pinch' || s.tool === 'bloat') { const g = (s.tool === 'pinch' ? -0.1 : 0.1) * f; dx += ex * g; dy += ey * g; }
-    else if (s.tool === 'reconstruct') { dx *= 1 - f; dy *= 1 - f; }
+    let f = brushFalloff(d2, s.h) * s.k;
+    if (s.mask) { f *= regionWeight(s.mask, x, y); if (!(f > 0)) continue; }
+    let ddx = 0;
+    let ddy = 0;
+    if (s.tool === 'push') { ddx = f * s.dx; ddy = f * s.dy; }
+    else if (s.tool === 'twirlCW' || s.tool === 'twirlCCW') { const th = (s.tool === 'twirlCW' ? -0.12 : 0.12) * f; ddx = -ey * th; ddy = ex * th; }
+    else if (s.tool === 'pinch' || s.tool === 'bloat') { const g = (s.tool === 'pinch' ? -0.1 : 0.1) * f; ddx = ex * g; ddy = ey * g; }
+    else if (s.tool === 'reconstruct') { if (s.ax !== 'pitch') dx *= 1 - f; if (s.ax !== 'time') dy *= 1 - f; continue; }
+    if (s.ax !== 'pitch') dx += ddx;
+    if (s.ax !== 'time') dy += ddy;
   }
   return { dx, dy };
+}
+
+export const BRUSH_AXES = Object.freeze(['both', 'time', 'pitch']);
+
+/** Brush details of a stored stroke; defaults are left out so older strokes stay byte-identical. / 브러시 상세값 */
+export function sanitizeBrushDetail(o) {
+  const fin = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const out = {};
+  const h = clamp(fin(o?.hardness, 0), 0, 0.95);
+  const a = clamp(fin(o?.aspect, 1), 0.1, 10);
+  const ang = clamp(fin(o?.angle, 0), -90, 90);
+  if (h > 0) out.hardness = Number(h.toFixed(3));
+  if (Math.abs(a - 1) > 1e-6) out.aspect = Number(a.toFixed(3));
+  if (ang !== 0) out.angle = Number(ang.toFixed(1));
+  if (BRUSH_AXES.includes(o?.axis) && o.axis !== 'both') out.axis = o.axis;
+  const mask = sanitizeRegion(o?.mask);
+  if (mask) out.mask = mask;
+  return out;
 }
 
 function sanitizeLiquifyOps(raw) {
@@ -180,9 +224,78 @@ function sanitizeLiquifyOps(raw) {
     tool: LIQUIFY_TOOLS.includes(o?.tool) ? o.tool : 'push',
     size: clamp(fin(o?.size, 6), 0.5, 5000),
     strength: clamp(fin(o?.strength, 0.6), 0, 1),
+    ...sanitizeBrushDetail(o),
     pts: (Array.isArray(o?.pts) ? o.pts : []).slice(0, LIQ_MAX_PTS).map((q) => [Number(fin(q?.[0], 0).toFixed(2)), Number(fin(q?.[1], 0).toFixed(2))]),
   })).filter((o) => o.pts.length);
 }
+
+// --------------------------------------------------------------------------
+// Regions — a closed polygon in cells with a soft edge / 영역: 셀 단위 닫힌 다각형 + 부드러운 가장자리
+// --------------------------------------------------------------------------
+
+export const REGION_MAX_PTS = 160;
+/** "Whole range" sides of a band selection (cells). / 띠 선택의 "전체 범위" 변 (셀) */
+export const REGION_FAR = 1e6;
+const regionCache = new WeakMap();
+
+/** A stored region { poly: [[x, y], …] (≥ 3 points, cells), feather (cells) } or null. / 영역 정규화 */
+export function sanitizeRegion(raw) {
+  if (!raw || !Array.isArray(raw.poly)) return null;
+  const fin = (v) => (Number.isFinite(Number(v)) ? clamp(Number(v), -1e7, 1e7) : null);
+  const poly = [];
+  for (const q of raw.poly.slice(0, REGION_MAX_PTS)) {
+    const x = fin(q?.[0]);
+    const y = fin(q?.[1]);
+    if (x !== null && y !== null) poly.push([Number(x.toFixed(2)), Number(y.toFixed(2))]);
+  }
+  if (poly.length < 3) return null;
+  const f = Number(raw.feather);
+  return { poly, feather: Number.isFinite(f) ? Number(clamp(f, 0, 500).toFixed(2)) : 0 };
+}
+
+function regionPrep(r) {
+  let p = regionCache.get(r);
+  if (p) return p;
+  let x0 = Infinity; let x1 = -Infinity; let y0 = Infinity; let y1 = -Infinity;
+  for (const [x, y] of r.poly) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  p = { x0, x1, y0, y1, f: r.feather || 0 };
+  regionCache.set(r, p);
+  return p;
+}
+
+/** Signed distance (cells) from (x, y) to the region outline: < 0 inside. / 영역 윤곽까지의 부호 거리 (안 = 음수) */
+export function regionDistance(r, x, y) {
+  const poly = r.poly;
+  let inside = false;
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    const ex = xj - xi;
+    const ey = yj - yi;
+    const l2 = ex * ex + ey * ey;
+    const u = l2 > 0 ? clamp(((x - xi) * ex + (y - yi) * ey) / l2, 0, 1) : 0;
+    const d2 = (x - xi - u * ex) ** 2 + (y - yi - u * ey) ** 2;
+    if (d2 < best) best = d2;
+  }
+  const d = Math.sqrt(best);
+  return inside ? -d : d;
+}
+
+/** Weight 0..1 of a region at (x, y): 1 inside, smooth fall-off over `feather` cells outside. / 영역 가중치 */
+export function regionWeight(r, x, y) {
+  if (!r) return 1;
+  const p = regionPrep(r);
+  if (x < p.x0 - p.f || x > p.x1 + p.f || y < p.y0 - p.f || y > p.y1 + p.f) return 0;
+  const d = regionDistance(r, x, y);
+  if (d <= 0) return 1;
+  if (!(p.f > 0) || d >= p.f) return 0;
+  return smooth01(1 - d / p.f);
+}
+
+/** Point of an image in the ORIGINAL space (before the stack): runPoint stores it on q. / 원래 공간의 위치 */
+const origin = (q) => [(q.ot ?? q.t), (q.om ?? q.m)];
 
 SpaceWarpRegistry.register({
   id: 'liquify',
@@ -195,6 +308,110 @@ SpaceWarpRegistry.register({
     const d = liquifyDisplacement(p.ops, q.t / env.ut, q.m / env.um);
     if (!p.lockTime) q.t += p.amount * d.dx * env.ut;
     q.m += p.amount * d.dy * env.um;
+  },
+});
+
+// --------------------------------------------------------------------------
+// Pull and Restore — operations on a selected region of the ORIGINAL space
+// 당기기·복원 — 원래 공간에서 선택한 영역에 대한 조작
+// --------------------------------------------------------------------------
+
+export const PULL_MODES = Object.freeze(['move', 'elastic']);
+export const PULL_MAX_OPS = 32;
+export const RESTORE_MAX_OPS = 16;
+
+function sanitizePullOps(raw) {
+  if (!Array.isArray(raw)) return [];
+  const fin = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const out = [];
+  for (const o of raw.slice(-PULL_MAX_OPS)) {
+    const region = sanitizeRegion(o?.region);
+    if (!region) continue;
+    out.push({
+      region,
+      mode: PULL_MODES.includes(o?.mode) ? o.mode : 'move',
+      dx: Number(clamp(fin(o?.dx, 0), -1e5, 1e5).toFixed(3)),
+      dy: Number(clamp(fin(o?.dy, 0), -1e5, 1e5).toFixed(3)),
+      gx: Number(clamp(fin(o?.gx, 0), -1e7, 1e7).toFixed(2)),
+      gy: Number(clamp(fin(o?.gy, 0), -1e7, 1e7).toFixed(2)),
+    });
+  }
+  return out;
+}
+
+const pullPrep = new WeakMap();
+/**
+ * Weight of a pull at a point of the original space (cells). `box` = the domain in cells: the reach of
+ * an elastic pull is measured inside it (a band selection runs to "infinity").
+ * 당기기 가중치 (원래 공간 기준). box = 셀 단위 영역 (띠 선택의 탄성 반경은 그 안에서 잼).
+ */
+export function pullWeight(op, x, y, box = null) {
+  if (op.mode !== 'elastic') return regionWeight(op.region, x, y);
+  // elastic: the grab point moves fully, the outline stays; fall-off with the distance to the grab point
+  // 탄성: 잡은 점은 그대로 따라오고 윤곽은 고정, 잡은 점에서 멀수록 약하게
+  const p = regionPrep(op.region);
+  if (x < p.x0 || x > p.x1 || y < p.y0 || y > p.y1) return 0;
+  const sd = -regionDistance(op.region, x, y);
+  if (sd <= 0) return 0;
+  const bk = box ? `${box.x0},${box.x1},${box.y0},${box.y1}` : '';
+  let hit = pullPrep.get(op);
+  if (!hit || hit.bk !== bk) {
+    let reach = 1;
+    for (const [vx, vy] of op.region.poly) {
+      const cx = box ? clamp(vx, Math.min(box.x0, op.gx), Math.max(box.x1, op.gx)) : vx;
+      const cy = box ? clamp(vy, Math.min(box.y0, op.gy), Math.max(box.y1, op.gy)) : vy;
+      reach = Math.max(reach, Math.hypot(cx - op.gx, cy - op.gy));
+    }
+    hit = { bk, reach };
+    pullPrep.set(op, hit);
+  }
+  const s = Math.min(1, Math.hypot(x - op.gx, y - op.gy) / hit.reach);
+  const edgeW = op.region.feather > 0 ? op.region.feather : 0.25 * hit.reach;
+  return smooth01(Math.min(1, sd / edgeW)) * (1 - s * s) * (1 - s * s);
+}
+
+SpaceWarpRegistry.register({
+  id: 'pull',
+  name: { en: 'Pull (region)', ko: '당기기 (영역)' },
+  toolOnly: true, // made by the Pull tool on a selection / 선택 영역 + 당기기 도구로 만듦
+  params: [{ key: 'amount', type: 'range', min: 0, max: 1, step: 0.01 }, { key: 'lockTime', type: 'toggle' }],
+  defaults: () => ({ amount: 1, lockTime: false, ops: [] }),
+  sanitize: (out, src) => ({ ...out, ops: sanitizePullOps(src.ops) }),
+  /** The selected part of the original space is carried by (dx, dy) cells; a soft edge (move) or a rubber sheet (elastic). */
+  map(q, p, env) {
+    if (!p.ops.length || !(p.amount > 0)) return;
+    const [ot, om] = origin(q);
+    const x = ot / env.ut;
+    const y = om / env.um;
+    const box = { x0: env.t0 / env.ut, x1: env.t1 / env.ut, y0: env.m0 / env.um, y1: env.m1 / env.um };
+    for (const op of p.ops) {
+      const w = pullWeight(op, x, y, box) * p.amount;
+      if (!(w > 0)) continue;
+      if (!p.lockTime) q.t += w * op.dx * env.ut;
+      q.m += w * op.dy * env.um;
+    }
+  },
+});
+
+SpaceWarpRegistry.register({
+  id: 'restore',
+  name: { en: 'Restore (region)', ko: '복원 (영역)' },
+  toolOnly: true, // made by "Restore" with a selection / 선택 영역 + 복원 버튼으로 만듦
+  params: [],
+  defaults: () => ({ ops: [] }),
+  sanitize: (out, src) => ({ ...out, ops: (Array.isArray(src.ops) ? src.ops : []).slice(-RESTORE_MAX_OPS).map((o) => { const region = sanitizeRegion(o?.region); return region ? { region } : null; }).filter(Boolean) }),
+  /** Everything above this stage is undone inside the regions (of the original space): the point goes back, copies fade out. */
+  map(q, p, env) {
+    if (!p.ops.length) return;
+    const [ot, om] = origin(q);
+    let keep = 1;
+    for (const op of p.ops) keep *= 1 - regionWeight(op.region, ot / env.ut, om / env.um);
+    const w = 1 - keep;
+    if (!(w > 0)) return;
+    q.t = lerp(q.t, ot, w);
+    q.m = lerp(q.m, om, w);
+    q.g = q.vp === false ? q.g * keep : lerp(q.g, q.og ?? 1, w);
+    if (w >= 1) q.tag = 0;
   },
 });
 
@@ -543,6 +760,9 @@ export function stackVariants(stack, env) {
 }
 
 function runPoint(q, plans, combo) {
+  // the original position (Pull / Restore select in the original space) and whether this is the first image
+  // 원래 위치 (당기기·복원은 원래 공간에서 선택) 와 첫 번째 상인지
+  q.ot = q.t; q.om = q.m; q.og = q.g; q.vp = !combo.some((k) => k > 0);
   for (let s = 0; s < plans.length; s++) {
     const { it, fns } = plans[s];
     const mix = it.mix;
@@ -729,4 +949,52 @@ registerSelfCheck('Space warp: polylines — glissando staircase, glitch grains,
   a.ok(tw.length >= 2 && tw.every((r) => r.pts.every((q, i) => i === 0 || q.t > r.pts[i - 1].t)), `${tw.length} runs, each strictly forward in time`);
   const gap = warpPolyline([{ t: 0, m: 60 }, { t: 1, m: 60 }, { t: 1, m: NaN }, { t: 2, m: 64 }, { t: 3, m: 64 }], [], ENV);
   a.equal(gap.length, 2, 'a NaN point is a gap');
+}, { group: 'modules' });
+
+registerSelfCheck('Space warp: brush details, regions, Pull (move / elastic), Restore (region)', (a) => {
+  // brush details: defaults = the round brush of 0.44 (byte-identical strokes) / 기본값 = 기존 둥근 브러시
+  const base = { tool: 'push', size: 20, strength: 1, pts: [[20, 120], [20, 126]] };
+  a.equal(JSON.stringify(sanitizeWarpParams('liquify', { ops: [base] }).ops[0]), JSON.stringify(sanitizeWarpParams('liquify', { ops: [{ ...base, hardness: 0, aspect: 1, angle: 0, axis: 'both' }] }).ops[0]), 'default details are not stored');
+  a.near(brushFalloff(0.25, 0), 0.5625, 1e-12, 'hardness 0 = (1 − d²)²');
+  a.equal(brushFalloff(0.16, 0.5), 1, 'inside the hard core = full strength');
+  const at = (op, t, m) => warpPoint(stage('liquify', { ops: [op] }), t, m, ENV);
+  const soft = at(base, 2.5, 60 + 12 * ENV.um).m - 60 - 12 * ENV.um;
+  const hard = at({ ...base, hardness: 0.8 }, 2.5, 60 + 12 * ENV.um).m - 60 - 12 * ENV.um;
+  a.ok(hard > soft + 0.5 && Math.abs(hard - 6 * ENV.um) < 1e-6, `hardness keeps more strength off-centre (${soft.toFixed(3)} → ${hard.toFixed(3)})`);
+  const wide = { ...base, size: 10, aspect: 4 }; // rx = 20 cells, ry = 5 cells / 시간으로 넓은 타원
+  a.ok(Math.abs(at(wide, 2.5 + 15 * ENV.ut, 60).m - 60) > 0.05 && Math.abs(at(wide, 2.5, 60 + 14 * ENV.um).m - 60 - 14 * ENV.um) < 1e-9, 'aspect 4: reaches far in time, not in pitch');
+  const diag = { tool: 'push', size: 30, strength: 1, pts: [[18, 120], [24, 126]] };
+  const tOnly = at({ ...diag, axis: 'time' }, 2.5, 60);
+  const pOnly = at({ ...diag, axis: 'pitch' }, 2.5, 60);
+  a.ok(tOnly.m === 60 && tOnly.t > 2.5 && pOnly.t === 2.5 && pOnly.m > 60, 'axis: time only / pitch only');
+  // regions / 영역
+  const box = sanitizeRegion({ poly: [[0, 100], [40, 100], [40, 140], [0, 140]], feather: 10 });
+  a.equal(regionWeight(box, 20, 120), 1, 'inside = 1');
+  a.equal(regionWeight(box, 60, 120), 0, 'beyond the soft edge = 0');
+  a.near(regionWeight(box, 45, 120), 0.5, 1e-9, 'half-way through the soft edge = 0.5');
+  a.ok(regionDistance(box, 20, 120) < 0 && Math.abs(regionDistance(box, 50, 120) - 10) < 1e-9, 'signed distance');
+  a.equal(sanitizeRegion({ poly: [[0, 0], [1, 1]] }), null, 'fewer than 3 points = no region');
+  const masked = at({ ...base, size: 120, mask: { poly: [[0, 0], [10, 0], [10, 1000], [0, 1000]], feather: 0 } }, 2.5, 60);
+  a.ok(Math.abs(masked.m - 60) < 1e-9, 'a brush confined to a region does not move what lies outside it');
+  // Pull: move / 이동
+  const band = { poly: [[-REGION_FAR, 116], [REGION_FAR, 116], [REGION_FAR, 124], [-REGION_FAR, 124]], feather: 0 }; // 58 – 62 st
+  const pull = (ops, extra = {}) => sanitizeWarpStack([{ type: 'pull', params: { ops, ...extra } }]);
+  const mv = pull([{ region: band, mode: 'move', dx: 0, dy: 8 }]);
+  a.near(warpPoint(mv, 3, 60, ENV).m, 64, 1e-9, 'move: a pitch band carried up by 8 cells = 4 st');
+  a.near(warpPoint(mv, 3, 70, ENV).m, 70, 1e-9, 'outside the band nothing moves');
+  a.near(warpPoint(pull([{ region: band, mode: 'move', dx: 8, dy: 0 }], { lockTime: true }), 3, 60, ENV).t, 3, 1e-9, 'lock time');
+  // Pull: elastic — grab point moves fully, outline stays / 탄성
+  const el2 = pull([{ region: box, mode: 'elastic', dx: 0, dy: 6, gx: 20, gy: 120 }]);
+  a.near(warpPoint(el2, 20 * ENV.ut, 60, ENV).m, 63, 1e-6, 'elastic: the grabbed point moves fully');
+  a.near(warpPoint(el2, 0.01 * ENV.ut, 60, ENV).m, 60, 0.02, 'elastic: the outline stays');
+  // the selection is taken in the ORIGINAL space, whatever comes before it / 선택은 원래 공간 기준
+  const after = sanitizeWarpStack([{ type: 'wave', params: { ampSemi: 5, periodSec: 4, phase: 0.25 } }, { type: 'pull', params: { ops: [{ region: band, mode: 'move', dx: 0, dy: 8 }] } }]);
+  a.near(warpPoint(after, 0, 60, ENV).m, 69, 1e-9, 'pull after wave: the band is still selected where the point was');
+  // Restore (region) / 영역 복원
+  const warped = sanitizeWarpStack([{ type: 'wave', params: { ampSemi: 3, periodSec: 4, phase: 0.25 } }, { type: 'restore', params: { ops: [{ region: band }] } }]);
+  a.near(warpPoint(warped, 0, 60, ENV).m, 60, 1e-9, 'restore: inside the region the point goes back');
+  a.near(warpPoint(warped, 0, 70, ENV).m, 73, 1e-9, 'restore: outside the region the warp stays');
+  const copies = warpPolyline([{ t: 0, m: 60 }, { t: 2, m: 60 }], sanitizeWarpStack([{ type: 'chroma', params: {} }, { type: 'restore', params: { ops: [{ region: band }] } }]), ENV);
+  a.ok(copies.length === 3 && copies[0].pts.every((q) => Math.abs(q.m - 60) < 1e-9 && Math.abs(q.g - 1) < 1e-9) && copies.slice(1).every((r) => r.pts.every((q) => q.g < 1e-9)), 'restore: one copy back at the original, the others silent');
+  a.ok(!SpaceWarpRegistry.list().filter((w) => w.toolOnly).some((w) => !['pull', 'restore'].includes(w.id)), 'only Pull and Restore are tool-made');
 }, { group: 'modules' });

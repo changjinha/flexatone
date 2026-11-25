@@ -44,6 +44,7 @@ import {
   boxCountDimension,
   rmsDiff,
   sampleCurveLevels,
+  retimeFractalBake,
   MAX_LSYS_LENGTH,
 } from './fractal/fractal-engine.js';
 import { timbreSpecToVoiceFields } from '../modules/timbre-spec.js';
@@ -339,5 +340,20 @@ registerSelfCheck('Fractal: presets bake finite pitches inside the MIDI range', 
     a.ok(b.voices.length >= 1, `${id} has voices`);
     a.ok(b.voices.every((v) => v.midi.every((m) => Number.isFinite(m) && m >= 0 && m <= 127) && v.gain.every((g) => g >= 0 && g <= 1.5)), `${id} finite`);
     a.ok(b.endSec > 0.5 && Number.isFinite(b.analysis.D), `${id} timeline & D`);
+  }
+}, { group: 'studio' });
+
+registerSelfCheck('Fractal: Tempo Manager retime keeps pitch, divides every time by the rate', (a) => {
+  for (const id of ['coastline', 'binaryTree', 'infinityCanon']) {
+    const b = bakeFractal(applyPresetTo(createDefaultFractalParams(), id));
+    const f = retimeFractalBake(b, 2);
+    a.near(f.endSec, b.endSec / 2, 1e-9, `${id}: length ÷ 2`);
+    a.equal(f.voices.length, b.voices.length, `${id}: same voices`);
+    a.ok(f.voices.every((v, i) => v.hz === b.voices[i].hz && v.gain === b.voices[i].gain), `${id}: Hz / gain arrays shared (pitch kept)`);
+    a.ok(f.voices.every((v, i) => Math.abs(v.startSec - b.voices[i].startSec / 2) < 1e-9 && Math.abs(v.rate - b.voices[i].rate * 2) < 1e-6), `${id}: start ÷ 2, sample rate × 2`);
+    a.near(retimeFractalBake(b, 0.5).endSec, b.endSec * 2, 1e-9, `${id}: half speed doubles the length`);
+    a.equal(f.maxConcurrent, b.maxConcurrent, `${id}: same polyphony (same mix gain)`);
+    a.ok(retimeFractalBake(b, 1) === b && retimeFractalBake(b, NaN) === b, `${id}: rate 1 / bad rate → the bake itself`);
+    a.ok(f.sig !== b.sig, `${id}: retimed signature differs`);
   }
 }, { group: 'studio' });

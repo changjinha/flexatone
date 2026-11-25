@@ -2,9 +2,8 @@
  * Flexatone — audio/tempo-player.js
  * Layer 3 (audio): plays a studio on its **own transport at a tempo** (core/studio-tempo.js). While a
  * studio's tempo is not 1× the header transport is routed here (ui/studio-host.js): the studio document is
- * rendered offline the way the Manager renders a track — pitch-preserving where the studio can scale its time
- * (Glissando, Field, Fractal, Wave), as varispeed otherwise (Draw, Chaos, Cloud, Tempo, Space; the same as in
- * the Manager) — and played from one buffer. The playhead stays in document seconds, so every canvas, cue and
+ * rendered offline the way the Manager renders a track — pitch-preserving in every studio (each one scales
+ * its own time; only Tape is varispeed) — and played from one buffer. The playhead stays in document seconds, so every canvas, cue and
  * loop works unchanged. Edits while playing re-render and cross-fade from the playhead.
  * Risset is a live field: its engine clock is scaled instead (risset-audio.js `setRissetTimeScaleSource`).
  * 계층 3 (audio): 템포가 1×가 아닐 때 스튜디오 문서를 매니저처럼 오프라인 렌더해 한 버퍼로 재생.
