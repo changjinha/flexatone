@@ -70,6 +70,8 @@ import { listInstances, getFocusedInstance, channelRates } from '../../core/mana
 import { cycleLength, fixedCycleLength } from '../../audio/manager-mixer.js';
 import { refreshSpaceMaster } from '../../audio/space-master.js';
 import { registerVideoStates } from '../../ui/studio-video.js';
+import { getEmphasis, setEmphasis, getNodeScale, setNodeScale } from './space-emphasis.js';
+import { dispatch } from '../../core/state.js';
 
 // View states the video export can set for its recording (put back when its dialog closes): source-name size,
 // waves, views (top only / top + front + side + 3-D). / 동영상 내보내기가 녹화용으로 바꿀 수 있는 보기 상태
@@ -78,6 +80,11 @@ registerVideoStates(SPACE_ID, () => {
   return [
     { id: 'nameSize', label: t('space.nameSize'), help: t('space.nameSize'), type: 'range', min: 0, max: 1, step: 0.05, fmt: (v) => (v > 0 ? Number(v).toFixed(2) : t('space.nameSize.off')), get: () => num(getSpaceParams().view3d?.nameSize ?? 0.5), set: (v) => view((d) => { d.view3d.nameSize = clamp(Number(v), 0, 1); }) },
     { id: 'rings', label: t('space.rings'), type: 'toggle', get: () => getSpaceParams().view3d?.rings !== false, set: (v) => view((d) => { d.view3d.rings = !!v; }) },
+    // Emphasis: only the sources that sound now are lit (on by default in the video; brightness by level below it)
+    // 강조: 지금 소리 나는 음원만 밝게 (동영상 기본값 켬; 그 아래 음량에 따른 밝기)
+    { id: 'hlSound', label: t('space.vid.hlSound'), help: t('space.vid.hlSoundTip'), type: 'toggle', videoDefault: true, get: () => getEmphasis().sound, set: (v) => { setEmphasis({ sound: v }); dispatch({ type: 'space/emphasis', scope: ['space', 'studio', 'canvas'] }); } },
+    { id: 'hlGain', label: t('space.vid.hlGain'), help: t('space.vid.hlGainTip'), type: 'toggle', videoDefault: true, parent: 'hlSound', get: () => getEmphasis().gain, set: (v) => { setEmphasis({ gain: v }); dispatch({ type: 'space/emphasis', scope: ['space', 'studio', 'canvas'] }); } },
+    { id: 'nodeSize', label: t('space.vid.nodeSize'), help: t('space.vid.nodeSizeTip'), type: 'range', min: 0, max: 2, step: 0.05, videoDefault: 0.5, fmt: (v) => (v > 0 ? Number(v).toFixed(2) : t('space.nameSize.off')), get: () => getNodeScale(), set: (v) => { setNodeScale(v); dispatch({ type: 'space/emphasis', scope: ['space', 'studio', 'canvas'] }); } },
     { id: 'layout', label: t('space.vid.layout'), type: 'select', relayout: true, options: [['top', t('space.layout.top')], ['quad', t('space.layout.quad')]], get: () => getSpaceParams().view3d?.layout || 'top', set: (v) => view((d) => { d.view3d.layout = v === 'quad' ? 'quad' : 'top'; }) },
   ];
 });

@@ -581,8 +581,18 @@ function stateDefs() {
 
 /** Remember the studio's view states to put back on close. / 닫을 때 복원할 상태 기억 */
 function captureStates() {
-  savedStates = stateDefs().map((def) => ({ id: def.id, value: def.get() }));
+  const defs = stateDefs();
+  savedStates = defs.map((def) => ({ id: def.id, value: def.get() }));
+  // States with a video default (e.g. Space emphasis) start at it — or at the last choice made here
+  // 동영상 기본값이 있는 상태는 그 값(또는 여기서 마지막으로 고른 값)으로 시작
+  for (const def of defs) {
+    if (!('videoDefault' in def)) continue;
+    const k = `${studio}:${def.id}`;
+    const v = lastVideoState.has(k) ? lastVideoState.get(k) : def.videoDefault;
+    try { if (def.get() !== v) def.set(v); } catch (err) { console.error(err); }
+  }
 }
+const lastVideoState = new Map(); // `${studio}:${id}` → value chosen in the dialog / 대화상자에서 고른 값
 
 function restoreStates() {
   if (!savedStates) return;
@@ -606,7 +616,10 @@ function renderOpts() {
   const stateRow = (d) => {
     const v = d.get();
     if (d.type === 'range') return `<label title="${esc(d.help || '')}">${esc(d.label)} <span class="fx-svid-range"><input type="range" min="${d.min}" max="${d.max}" step="${d.step}" value="${v}" data-st="${d.id}"><span class="mgr-mono" data-stv="${d.id}">${d.fmt ? esc(d.fmt(v)) : v}</span></span></label>`;
-    if (d.type === 'toggle') return `<label title="${esc(d.help || '')}"><input type="checkbox" data-st="${d.id}" ${v ? 'checked' : ''}> ${esc(d.label)}</label>`;
+    // a sub-option (parent) is indented and off while its parent is off / 하위 옵션은 들여쓰고 상위가 꺼지면 비활성
+    const par = d.parent ? defs.find((x) => x.id === d.parent) : null;
+    const dis = par && !par.get();
+    if (d.type === 'toggle') return `<label title="${esc(d.help || '')}"${par ? ` style="margin-left:18px;${dis ? 'opacity:.45' : ''}"` : ''}><input type="checkbox" data-st="${d.id}" ${v ? 'checked' : ''} ${dis ? 'disabled data-off="1"' : ''}> ${esc(d.label)}</label>`;
     return `<label title="${esc(d.help || '')}">${esc(d.label)} <select data-st="${d.id}">${d.options.map(([o, lab]) => `<option value="${esc(o)}" ${String(v) === String(o) ? 'selected' : ''}>${esc(lab)}</option>`).join('')}</select></label>`;
   };
   const formats = supportedFormats();
@@ -668,6 +681,7 @@ function onInput(e) {
     const def = stateDefs().find((d) => d.id === el.dataset.st);
     if (!def) return;
     def.set(Number(el.value));
+    if ('videoDefault' in def) lastVideoState.set(`${studio}:${def.id}`, def.get());
     const out = dlg.querySelector(`[data-stv="${CSS.escape(def.id)}"]`);
     if (out) out.textContent = def.fmt ? def.fmt(Number(el.value)) : el.value;
   }
@@ -682,6 +696,8 @@ function onChange(e) {
     if (def.type === 'toggle') def.set(el.checked);
     else if (def.type === 'select') def.set(el.value);
     else def.set(Number(el.value));
+    if ('videoDefault' in def) lastVideoState.set(`${studio}:${def.id}`, def.get());
+    if (stateDefs().some((d) => d.parent === def.id)) renderOpts(); // sub-options follow / 하위 옵션 갱신
     if (def.relayout) setTimeout(() => { scanMonitors(true); renderOpts(); }, 120); // monitors may have been rebuilt / 모니터가 다시 만들어졌을 수 있음
     return;
   }
@@ -830,7 +846,7 @@ function onUp() {
 
 function setBusy(on) {
   if (!dlg) return;
-  for (const el of dlg.querySelectorAll('#svidOpts input, #svidOpts select, #svidOpts button')) el.disabled = on;
+  for (const el of dlg.querySelectorAll('#svidOpts input, #svidOpts select, #svidOpts button')) el.disabled = on || el.dataset.off === '1'; // a sub-option whose parent is off stays off / 상위가 꺼진 하위 옵션은 비활성 유지
   dlg.classList.toggle('busy', on);
   const rec = dlg.querySelector('[data-v="record"]');
   if (rec) rec.textContent = on ? `■ ${t('svid.stop')}` : `● ${t('svid.record')}`;

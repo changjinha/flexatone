@@ -17,6 +17,7 @@
 import { trimClip, splitByClip } from '../../core/line-clip.js';
 import { drawUnplayed } from '../../ui/line-link.js';
 import { spaceSourceWindow } from './space-audio.js';
+import { sourceLooks, GHOST, getNodeScale } from './space-emphasis.js';
 import { clamp, roundTo } from '../../core/math-utils.js';
 import { freqToMidi, midiToNoteName } from '../../core/units.js';
 import { t } from '../../core/i18n.js';
@@ -201,8 +202,11 @@ export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
     ctx.fillText(`airDist ${doc.airDist} m`, m.wx(L.x) + doc.airDist * m.k * 0.71 + 4, m.wy(L.y) - doc.airDist * m.k * 0.71);
 
     const active = getActiveSource(doc);
+    // Emphasis (video export): silent sources faint, sounding ones lit / 강조: 조용한 음원은 흐리게
+    const looks = sourceLooks(doc, T, bake);
     // paths / 경로
     for (const s of doc.sources) {
+      ctx.globalAlpha = looks.get(s.id).a;
       const poly = trajectoryPolyline(s, doc);
       const on = s.id === active?.id;
       const aud = isSourceAudible(s, doc);
@@ -218,12 +222,25 @@ export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
         ctx.fillRect(m.wx(poly[0].x) - 2.5, m.wy(poly[0].y) - 2.5, 5, 5);
       }
     }
+    ctx.globalAlpha = 1;
 
     // wavefront rings + sources at T / 파면 링과 T 시점 음원
     const ringDt = Math.max(0.01, doc.view.span / cEff / 14);
     const showRings = doc.view3d?.rings !== false; // ◎ toggle in the monitor toolbar / 모니터 툴바의 ◎ 토글
     for (const s of doc.sources) {
+      ctx.globalAlpha = 1;
+      const look = looks.get(s.id);
+      if (!look.lit) { // silhouette only: a faint ring where the source is / 실루엣만: 음원 자리에 흐린 고리
+        const kn = getKinematics(s, doc);
+        const sq = kn.stateAt(clamp(T - kn.start, 0, kn.dur));
+        ctx.globalAlpha = GHOST * 1.6;
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(m.wx(sq.x), m.wy(sq.y), 5.5, 0, Math.PI * 2); ctx.stroke();
+        continue;
+      }
       if (!isSourceAudible(s, doc)) continue;
+      ctx.globalAlpha = look.a;
       const kin = getKinematics(s, doc);
       if (showRings) for (const ring of wavefrontRings(s, doc, T, ringDt, MAX_RINGS)) {
         ctx.strokeStyle = alpha(s.color, 0.5 * (1 - ring.k / (MAX_RINGS + 1)));
@@ -248,9 +265,12 @@ export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
       ctx.beginPath(); ctx.arc(px, py, s.id === active?.id ? 7 : 5.5, 0, Math.PI * 2); ctx.fill();
       drawSourceName(ctx, doc, s.name, px, py);
     }
+    ctx.globalAlpha = 1;
     // heard (emission) position, sound ray and v_r / 들리는 방출 위치, 음선, v_r
     for (const s of doc.sources) {
-      if (!isSourceAudible(s, doc)) continue;
+      ctx.globalAlpha = 1;
+      if (!isSourceAudible(s, doc) || !looks.get(s.id).lit) continue;
+      ctx.globalAlpha = looks.get(s.id).a;
       const b = bake.sources.get(s.id);
       const hx = sampleBake(b, 'x', T);
       if (!Number.isFinite(hx)) continue;
@@ -271,9 +291,10 @@ export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
         arrow(ctx, m.wx(hx), m.wy(hy), m.wx(hx) + ux * len, m.wy(hy) - uy * len, '#f59e0b', 2);
       }
     }
+    ctx.globalAlpha = 1;
     // Supersonic sources: every other place the source is heard at now, and its Mach cone / 초음속: 지금 들리는 다른 위치들과 마하 원뿔
     if (superMode(doc) !== 'clamp') for (const s of doc.sources) {
-      if (!isSourceAudible(s, doc)) continue;
+      if (!isSourceAudible(s, doc) || !looks.get(s.id).lit) continue;
       for (const ex of bake.sources.get(s.id)?.more || []) {
         const ex1 = sampleBake(ex, 'x', T);
         if (!Number.isFinite(ex1)) continue;
@@ -333,13 +354,14 @@ export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
     ctx.font = FONT;
 
     // handles of the active source / 활성 음원 제어점
-    if (active && doc.tool === 'move') {
+    const nk = getNodeScale(); // editing marks size (video export; 0 = hidden) / 편집 표시 크기
+    if (active && doc.tool === 'move' && nk > 0) {
       for (const hnd of pathHandles(active, L)) {
         ctx.fillStyle = '#0f172a';
         ctx.strokeStyle = active.color;
-        ctx.lineWidth = 2;
-        ctx.fillRect(m.wx(hnd.x) - 5, m.wy(hnd.y) - 5, 10, 10);
-        ctx.strokeRect(m.wx(hnd.x) - 5, m.wy(hnd.y) - 5, 10, 10);
+        ctx.lineWidth = Math.max(0.75, 2 * nk);
+        ctx.fillRect(m.wx(hnd.x) - 5 * nk, m.wy(hnd.y) - 5 * nk, 10 * nk, 10 * nk);
+        ctx.strokeRect(m.wx(hnd.x) - 5 * nk, m.wy(hnd.y) - 5 * nk, 10 * nk, 10 * nk);
       }
     }
     nodeEditor?.draw(ctx, topView(m)); // spline nodes + handles of the active source / 활성 음원의 스플라인 노드·핸들
@@ -487,8 +509,10 @@ export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
     ctx.save();
     ctx.beginPath(); ctx.rect(PAD.left, PAD.top, ax.plotW, plotH); ctx.clip();
     obsPolys = new Map();
+    const looks = sourceLooks(doc, sceneTime(), bake); // emphasis (video export) / 강조
     for (const s of doc.sources) {
       const b = bake.sources.get(s.id);
+      ctx.globalAlpha = looks.get(s.id).a;
       if (!b) continue;
       const step = Math.max(1, Math.floor(b.n / 400));
       const pl = [];
@@ -521,6 +545,7 @@ export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
       ctx.lineWidth = on ? 2.2 : 1.3;
       plotSeries(ctx, b, 'fObs', ax, hzToY, ax.plotW);
     }
+    ctx.globalAlpha = 1;
     locate.draw(ctx, active?.id);
     ctx.restore();
     drawCueAndPlayhead(ctx, ax, PAD.top, h - PAD.bottom);
@@ -622,13 +647,16 @@ export function createSpaceCanvases(els, { requestRender, nodeEditor = null }) {
       ctx.fillText(ln.label, PAD.left + 4, top + 11);
       ctx.save();
       ctx.beginPath(); ctx.rect(PAD.left, top, ax.plotW, bot - top); ctx.clip();
+      const looks = sourceLooks(doc, sceneTime(), bake); // emphasis (video export) / 강조
       for (const s of doc.sources) {
         const b = bake.sources.get(s.id);
         if (!b) continue;
+        ctx.globalAlpha = looks.get(s.id).a;
         ctx.strokeStyle = alpha(s.color, isSourceAudible(s, doc) ? 0.95 : 0.3);
         ctx.lineWidth = s.id === active?.id ? 1.8 : 1;
         plotSeries(ctx, b, ln.key, ax, toY, ax.plotW);
       }
+      ctx.globalAlpha = 1;
       ctx.restore();
     });
     drawCueAndPlayhead(ctx, ax, PAD.top, h - PAD.bottom);

@@ -21,6 +21,7 @@ import { getKinematics, trajectoryPolyline, wavefrontRings, sampleBake, effectiv
 import { getSpaceParams, editSpace, getActiveSource, isSourceAudible, getSpaceBake } from './space-doc.js'; // the document on screen: studio or Space Master / 화면의 문서
 import { orthoView, perspView, worldNodes, splineClosed, handlePoints, hitNode, hitHandle, nearestOnSpline, moveNode, offsetNodes, moveHandle, insertNode, appendNode, deleteNodes, liftForZ, VIEW_PLANES } from './space-views.js';
 import { sizeCanvas2d } from '../../ui/canvas-size.js';
+import { sourceLooks, GHOST, getNodeScale } from './space-emphasis.js';
 
 const FONT = '11px ui-monospace, Menlo, monospace';
 
@@ -152,12 +153,13 @@ export function createNodeEditor({ requestRender }) {
     /** Draw nodes, the control polygon and the handles of selected nodes on an ortho / persp view. */
     draw(ctx, view) {
       const src = activeSpline();
-      if (!src) return;
+      const k = getNodeScale(); // 0 = hidden (video export) / 0이면 숨김
+      if (!src || k <= 0) return;
       const nodes = worldNodes(src.path);
       const closed = splineClosed(src.path.spline);
       cleanSel(src);
       ctx.save();
-      ctx.font = FONT;
+      ctx.font = k === 1 ? FONT : `${Math.max(4, Math.round(11 * k))}px ui-monospace, Menlo, monospace`;
       nodes.forEach((n, i) => {
         const q = view.toPx(n);
         const on = sel.includes(n.id);
@@ -170,16 +172,16 @@ export function createNodeEditor({ requestRender }) {
             ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(e.x, e.y); ctx.stroke();
             ctx.fillStyle = n.tangent === 'free' ? '#fbbf24' : '#94a3b8';
-            ctx.beginPath(); ctx.arc(e.x, e.y, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(e.x, e.y, 4 * k, 0, Math.PI * 2); ctx.fill();
           }
         }
         ctx.fillStyle = on ? src.color : '#0f172a';
         ctx.strokeStyle = on ? '#f8fafc' : src.color;
-        ctx.lineWidth = 2;
-        ctx.fillRect(q.x - 5, q.y - 5, 10, 10);
-        ctx.strokeRect(q.x - 5, q.y - 5, 10, 10);
+        ctx.lineWidth = Math.max(0.75, 2 * k);
+        ctx.fillRect(q.x - 5 * k, q.y - 5 * k, 10 * k, 10 * k);
+        ctx.strokeRect(q.x - 5 * k, q.y - 5 * k, 10 * k, 10 * k);
         ctx.fillStyle = '#cbd5e1';
-        ctx.fillText(String(i + 1), q.x + 8, q.y - 7);
+        ctx.fillText(String(i + 1), q.x + 8 * k, q.y - 7 * k);
       });
       ctx.restore();
     },
@@ -278,14 +280,29 @@ export function createExtraViews(els, { requestRender, nodeEditor, sceneTime }) 
 
   function sourcesAt(doc, T) {
     const out = [];
+    const looks = sourceLooks(doc, T);
     for (const s of doc.sources) {
-      if (!isSourceAudible(s, doc)) continue;
+      if (!isSourceAudible(s, doc) || !looks.get(s.id).lit) continue;
       const kin = getKinematics(s, doc);
       const tau = T - kin.start;
       if (tau < 0 || tau > kin.dur) continue;
-      out.push({ s, st: kin.stateAt(tau) });
+      out.push({ s, st: kin.stateAt(tau), a: looks.get(s.id).a });
     }
     return out;
+  }
+  // Emphasis (video export): silent sources as faint rings where they are / 강조: 조용한 음원은 흐린 고리
+  function drawGhosts(ctx, doc, T, toPx, r = 5) {
+    const looks = sourceLooks(doc, T);
+    ctx.globalAlpha = GHOST * 1.6;
+    ctx.lineWidth = 1.2;
+    for (const s of doc.sources) {
+      if (looks.get(s.id).lit) continue;
+      const kin = getKinematics(s, doc);
+      const p = toPx(kin.stateAt(clamp(T - kin.start, 0, kin.dur)));
+      ctx.strokeStyle = s.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
   const heardAt = (doc, bake, s, T) => {
     const b = bake.sources.get(s.id);
@@ -326,21 +343,26 @@ export function createExtraViews(els, { requestRender, nodeEditor, sceneTime }) 
     ctx.fillStyle = '#94a3b8';
     ctx.fillText(t(`space.view.${plane}`), 8, 14);
     const active = getActiveSource(doc);
+    const looks = sourceLooks(doc, T, bake);
     for (const s of doc.sources) {
       const poly = trajectoryPolyline(s, doc);
       const on = s.id === active?.id;
       const aud = isSourceAudible(s, doc);
+      ctx.globalAlpha = looks.get(s.id).a;
       ctx.strokeStyle = alpha(s.color, aud ? (on ? 0.85 : 0.45) : 0.18);
       ctx.lineWidth = on ? 2 : 1.2;
       ctx.beginPath();
       poly.forEach((q, i) => { const p = v.toPx(q); if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); });
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
+    drawGhosts(ctx, doc, T, (q) => v.toPx(q), 4.5);
     const cEff = effectiveC(doc);
     const ringDt = Math.max(0.01, doc.view.span / cEff / 14);
     const third = plane === 'front' ? 'y' : 'x'; // coordinate normal to the view plane / 뷰 평면에 수직인 좌표
     const showRings = doc.view3d?.rings !== false; // ◎ toggle in the monitor toolbar / 모니터 툴바의 ◎ 토글
-    for (const { s, st } of sourcesAt(doc, T)) {
+    for (const { s, st, a } of sourcesAt(doc, T)) {
+      ctx.globalAlpha = a;
       if (showRings) for (const ring of wavefrontRings(s, doc, T, ringDt, MAX_RINGS)) {
         // cross-section of the sphere with the view plane through the listener / 청취자를 지나는 뷰 평면과 구의 단면
         const d = ring[third] - L[third];
@@ -367,6 +389,7 @@ export function createExtraViews(els, { requestRender, nodeEditor, sceneTime }) 
         ctx.beginPath(); ctx.arc(q.x, q.y, 5, 0, Math.PI * 2); ctx.stroke();
       }
     }
+    ctx.globalAlpha = 1;
     drawRoomBox(ctx, doc, (q) => v.toPx(q));
     drawListenerPath(ctx, doc, (q) => v.toPx(q));
     const l = v.toPx(L);
@@ -403,10 +426,12 @@ export function createExtraViews(els, { requestRender, nodeEditor, sceneTime }) 
     ctx.fillStyle = '#94a3b8';
     ctx.fillText(t('space.view.persp'), 8, 14);
     const active = getActiveSource(doc);
+    const looks = sourceLooks(doc, T, bake);
     for (const s of doc.sources) {
       const poly = trajectoryPolyline(s, doc);
       const on = s.id === active?.id;
       const aud = isSourceAudible(s, doc);
+      ctx.globalAlpha = looks.get(s.id).a;
       // shadow on the ground and drop lines give the depth / 바닥 그림자와 수직 낙하선으로 깊이 표시
       ctx.strokeStyle = alpha(s.color, 0.16);
       ctx.lineWidth = 1;
@@ -424,7 +449,10 @@ export function createExtraViews(els, { requestRender, nodeEditor, sceneTime }) 
       poly.forEach((q, i) => { const p = v.project(q); if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); });
       ctx.stroke();
     }
-    for (const { s, st } of sourcesAt(doc, T)) {
+    ctx.globalAlpha = 1;
+    drawGhosts(ctx, doc, T, (q) => v.project(q), 5);
+    for (const { s, st, a } of sourcesAt(doc, T)) {
+      ctx.globalAlpha = a;
       const p = v.project(st);
       ctx.strokeStyle = alpha(s.color, 0.5);
       ctx.lineWidth = 1;
@@ -450,6 +478,7 @@ export function createExtraViews(els, { requestRender, nodeEditor, sceneTime }) 
         ctx.beginPath(); ctx.arc(q.x, q.y, 6, 0, Math.PI * 2); ctx.stroke();
       }
     }
+    ctx.globalAlpha = 1;
     // listener with its facing direction / 청취자와 정면 방향
     drawRoomBox(ctx, doc, (q) => v.project(q));
     drawListenerPath(ctx, doc, (q) => v.project(q));

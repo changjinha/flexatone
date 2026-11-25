@@ -19,6 +19,7 @@ import { getSpaceParams, editSpace, getSpaceBake, isSourceAudible } from './spac
 import { drawCueLine, drawPlayheadLine } from '../../ui/transport-lines.js';
 import { cueOrAudition } from '../../ui/locate-tool.js';
 import { sizeCanvas2d } from '../../ui/canvas-size.js';
+import { sourceLooks } from './space-emphasis.js';
 
 const PAD = { left: 96, right: 12, top: 18, bottom: 6 };
 const ROW = 22;
@@ -69,7 +70,10 @@ export function createSpaceTimeline(canvas, { requestRender }) {
       ctx.fillStyle = '#64748b';
       ctx.fillText(`${roundTo(s, 1)}s`, ax.X(s) + 2, 11);
     }
+    const tr0 = appState.transport;
+    const looks = sourceLooks(doc, tr0.playing && tr0.playheadSec >= 0 ? tr0.playheadSec : tr0.cueSec); // emphasis (video export) / 강조
     timelineRows(doc).forEach((r, i) => {
+      ctx.globalAlpha = looks.get(r.id)?.a ?? 1;
       const y = PAD.top + i * ROW;
       const on = r.id === doc.activeSourceId;
       ctx.fillStyle = on ? '#e2e8f0' : '#94a3b8';
@@ -87,6 +91,7 @@ export function createSpaceTimeline(canvas, { requestRender }) {
         ctx.save(); ctx.translate(px, y + ROW / 2); ctx.rotate(Math.PI / 4); ctx.fillRect(-4, -4, 8, 8); ctx.restore();
       }
     });
+    ctx.globalAlpha = 1;
     const tr = appState.transport;
     drawCueLine(ctx, ax.X(tr.cueSec), PAD.top - 4, h);
     if (tr.playing && tr.playheadSec >= 0) drawPlayheadLine(ctx, ax.X(tr.playheadSec), PAD.top - 4, h);
